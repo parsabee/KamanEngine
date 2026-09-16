@@ -7,7 +7,7 @@ Integration:   New
 Size:          L · A3
 Time:          M
 Risk:          High
-Depends on:    —      Blocks: KE-0002, KE-0003, KE-0005, KE-0006
+Depends on:    —      Blocks: KE-0003, KE-0005, KE-0006
 Serves:        KR0.1, KR0.2
 
 ## Problem / Motivation

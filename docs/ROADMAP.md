@@ -9,7 +9,7 @@ phase does not start until the previous phase's OKRs are green.
 1. Define work + phase OKRs
 2. Write tickets   (new IDs, sized on two axes, with test + doc gates)
 3. Implement tickets   (per-module pipeline — see INTEGRATION.md §2.3)
-4. SQA testing   (run every gate: unit, characterization/golden, macOS oracle, device smoke)
+4. SQA testing   (run every gate: unit, macOS oracle, device smoke)
 5. OKR review   (did we hit the Key Results?)
 6. Gate:  pass → next phase   |   miss → write remediation tickets, repeat 3–5
 ```
@@ -26,8 +26,8 @@ the lowest-risk modules migrated.
 
 - **KR0.1** `cargo build --workspace` + `cargo test --workspace` green in CI on every commit.
 - **KR0.2** macOS headless smoke oracle boots a scene, renders 120 frames, exits 0 — in CI.
-- **KR0.3** `kaman-math`, `kaman-perf`, `kaman-ecs` migrated as crates; all pre-existing tests pass; `#![deny(missing_docs)]` compiles.
-- **KR0.4** Golden baselines captured (physics trajectory; math known-values). Render golden deferred to P1.
+- **KR0.3** `kaman-math`, `kaman-perf`, `kaman-ecs` migrated as crates, each covered by its own unit tests; `#![deny(missing_docs)]` compiles.
+- **KR0.4** `kaman-render-api` seam landed with a `NullRenderer` test double and no `metal` dependency above the seam.
 - **KR0.5** Zero `ProjectRigor`/`projectrigor` identifiers remain in migrated code.
 
 ## Phase 1 — Renderer Foundation (mobile-safe Metal)

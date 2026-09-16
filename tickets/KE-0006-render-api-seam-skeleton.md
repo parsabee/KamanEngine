@@ -8,7 +8,7 @@ Size:          S · A3
 Time:          S
 Risk:          Med
 Depends on:    KE-0001      Blocks: KE-0102 (renderer migration)
-Serves:        KR0.1
+Serves:        KR0.4
 
 ## Problem / Motivation
 The render seam (ARCHITECTURE §2) must exist before the renderer migrates, so `kaman-render`

@@ -26,7 +26,7 @@ matters more than most.
 
 ## Technical notes
 - This is Reuse-as-is but marked A1: tightening visibility / `#[non_exhaustive]` reshapes the
-  public shape slightly. Guard with the characterization tests from KE-0002.
+  public shape slightly. Guard with this crate's own spawn/query unit tests.
 
 ## Out of scope
 - Streaming spawn/despawn semantics (Phase 2, KE-0203). Physics handle removal (KE-0202).

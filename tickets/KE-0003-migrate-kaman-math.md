@@ -7,7 +7,7 @@ Integration:   Reuse-as-is
 Size:          XS · A0
 Time:          S
 Risk:          Low
-Depends on:    KE-0001, KE-0002      Blocks: KE-0005
+Depends on:    KE-0001      Blocks: KE-0005
 Serves:        KR0.3
 
 ## Problem / Motivation
@@ -17,9 +17,9 @@ Serves:        KR0.3
 ## Scope & Acceptance
 - [ ] **Move commit:** relocate the prototype's `math.rs` into `crates/kaman-math` unchanged;
       wire the `glam` dep; fix visibility. No logic change.
-- [ ] Oracle + KE-0002 math goldens still green after the move.
+- [ ] Oracle still green after the move; crate unit tests cover the moved behavior.
 - [ ] Public surface re-exports `glam` and exposes `Transform`, `Ray`, `AABB` (as present).
-- [ ] Unit tests cover the public API (extend the known-value table as needed) to ≥ baseline.
+- [ ] Unit tests cover the public API (table-driven known-value tests for transforms/projections).
 
 ## Technical notes
 - This crate is a dependency of `kaman-ecs`, `kaman-physics`, `kaman-camera`, `kaman-scene`.

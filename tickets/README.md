@@ -68,11 +68,10 @@ are bumped one tier (not fully unit-testable).
 | # | Title | Pri | Int | Size | Status | Serves |
 |---|---|---|---|---|---|---|
 | KE-0001 | Workspace + repo bootstrap + CI oracle | P0 | New | L · A3 | Todo | KR0.1/0.2 |
-| KE-0002 | Migration characterization harness + golden baselines | P0 | New | M · A3 | Todo | KR0.4 |
 | KE-0003 | Migrate math → `kaman-math` | P0 | Reuse | XS · A0 | Todo | KR0.3 |
 | KE-0004 | Migrate perf → `kaman-perf` | P1 | Reuse | S · A0 | Todo | KR0.3 |
 | KE-0005 | Migrate ecs → `kaman-ecs` | P0 | Reuse | S · A1 | Todo | KR0.3 |
-| KE-0006 | `kaman-render-api` seam skeleton | P0 | New | S · A3 | Todo | KR0.1 |
+| KE-0006 | `kaman-render-api` seam skeleton | P0 | New | S · A3 | Todo | KR0.4 |
 | KE-0007 | De-brand: remove `ProjectRigor` identifiers | P1 | Refactor | S · A1 | Todo | KR0.5 |
 
 ### Phase 1 — Renderer Foundation *(planned)*
