@@ -28,6 +28,28 @@ them, runs SQA, and must hit its OKRs before the next phase starts.
 - Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Ticket system & backlog: [tickets/README.md](tickets/README.md)
 
+## Building
+
+```sh
+cargo build --workspace
+cargo test  --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo run -p car-runner -- --smoke   # headless oracle: 120 frames, exits 0
+```
+
+The workspace is `crates/kaman-*` (engine) plus `games/car-runner` (first title + smoke
+oracle). Layout follows [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §3.
+
+**Toolchain:** `rust-toolchain.toml` pins `1.91.0`. That file is honored by rustup-based
+setups (and CI). This dev machine uses a Homebrew rust with no rustup, so the pin is not
+enforced locally — the Homebrew toolchain is used instead.
+
+**iOS targets (Phase 3 prerequisite, not installed now):**
+
+```sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+```
+
 ## Status
 
 **Phase 0 — Foundation & Migration Harness.** See the ticket board for live status.

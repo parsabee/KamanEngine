@@ -1,0 +1,45 @@
+name: CI
+
+# The macOS oracle: every push/PR must build, test, lint clean, and boot the headless smoke
+# oracle. Red blocks merge. See docs/INTEGRATION.md §1.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  oracle:
+    name: build / test / clippy / smoke (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace
+        run: cargo build --workspace
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Headless smoke oracle. Metal API Validation is enabled here per the ticket so that,
+      # once the renderer migrates in Phase 1, this run exercises it under validation. Today
+      # the oracle is CPU-only and needs no GPU (CI runners are headless).
+      - name: Smoke oracle (Metal API Validation on)
+        env:
+          METAL_DEVICE_WRAPPER_TYPE: "1"
+        run: cargo run -p car-runner -- --smoke

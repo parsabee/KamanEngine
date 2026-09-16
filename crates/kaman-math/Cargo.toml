@@ -1,0 +1,10 @@
+[package]
+name = "kaman-math"
+description = "Shared math layer for KamanEngine (glam re-export plus Ray/AABB/Frustum helpers)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]

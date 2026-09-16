@@ -1,0 +1,10 @@
+[package]
+name = "kaman-render-api"
+description = "Backend-agnostic render seam (RenderDevice/FrameRecorder traits) for KamanEngine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]

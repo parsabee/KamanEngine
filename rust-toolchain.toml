@@ -1,0 +1,12 @@
+# Pins the Rust toolchain for KamanEngine.
+#
+# NOTE: this machine uses a Homebrew-provided rust (no rustup), so this file is NOT honored
+# locally — the Homebrew toolchain (currently 1.91.0) is used regardless. It IS honored by
+# CI (which installs via rustup) and by any contributor using rustup.
+#
+# Phase-3 (iOS bring-up) prerequisite — NOT installed now, run under rustup when Phase 3 starts:
+#     rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+[toolchain]
+channel = "1.91.0"
+components = ["rustfmt", "clippy"]
+# targets = ["aarch64-apple-ios", "aarch64-apple-ios-sim"]  # uncomment in Phase 3
