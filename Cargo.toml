@@ -25,6 +25,10 @@ repository = "https://github.com/parsabagheri/KamanEngine"
 # `dep.workspace = true`. No crate migrates real logic in KE-0001 — these are here so later
 # migration tickets (KE-0003+, Phase 1) inherit a single source of truth for versions.
 [workspace.dependencies]
+# Intra-workspace crates. Path deps live here too so every consumer resolves the
+# same local copy without repeating the relative path.
+kaman-math = { path = "crates/kaman-math" }
+
 glam = "0.29"
 rapier3d = "0.22"
 hecs = "0.10"
