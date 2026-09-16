@@ -7,4 +7,11 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Enable the stdout HUD / performance-summary printing. Off by default so the
+# macOS smoke oracle keeps clean output; timing/rolling-average tracking is
+# always available regardless of this flag.
+perf-hud = []
+
 [dependencies]
