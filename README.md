@@ -34,4 +34,7 @@ them, runs SQA, and must hit its OKRs before the next phase starts.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Free to use, modify, and distribute (including commercially), but you must
+retain the copyright and attribution notices per the license.
