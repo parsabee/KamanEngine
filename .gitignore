@@ -1,0 +1,20 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Build artifacts
+*.metallib
+shaders/**/*.metallib
+
+# macOS
+.DS_Store
+
+# Xcode / iOS (added in Phase 3)
+platform/ios/**/build/
+platform/ios/**/DerivedData/
+*.xcuserstate
+
+# Note: Cargo.lock IS committed (this repo produces binaries).
+
+# Claude Code local settings
+.claude/settings.local.json
