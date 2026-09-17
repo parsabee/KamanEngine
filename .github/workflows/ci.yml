@@ -30,6 +30,13 @@ jobs:
       - name: Build workspace
         run: cargo build --workspace
 
+      # Render-seam dependency firewall (docs/ARCHITECTURE.md §2). kaman-render-api defines the
+      # render contract; it must never depend on `metal`. Fail if `metal` appears anywhere in
+      # this crate's normal dependency tree. `grep -q` exits 0 on a match, so negation makes the
+      # step fail when metal is present and pass when it is absent.
+      - name: Render seam has no metal dependency
+        run: "! cargo tree -p kaman-render-api -e normal | grep -qi metal"
+
       - name: Test workspace
         run: cargo test --workspace
 
