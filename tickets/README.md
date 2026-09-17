@@ -64,7 +64,7 @@ are bumped one tier (not fully unit-testable).
 
 ## Backlog index (board)
 
-### Phase 0 — Foundation & Migration Harness  *(active — written in full)*
+### Phase 0 — Foundation & Migration Harness  *(complete)*
 | # | Title | Pri | Int | Size | Status | Serves |
 |---|---|---|---|---|---|---|
 | KE-0001 | Workspace + repo bootstrap + CI oracle | P0 | New | L · A3 | Done | KR0.1/0.2 |
@@ -74,16 +74,19 @@ are bumped one tier (not fully unit-testable).
 | KE-0006 | `kaman-render-api` seam skeleton | P0 | New | S · A3 | Done | KR0.4 |
 | KE-0007 | De-brand: remove `ProjectRigor` identifiers | P1 | Refactor | S · A1 | Done | KR0.5 |
 
-### Phase 1 — Renderer Foundation *(planned)*
-| # | Title | Pri | Int | Size |
-|---|---|---|---|---|
-| KE-0101 | Engine/game boundary: `Game` trait + `EngineCtx` | P0 | Refactor | L · A3 |
-| KE-0102 | Migrate renderer → `kaman-render` behind seam | P0 | Refactor | L · A2 |
-| KE-0103 | Persistent mesh buffers + handle registry | P0 | Refactor | M · A2 |
-| KE-0104 | Uniform ring + argument buffers | P0 | Refactor | M · A2 |
-| KE-0105 | Triple-buffered frames-in-flight + pacing | P0 | Refactor | S · A1 |
-| KE-0106 | Feature-gate raytracer out of default/iOS | P0 | Refactor | XS · A0 |
-| KE-0107 | Precompiled `.metallib` shaders | P0 | Refactor | S · A1 |
+### Phase 1 — Renderer Foundation  *(active — written in full)*
+| # | Title | Pri | Int | Size | Status | Depends | Serves |
+|---|---|---|---|---|---|---|---|
+| KE-0101 | Engine/game boundary: `Game` trait + `EngineCtx` | P0 | Refactor | L · A3 | Todo | KE-0005 | KR1.1 |
+| KE-0102 | Migrate renderer → `kaman-render` behind seam | P0 | Refactor | L · A2 | Todo | KE-0006, KE-0101 | KR1.3/1.5 |
+| KE-0103 | Persistent mesh buffers + handle registry | P0 | Refactor | M · A2 | Todo | KE-0102 | KR1.2 |
+| KE-0104 | Uniform ring + argument buffers | P0 | Refactor | M · A2 | Todo | KE-0102 | KR1.2 |
+| KE-0105 | Triple-buffered frames-in-flight + pacing | P0 | Refactor | S · A1 | Todo | KE-0102, KE-0104 | KR1.2/1.5 |
+| KE-0106 | Feature-gate raytracer out of default/iOS | P0 | Refactor | XS · A0 | Todo | KE-0102 | KR1.4 |
+| KE-0107 | Precompiled `.metallib` shaders | P0 | Refactor | S · A1 | Todo | KE-0102 | KR1.4 |
+
+**Phase 1 order:** KE-0101 (A3, alone) → KE-0102 (A2) → then KE-0103/0104 (A2, one at a
+time per WIP limit) → KE-0105; KE-0106/0107 (A0/A1) land any time after KE-0102.
 
 ### Phase 2 — Gameplay Core *(planned)*
 | # | Title | Pri | Int | Size |

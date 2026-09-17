@@ -53,7 +53,9 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
 ## Status
 
-**Phase 0 — Foundation & Migration Harness.** See the ticket board for live status.
+**Phase 0 complete** (workspace, CI oracle, `kaman-math`/`kaman-perf`/`kaman-ecs` migrated,
+`kaman-render-api` seam). **Phase 1 — Renderer Foundation** is active. See the ticket board
+for live status.
 
 ## License
 
