@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Parsa Bagheri
+//
+// This software is released under the Apache-2.0 License.
+
 //! `car-runner` — KamanEngine's first title, and the host for the headless smoke oracle.
 //!
 //! Phase 0 has no renderer yet (that migrates in Phase 1), so this binary's real job today is

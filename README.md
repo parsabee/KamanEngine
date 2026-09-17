@@ -17,11 +17,12 @@ for authoring gameplay.
 
 ## How this project is built
 
-KamanEngine is produced by **migrating and refactoring** an earlier prototype
-(`ProjectRigor`) into this repo, module by module, under a test-and-document-as-you-go
-discipline. Nothing is copied without a characterization test and rustdoc. The migration
-runs as a **phase-gated pipeline** — each phase defines work, writes tickets, implements
-them, runs SQA, and must hit its OKRs before the next phase starts.
+KamanEngine is produced by **migrating and refactoring** an earlier prototype into this
+repo, module by module, under a test-and-document-as-you-go discipline. Nothing is migrated
+without unit tests and rustdoc. The migration runs as a **phase-gated pipeline** — each
+phase defines work, writes tickets, implements them, runs SQA, and must hit its OKRs before
+the next phase starts. Provenance of the prototype is recorded in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 - Roadmap & phase OKRs: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Integration & testing strategy: [docs/INTEGRATION.md](docs/INTEGRATION.md)

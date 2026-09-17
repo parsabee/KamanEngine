@@ -369,6 +369,9 @@ version = "0.1.0"
 [[package]]
 name = "kaman-render-api"
 version = "0.1.0"
+dependencies = [
+ "kaman-math",
+]
 
 [[package]]
 name = "kaman-scene"

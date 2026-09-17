@@ -19,9 +19,10 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Parsa Bagheri"]
-repository = "https://github.com/parsabagheri/KamanEngine"
+repository = "https://github.com/parsabee/KamanEngine"
 
-# Shared dependency versions (pinned from the ProjectRigor prototype). Crates opt in via
+# Shared dependency versions (pinned from the original prototype; see docs/ARCHITECTURE.md
+# Provenance). Crates opt in via
 # `dep.workspace = true`. No crate migrates real logic in KE-0001 — these are here so later
 # migration tickets (KE-0003+, Phase 1) inherit a single source of truth for versions.
 [workspace.dependencies]

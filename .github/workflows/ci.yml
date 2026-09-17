@@ -37,6 +37,12 @@ jobs:
       - name: Render seam has no metal dependency
         run: "! cargo tree -p kaman-render-api -e normal | grep -qi metal"
 
+      # De-brand guard (KE-0007, docs/ROADMAP.md KR0.5). No prototype identifiers may appear in
+      # shipped engine code; provenance lives in docs/ only. Scans crates/ and games/; grep exits
+      # 0 on a match, so the negation fails the step when an identifier is found.
+      - name: No prototype identifiers in shipped code
+        run: "! grep -rniI projectrigor crates games"
+
       - name: Test workspace
         run: cargo test --workspace
 

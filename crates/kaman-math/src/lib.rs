@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Parsa Bagheri
+// Copyright (c) 2026 Parsa Bagheri
 //
 // This software is released under the Apache-2.0 License.
 
