@@ -11,14 +11,26 @@
 //! `render_with_transforms_and_colors`: it clears to a fixed color, binds a
 //! depth-tested Phong pipeline, and draws each mesh with a per-draw MVP uniform.
 //!
-//! # Behavior preservation (KE-0102)
+//! # Behavior preservation (KE-0102 / KE-0103)
 //!
-//! Per-frame allocations are **kept** here on purpose — a fresh uniform buffer
-//! per draw and expanded per-mesh vertex buffers — exactly as the prototype did.
-//! KE-0103/0104/0105 remove them; keeping this port behavior-preserving is what
-//! makes the pixel-hash guard meaningful across those later changes. The depth
-//! texture is the one exception the prototype already cached, and that caching is
-//! preserved.
+//! KE-0103 makes **mesh** buffers persistent: geometry is deindexed and uploaded
+//! into an `MTLBuffer` **once** in [`create_mesh`](RenderDevice::create_mesh) and
+//! kept in a generational [`Registry`], so the per-frame draw path performs **no
+//! mesh allocation** — it looks the buffer up by [`MeshHandle`]. The one
+//! remaining per-frame allocation is the per-draw uniform buffer, kept
+//! deliberately here exactly as the prototype did (KE-0104 replaces it with a
+//! ring). The depth texture is the one texture the prototype already cached, and
+//! that caching is preserved. Making mesh upload persistent does not change any
+//! rendered pixel, so the KE-0102 pixel-hash guard stays valid.
+//!
+//! # Allocation instrument (KR1.2)
+//!
+//! Every `new_buffer*` the backend issues goes through
+//! [`count_new_buffer`](MetalRenderer) helpers that bump an
+//! [`allocation_count`](MetalRenderer::allocation_count). Tests snapshot the
+//! count around the per-frame path and assert it stays `0` for the reference
+//! scene after load, proving the mesh-allocation removal. The counter is public
+//! so KE-0104/0105 can reuse it for the uniform-ring and frames-in-flight work.
 //!
 //! # Vertex color vs. material
 //!
@@ -28,6 +40,7 @@
 //! the color. This matches prototype behavior and is intentional for KE-0102.
 
 use std::mem;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use cocoa::base::id as cocoa_id;
 use cocoa::foundation::NSRect;
@@ -45,13 +58,15 @@ use kaman_render_api::{
 };
 
 use crate::camera::Camera;
+use crate::registry::Registry;
 use crate::vertex::{LightUniforms, Uniforms, Vertex};
 
 /// The clear color of the reference scene (dark blue-grey), matching the
 /// prototype. Load-bearing for the pixel hash.
 const CLEAR_COLOR: (f64, f64, f64, f64) = (0.1, 0.1, 0.15, 1.0);
 
-/// A mesh resource: an expanded (deindexed) vertex buffer and its vertex count.
+/// A persistent mesh resource: a deindexed vertex buffer, uploaded once, and its
+/// vertex count. Held in the [`Registry`] for the mesh's whole lifetime.
 struct MeshEntry {
     /// Deindexed vertex buffer (one [`Vertex`] per index), or `None` if empty.
     vertex_buffer: Option<metal::Buffer>,
@@ -102,10 +117,16 @@ pub struct MetalRenderer {
     depth_texture: Option<metal::Texture>,
     depth_texture_size: (u64, u64),
 
-    // Resource tables. Handles index into these; destroy replaces with `None`.
-    meshes: Vec<Option<MeshEntry>>,
+    // Mesh resources live in a generational registry keyed by `MeshHandle`
+    // (index + generation); a freed handle is a defined error, never a silent
+    // wrong-buffer draw. Textures/pipelines keep the simple index-table scheme.
+    meshes: Registry<MeshEntry>,
     pipelines: Vec<Option<PipelineHandleData>>,
     textures: Vec<Option<metal::Texture>>,
+
+    // KR1.2 allocation instrument: bumped on every `new_buffer*` the backend
+    // issues. `AtomicU64` so counting works through a `&self` draw path.
+    alloc_count: AtomicU64,
 
     // Per-frame recording state (valid between `begin_frame` and `submit`).
     frame: Option<FrameState>,
@@ -263,9 +284,11 @@ impl MetalRenderer {
             camera,
             depth_texture: None,
             depth_texture_size: (0, 0),
-            meshes: Vec::new(),
+            meshes: Registry::new(),
             pipelines: Vec::new(),
             textures: Vec::new(),
+            // The `light_buffer` above is the one construction-time allocation.
+            alloc_count: AtomicU64::new(1),
             frame: None,
         }
     }
@@ -330,9 +353,45 @@ impl MetalRenderer {
         tex
     }
 
-    /// Expand an indexed mesh into a deindexed vertex buffer, as the prototype
-    /// did (`create_mesh_vertex_buffer`). Per-frame/per-mesh allocation is kept
-    /// intentionally for KE-0102; KE-0103 makes this persistent.
+    /// Total number of `new_buffer*` allocations the backend has issued since
+    /// construction (KR1.2 instrument).
+    ///
+    /// Includes the one construction-time light-uniform buffer and every mesh
+    /// upload and per-draw uniform buffer. Tests snapshot this around the
+    /// per-frame path (`begin_frame` … `submit`) and assert the delta is `0` for
+    /// the reference scene after load, proving no mesh allocation happens on the
+    /// hot path. Exposed for reuse by KE-0104 (uniform ring) and KE-0105
+    /// (frames-in-flight).
+    #[must_use]
+    pub fn allocation_count(&self) -> u64 {
+        self.alloc_count.load(Ordering::Relaxed)
+    }
+
+    /// Allocate a Metal buffer with initial data, counting the allocation.
+    ///
+    /// # Safety
+    /// `ptr` must point to at least `length` readable bytes; the same contract as
+    /// [`metal::Device::new_buffer_with_data`].
+    unsafe fn counted_new_buffer_with_data(
+        &self,
+        ptr: *const std::ffi::c_void,
+        length: u64,
+        options: MTLResourceOptions,
+    ) -> metal::Buffer {
+        self.alloc_count.fetch_add(1, Ordering::Relaxed);
+        self.device.new_buffer_with_data(ptr, length, options)
+    }
+
+    /// Allocate an uninitialized Metal buffer, counting the allocation.
+    fn counted_new_buffer(&self, length: u64, options: MTLResourceOptions) -> metal::Buffer {
+        self.alloc_count.fetch_add(1, Ordering::Relaxed);
+        self.device.new_buffer(length, options)
+    }
+
+    /// Expand an indexed mesh into a deindexed vertex buffer, uploaded **once**
+    /// into a persistent `MTLBuffer`. Called only at load time from
+    /// [`create_mesh`](RenderDevice::create_mesh); the buffer then lives in the
+    /// [`Registry`] and is referenced by handle on the allocation-free draw path.
     fn upload_mesh(&self, data: &MeshData<'_>) -> MeshEntry {
         // Interpret the seam's raw vertex bytes as `Vertex` records.
         let stride = mem::size_of::<Vertex>();
@@ -355,11 +414,15 @@ impl MetalRenderer {
             expanded.push(src[index as usize]);
         }
 
-        let buffer = self.device.new_buffer_with_data(
-            expanded.as_ptr() as *const _,
-            (expanded.len() * mem::size_of::<Vertex>()) as u64,
-            MTLResourceOptions::CPUCacheModeDefaultCache,
-        );
+        // SAFETY: `expanded` is a live `Vec<Vertex>`; the pointer and byte length
+        // describe exactly its contents.
+        let buffer = unsafe {
+            self.counted_new_buffer_with_data(
+                expanded.as_ptr() as *const _,
+                (expanded.len() * mem::size_of::<Vertex>()) as u64,
+                MTLResourceOptions::CPUCacheModeDefaultCache,
+            )
+        };
         MeshEntry {
             vertex_buffer: Some(buffer),
             vertex_count: expanded.len() as u64,
@@ -369,7 +432,7 @@ impl MetalRenderer {
     /// Number of live meshes (created minus destroyed). Test/introspection aid.
     #[must_use]
     pub fn live_mesh_count(&self) -> usize {
-        self.meshes.iter().filter(|m| m.is_some()).count()
+        self.meshes.len()
     }
 
     /// Number of live pipelines. Test/introspection aid.
@@ -381,16 +444,16 @@ impl MetalRenderer {
 
 impl RenderDevice for MetalRenderer {
     fn create_mesh(&mut self, data: &MeshData<'_>) -> MeshHandle {
+        // Upload the geometry into a persistent buffer once, then register it.
         let entry = self.upload_mesh(data);
-        let id = self.meshes.len() as u32;
-        self.meshes.push(Some(entry));
-        MeshHandle(id)
+        self.meshes.insert(entry)
     }
 
     fn destroy_mesh(&mut self, handle: MeshHandle) {
-        if let Some(slot) = self.meshes.get_mut(handle.0 as usize) {
-            *slot = None;
-        }
+        // Free the slot and bump its generation; the (now stale) handle can never
+        // resolve to a live mesh again. An unknown/already-freed handle is a
+        // defined no-op (per the seam's "caller error, don't corrupt" contract).
+        let _ = self.meshes.remove(handle);
     }
 
     fn create_texture(&mut self, data: &TextureData<'_>) -> TextureHandle {
@@ -518,7 +581,10 @@ impl FrameRecorder for MetalRenderer {
         let Some(frame) = &self.frame else {
             return;
         };
-        let Some(Some(entry)) = self.meshes.get(mesh.0 as usize) else {
+        // Look the persistent vertex buffer up by handle — no allocation here.
+        // A stale/freed or unknown handle is a defined no-op (the registry
+        // returns an error), never a silent wrong-buffer draw.
+        let Ok(entry) = self.meshes.get(mesh) else {
             return;
         };
         let Some(vertex_buffer) = &entry.vertex_buffer else {
@@ -528,13 +594,15 @@ impl FrameRecorder for MetalRenderer {
             return;
         }
 
-        // Per-draw MVP uniform buffer (allocation preserved from prototype).
+        // Per-draw MVP uniform buffer. This is the one remaining per-frame
+        // allocation, kept as the prototype had it; KE-0104 replaces it with a
+        // ring. It is counted by the KR1.2 instrument.
         let model: Mat4 = transform.to_matrix();
         let mvp = self.camera.view_projection_matrix() * model;
         let uniforms = Uniforms {
             model_view_projection: mvp.to_cols_array_2d(),
         };
-        let uniform_buffer = self.device.new_buffer(
+        let uniform_buffer = self.counted_new_buffer(
             mem::size_of::<Uniforms>() as u64,
             MTLResourceOptions::CPUCacheModeDefaultCache,
         );

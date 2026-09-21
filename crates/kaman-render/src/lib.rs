@@ -23,12 +23,17 @@
 //!
 //! ## Mesh / uniform / draw mapping
 //!
-//! - `create_mesh` uploads (deindexes) geometry into a Metal vertex buffer.
+//! - `create_mesh` uploads (deindexes) geometry into a **persistent** Metal
+//!   vertex buffer **once**, at load time, and stores it in a generational
+//!   [`Registry`] keyed by the returned [`MeshHandle`](kaman_render_api::MeshHandle)
+//!   (KE-0103). This is the "upload once, reference by handle" rule.
 //! - `create_pipeline` names the built-in Phong pipeline (Phase-1 port has one).
-//! - `draw_mesh(handle, transform, material)` computes an MVP from the backend
-//!   camera and this instance's transform, writes a per-draw uniform buffer, and
-//!   records a triangle draw — a faithful port of the prototype's
-//!   `render_with_transforms_and_colors`.
+//! - `draw_mesh(handle, transform, material)` looks the persistent vertex buffer
+//!   up by handle (**no per-frame mesh allocation**), computes an MVP from the
+//!   backend camera and this instance's transform, writes a per-draw uniform
+//!   buffer (the one remaining per-frame allocation, removed by KE-0104), and
+//!   records a triangle draw. A stale/freed handle is a defined no-op, never a
+//!   silent wrong-buffer draw (see [`RegistryError`](registry::RegistryError)).
 //! - `begin_frame` acquires the color attachment (drawable or offscreen
 //!   texture) and opens a render encoder; `submit` ends encoding and presents
 //!   (windowed) or synchronizes for readback (offscreen).
@@ -55,6 +60,7 @@
 
 pub mod backend;
 pub mod camera;
+pub mod registry;
 pub mod vertex;
 
 #[cfg(feature = "raytracer")]
@@ -62,4 +68,5 @@ pub mod raytracer;
 
 pub use backend::MetalRenderer;
 pub use camera::Camera;
+pub use registry::{Registry, RegistryError};
 pub use vertex::{LightUniforms, Uniforms, Vertex};

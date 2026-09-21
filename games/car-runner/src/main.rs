@@ -23,7 +23,10 @@ use kaman_core::{EngineCtx, Game};
 use kaman_ecs::hecs::Entity;
 use kaman_ecs::{DynamicTag, RenderComponent, RenderShape, StaticTag, TransformComponent};
 use kaman_math::glam::Vec3;
-use kaman_render_api::{MaterialParams, MeshData, PipelineDescriptor, VertexAttribute, VertexFormat, VertexLayout};
+use kaman_render_api::{
+    MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, VertexAttribute,
+    VertexFormat, VertexLayout,
+};
 
 /// Number of frames the smoke oracle simulates before exiting.
 const SMOKE_FRAMES: u32 = 120;
@@ -115,6 +118,12 @@ struct CarRunner {
     track: Vec<Entity>,
     /// Distance travelled so far (the running tally).
     distance: f32,
+    /// Persistent mesh handles, one per renderable entity, uploaded **once** in
+    /// [`init`](Game::init) and referenced every frame in [`render`](Game::render)
+    /// (KE-0103: upload once, reference by handle — no per-frame mesh upload).
+    meshes: Vec<(Entity, MeshHandle)>,
+    /// The render pipeline, created once in [`init`](Game::init).
+    pipeline: Option<PipelineHandle>,
 }
 
 impl CarRunner {
@@ -131,6 +140,8 @@ impl CarRunner {
             vehicle: None,
             track: Vec::new(),
             distance: 0.0,
+            meshes: Vec::new(),
+            pipeline: None,
         }
     }
 }
@@ -155,6 +166,43 @@ impl Game for CarRunner {
                 StaticTag,
             ));
             self.track.push(seg);
+        }
+
+        // Upload each renderable entity's geometry **once**, at load time, and
+        // keep the returned `MeshHandle`s (KE-0103). Collect the raw geometry
+        // from the world first so that borrow ends before we borrow the renderer.
+        let geometry: Vec<(Entity, Vec<[f32; 9]>, Vec<u32>)> = ctx
+            .world()
+            .query::<&RenderComponent>()
+            .iter()
+            .map(|(e, r)| {
+                let (vertices, indices) = match &r.shape {
+                    RenderShape::Mesh { vertices, indices } => (vertices.clone(), indices.clone()),
+                    // `RenderShape` is `#[non_exhaustive]`; only meshes exist today.
+                    _ => (Vec::new(), Vec::new()),
+                };
+                (e, vertices, indices)
+            })
+            .collect();
+
+        let layout = mesh_layout();
+        let renderer = ctx.renderer();
+
+        // One persistent pipeline for the whole run.
+        self.pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
+            vertex_shader: "vertex_main".into(),
+            fragment_shader: "fragment_main".into(),
+            vertex_layout: layout.clone(),
+        }));
+
+        for (entity, vertices, indices) in &geometry {
+            let bytes = pack_vertices(vertices);
+            let mesh = renderer.create_mesh(&MeshData {
+                vertices: &bytes,
+                indices,
+                layout: layout.clone(),
+            });
+            self.meshes.push((*entity, mesh));
         }
     }
 
@@ -185,45 +233,30 @@ impl Game for CarRunner {
     }
 
     fn render(&mut self, ctx: &mut EngineCtx) {
-        // Collect the frame's draw data from the ECS world first, so the world
-        // borrow ends before we borrow the renderer from the same context.
-        let draws: Vec<(kaman_math::Transform, Vec<[f32; 9]>, Vec<u32>)> = ctx
-            .world()
-            .query::<(&TransformComponent, &RenderComponent)>()
+        // Read this frame's transforms from the ECS world first, so that borrow
+        // ends before we borrow the renderer from the same context. Meshes were
+        // uploaded once in `init`; this hot path allocates **no** mesh buffers —
+        // it just references the persistent handles by looking up each entity's
+        // transform (KE-0103).
+        let draws: Vec<(MeshHandle, kaman_math::Transform)> = self
+            .meshes
             .iter()
-            .map(|(_e, (t, r))| {
-                let (vertices, indices) = match &r.shape {
-                    RenderShape::Mesh { vertices, indices } => (vertices.clone(), indices.clone()),
-                    // `RenderShape` is `#[non_exhaustive]`; only meshes exist today.
-                    _ => (Vec::new(), Vec::new()),
-                };
-                (t.transform, vertices, indices)
+            .filter_map(|&(entity, mesh)| {
+                ctx.world()
+                    .get::<&TransformComponent>(entity)
+                    .ok()
+                    .map(|t| (mesh, t.transform))
             })
             .collect();
 
-        let layout = mesh_layout();
+        let pipeline = self.pipeline.expect("pipeline created in init");
         let renderer = ctx.renderer();
 
-        // Create a pipeline once per frame and record the scene. Per-frame mesh
-        // uploads mirror the prototype's behavior (KE-0103 makes them persistent).
         renderer.begin_frame();
-        let pipeline = renderer.create_pipeline(&PipelineDescriptor {
-            vertex_shader: "vertex_main".into(),
-            fragment_shader: "fragment_main".into(),
-            vertex_layout: layout.clone(),
-        });
         renderer.set_pipeline(pipeline);
-
-        for (transform, vertices, indices) in &draws {
-            let bytes = pack_vertices(vertices);
-            let mesh = renderer.create_mesh(&MeshData {
-                vertices: &bytes,
-                indices,
-                layout: layout.clone(),
-            });
-            renderer.draw_mesh(mesh, transform, &MaterialParams::default());
+        for (mesh, transform) in &draws {
+            renderer.draw_mesh(*mesh, transform, &MaterialParams::default());
         }
-
         renderer.submit();
     }
 }
