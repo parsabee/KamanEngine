@@ -21,8 +21,9 @@ use clap::Parser;
 
 use kaman_core::{EngineCtx, Game};
 use kaman_ecs::hecs::Entity;
-use kaman_ecs::{DynamicTag, RenderComponent, StaticTag, TransformComponent};
+use kaman_ecs::{DynamicTag, RenderComponent, RenderShape, StaticTag, TransformComponent};
 use kaman_math::glam::Vec3;
+use kaman_render_api::{MaterialParams, MeshData, PipelineDescriptor, VertexAttribute, VertexFormat, VertexLayout};
 
 /// Number of frames the smoke oracle simulates before exiting.
 const SMOKE_FRAMES: u32 = 120;
@@ -46,10 +47,34 @@ fn main() {
         return;
     }
 
-    // Windowed path: boots the same `Game` under the winit entry. In Phase 1 the
-    // window is present but shows nothing until the Metal backend (KE-0102) lands.
+    // Windowed path: boots the same `Game` under the winit entry, driving a real
+    // Metal backend. The backend is constructed below the render seam by
+    // `kaman-render` and injected via a factory, so `kaman-core` never depends on
+    // `metal` (ARCHITECTURE §2).
     let mut game = CarRunner::new();
-    kaman_core::run(&mut game);
+    run_windowed(&mut game);
+}
+
+/// Launch the windowed engine with the Metal backend on macOS.
+///
+/// On macOS this passes a factory that constructs a `kaman-render::MetalRenderer`
+/// for the created window; the engine drives every frame through it. On other
+/// platforms (none shipped in Phase 1) it falls back to the GPU-free entry.
+#[cfg(target_os = "macos")]
+fn run_windowed(game: &mut CarRunner) {
+    use kaman_core::Renderer;
+    kaman_core::run_with_backend(
+        game,
+        Box::new(|window, width, height| {
+            Box::new(kaman_render::MetalRenderer::new(window, width, height)) as Box<dyn Renderer>
+        }),
+    );
+}
+
+/// Non-macOS fallback: no Metal backend, run against the null seam.
+#[cfg(not(target_os = "macos"))]
+fn run_windowed(game: &mut CarRunner) {
+    kaman_core::run(game);
 }
 
 /// Boot the `car-runner` [`Game`] and drive `frames` frames headlessly, then report success.
@@ -159,10 +184,84 @@ impl Game for CarRunner {
         }
     }
 
-    fn render(&mut self, _ctx: &mut EngineCtx) {
-        // Phase 1: no draw recording yet. The scene lives in the ECS world; the
-        // renderer that walks it and records draws through the seam is KE-0102.
+    fn render(&mut self, ctx: &mut EngineCtx) {
+        // Collect the frame's draw data from the ECS world first, so the world
+        // borrow ends before we borrow the renderer from the same context.
+        let draws: Vec<(kaman_math::Transform, Vec<[f32; 9]>, Vec<u32>)> = ctx
+            .world()
+            .query::<(&TransformComponent, &RenderComponent)>()
+            .iter()
+            .map(|(_e, (t, r))| {
+                let (vertices, indices) = match &r.shape {
+                    RenderShape::Mesh { vertices, indices } => (vertices.clone(), indices.clone()),
+                    // `RenderShape` is `#[non_exhaustive]`; only meshes exist today.
+                    _ => (Vec::new(), Vec::new()),
+                };
+                (t.transform, vertices, indices)
+            })
+            .collect();
+
+        let layout = mesh_layout();
+        let renderer = ctx.renderer();
+
+        // Create a pipeline once per frame and record the scene. Per-frame mesh
+        // uploads mirror the prototype's behavior (KE-0103 makes them persistent).
+        renderer.begin_frame();
+        let pipeline = renderer.create_pipeline(&PipelineDescriptor {
+            vertex_shader: "vertex_main".into(),
+            fragment_shader: "fragment_main".into(),
+            vertex_layout: layout.clone(),
+        });
+        renderer.set_pipeline(pipeline);
+
+        for (transform, vertices, indices) in &draws {
+            let bytes = pack_vertices(vertices);
+            let mesh = renderer.create_mesh(&MeshData {
+                vertices: &bytes,
+                indices,
+                layout: layout.clone(),
+            });
+            renderer.draw_mesh(mesh, transform, &MaterialParams::default());
+        }
+
+        renderer.submit();
     }
+}
+
+/// The interleaved vertex layout used by `kaman-ecs` meshes:
+/// `[position_xyz, normal_xyz, color_rgb]` at a 36-byte stride.
+fn mesh_layout() -> VertexLayout {
+    VertexLayout::new(
+        36,
+        vec![
+            VertexAttribute {
+                location: 0,
+                offset: 0,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 1,
+                offset: 12,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 2,
+                offset: 24,
+                format: VertexFormat::Float32x3,
+            },
+        ],
+    )
+}
+
+/// Pack `[f32; 9]` vertices into tightly-interleaved bytes for the render seam.
+fn pack_vertices(vertices: &[[f32; 9]]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(vertices.len() * 36);
+    for v in vertices {
+        for f in v {
+            bytes.extend_from_slice(&f.to_ne_bytes());
+        }
+    }
+    bytes
 }
 
 #[cfg(test)]

@@ -24,6 +24,17 @@ touching ECS, physics, scene, or scripting code.
 No crate above the seam may import `metal` types. This is enforced by crate boundaries so a
 full renderer rewrite is provably contained.
 
+As of KE-0102 the concrete backend exists **below** this seam: `kaman-render` provides
+`MetalRenderer`, a raw-Metal type implementing both `RenderDevice` and `FrameRecorder` (and
+therefore `kaman-core`'s `Renderer` marker). `kaman-render` is the *only* crate that depends on
+`metal`. Crucially, `kaman-core` does **not** depend on `kaman-render`: the windowed entry
+`kaman-core::run_with_backend` takes a backend **factory**
+(`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`), and the game binary (`car-runner`, which does
+depend on `kaman-render`) constructs the Metal backend and injects it. So `metal` reaches the
+process only through `kaman-render` and the game binary — never through `kaman-core` — and the CI
+firewall (`cargo tree -p kaman-core | grep metal` → nothing) still holds. The migrated renderer is
+guarded by an offscreen render pixel-hash (KR1.3, `kaman-render/tests/pixel_hash.rs`).
+
 ## 3. Workspace layout
 
 ```

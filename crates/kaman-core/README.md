@@ -57,23 +57,25 @@ alias engine state across a frame or stash a handle past the call.
   `--smoke` oracle and all tests; runs on headless CI. `headless::run(game, n)`
   returns a `Headless` harness for inspecting the resulting `World` and recorded
   draws.
-- **`run`** (windowed) — a `winit` 0.30 window on macOS driving the identical
-  hook sequence. Per-frame drawing is behind `present_frame`, an isolated
-  function KE-0102 fills with the Metal backend. macOS-only bits (window
-  creation, event translation) are kept in small free functions to ease the
-  KE-0301 `#[cfg]` split.
+- **`run`** / **`run_with_backend`** (windowed) — a `winit` 0.30 window on macOS
+  driving the identical hook sequence. `run` wires the GPU-free `NullRenderer`;
+  `run_with_backend` takes a **backend factory**
+  (`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`) that the game binary uses to
+  inject the Metal backend, so `kaman-core` never depends on `metal` (KE-0102).
+  The factory runs once in `resumed`, after the window exists. macOS-only bits
+  (window creation, event translation) are kept in small free functions to ease
+  the KE-0301 `#[cfg]` split.
 
-## Deferred to KE-0102
+## The render backend (KE-0102)
 
-- The real Metal renderer behind the seam. `present_frame` is a no-op in Phase 1
-  (the window is created but shows nothing).
-- Renderer/scene/camera wiring from the prototype's `app.rs` (which is entangled
-  with the not-yet-migrated `renderer`/`scene`/`camera`/`ui` modules). Only the
-  loop + input *skeleton* was extracted here; the draw/present body is stubbed.
+The real Metal renderer lives below the seam in `kaman-render` and is injected
+through the backend factory above; `kaman-core` stays metal-free (a firewall CI
+check enforces `cargo tree -p kaman-core | grep metal` is empty). The headless
+driver and the plain `run` entry keep the `NullRenderer`.
 
 ## Provenance
 
-The loop/input skeleton is adapted from the `ProjectRigor` prototype's `app.rs`
-(winit `ApplicationHandler` + keyboard/mouse tracking). The camera, scene, and
-menu-bar entanglement was intentionally dropped; input keys were generalized to
+The loop/input skeleton is adapted from the prototype's application layer (winit
+`ApplicationHandler` + keyboard/mouse tracking). The camera, scene, and menu-bar
+entanglement was intentionally dropped; input keys were generalized to
 backend-agnostic `Key`/`MouseButton` enums. See `docs/ARCHITECTURE.md` §6.

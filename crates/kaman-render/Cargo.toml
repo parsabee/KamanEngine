@@ -7,4 +7,26 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+# The ray tracer is off by default. KE-0106 formalizes the gating and the iOS
+# exclusion; here it merely keeps the default build rasterization-only so that
+# `raytracing.metal` is never compiled unless explicitly requested.
+default = []
+raytracer = []
+
+# The `objc` 0.2 `msg_send!`/`sel_impl!` macros emit a `cfg(cargo-clippy)` check
+# that trips `unexpected_cfgs` on our call sites (the cfg is defined by clippy,
+# not us). Allow that one unknown cfg value so `-D warnings` stays clean; it is a
+# third-party-macro artifact, not our code. KE-0107 revisits the objc glue.
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(cargo_clippy)'] }
+
 [dependencies]
+kaman-math.workspace = true
+kaman-render-api.workspace = true
+metal.workspace = true
+objc.workspace = true
+cocoa.workspace = true
+core-graphics-types.workspace = true
+raw-window-handle.workspace = true
+winit.workspace = true

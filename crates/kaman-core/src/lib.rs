@@ -61,7 +61,7 @@ pub mod game;
 pub mod headless;
 pub mod input;
 
-pub use app::run;
+pub use app::{run, run_with_backend, BackendFactory};
 pub use context::{EngineCtx, Renderer};
 pub use game::Game;
 pub use input::{InputState, Key, MouseButton};

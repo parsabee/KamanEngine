@@ -16,3 +16,10 @@ clap.workspace = true
 kaman-core.workspace = true
 kaman-ecs.workspace = true
 kaman-math.workspace = true
+kaman-render-api.workspace = true
+
+# The Metal backend lives below the render seam. Only the game binary depends on
+# `kaman-render` (and thus `metal`); it constructs the backend and hands it to
+# the engine via a factory, so `kaman-core` stays metal-free (ARCHITECTURE §2).
+[target.'cfg(target_os = "macos")'.dependencies]
+kaman-render.workspace = true
