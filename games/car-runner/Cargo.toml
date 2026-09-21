@@ -13,3 +13,6 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+kaman-core.workspace = true
+kaman-ecs.workspace = true
+kaman-math.workspace = true

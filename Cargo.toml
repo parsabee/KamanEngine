@@ -29,6 +29,10 @@ repository = "https://github.com/parsabee/KamanEngine"
 # Intra-workspace crates. Path deps live here too so every consumer resolves the
 # same local copy without repeating the relative path.
 kaman-math = { path = "crates/kaman-math" }
+kaman-perf = { path = "crates/kaman-perf" }
+kaman-ecs = { path = "crates/kaman-ecs" }
+kaman-render-api = { path = "crates/kaman-render-api" }
+kaman-core = { path = "crates/kaman-core" }
 
 glam = "0.29"
 rapier3d = "0.22"
