@@ -827,6 +827,10 @@ version = "0.1.0"
 [[package]]
 name = "kaman-physics"
 version = "0.1.0"
+dependencies = [
+ "kaman-math",
+ "rapier3d",
+]
 
 [[package]]
 name = "kaman-render"

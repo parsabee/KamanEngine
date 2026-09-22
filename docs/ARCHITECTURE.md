@@ -104,6 +104,17 @@ script-owned**, not solver-driven. A custom arcade-physics + spatial-query layer
 rapier on the shipping path in a later release; the `kaman-physics` wrapper hides rapier so
 that swap does not ripple.
 
+**Status (KE-0202):** the wrapper has migrated into `crates/kaman-physics` and the removal
+API has landed — `PhysicsWorld::remove_body` (removes the body and its attached colliders)
+and `remove_collider`. Both uphold a **stale-handle-safety** invariant: after removal every
+query on the freed handle returns `None` / is a no-op and never derefs freed storage
+(rapier's generational handles + tests enforce this). The companion **handle-ownership**
+invariant — a handle in a `PhysicsBodyComponent` is removed from physics atomically with
+clearing the component — is documented here and in the crate; the despawn orchestration that
+upholds it is KE-0203. `PhysicsWorld::step` advances at the crate-local `FIXED_DT`, which
+mirrors `kaman-core`'s `FIXED_DT` (`kaman-physics` does **not** depend on `kaman-core`, to
+avoid a dependency cycle; a test pins the value).
+
 ## 6. Provenance
 
 Modules originate from the `ProjectRigor` prototype and are migrated here under the process

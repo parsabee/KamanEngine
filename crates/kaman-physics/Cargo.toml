@@ -9,3 +9,5 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+kaman-math.workspace = true
+rapier3d.workspace = true
