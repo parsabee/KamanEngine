@@ -80,7 +80,14 @@ camera-migration ticket should replace it with the real crate and delete
 The ray-tracing code that was entangled in the prototype renderer is behind the
 off-by-default `raytracer` cargo feature (`src/raytracer.rs` + `shaders/raytracing.metal`).
 The **default** build is rasterization-only and never compiles `raytracing.metal`.
-Build/test it explicitly:
+
+The raytracer is a **desktop-only, non-shipping** path. The module is gated
+`#[cfg(all(feature = "raytracer", not(target_os = "ios")))]`, so even with the
+feature enabled it compiles to nothing on iOS — an accidental feature enable can
+never pull it into a mobile build. A default-build test (`raytracer_is_off_by_default`)
+guards against the feature silently becoming a default.
+
+Build/test it explicitly (macOS):
 
 ```text
 cargo build -p kaman-render --features raytracer

@@ -47,9 +47,11 @@
 //! # Ray tracer (feature-gated)
 //!
 //! The ray-tracing code that was entangled in the prototype renderer is behind
-//! the off-by-default [`raytracer`](crate::raytracer) feature. The **default**
-//! build is rasterization-only and does not compile `raytracing.metal`. KE-0106
-//! formalizes the gating and the iOS exclusion.
+//! the off-by-default `raytracer` feature. The **default** build is
+//! rasterization-only and does not compile `raytracing.metal`. The feature is
+//! additionally excluded on iOS (`not(target_os = "ios")`): the raytracer is a
+//! desktop-only, non-shipping path, so enabling the feature has no effect in an
+//! iOS build.
 //!
 //! # Runtime shader compilation
 //!
@@ -64,10 +66,28 @@ pub mod frame_sync;
 pub mod registry;
 pub mod vertex;
 
-#[cfg(feature = "raytracer")]
+#[cfg(all(feature = "raytracer", not(target_os = "ios")))]
 pub mod raytracer;
 
 pub use backend::MetalRenderer;
 pub use camera::Camera;
 pub use registry::{Registry, RegistryError};
 pub use vertex::{LightUniforms, Uniforms, Vertex};
+
+#[cfg(test)]
+mod feature_gate_tests {
+    /// The raytracer is a desktop-only, non-shipping path: it must be off in the
+    /// default build so the mobile rasterization path stays lean (KR1.4). This
+    /// test runs in the default `cargo test` (no `--features raytracer`) and
+    /// fails if the feature ever becomes a default. The module itself is
+    /// `#[cfg(all(feature = "raytracer", not(target_os = "ios")))]`, so a default
+    /// build compiles zero raytracer symbols and an iOS build never does.
+    #[test]
+    #[cfg(not(feature = "raytracer"))]
+    fn raytracer_is_off_by_default() {
+        assert!(
+            !cfg!(feature = "raytracer"),
+            "the `raytracer` feature must remain off by default"
+        );
+    }
+}

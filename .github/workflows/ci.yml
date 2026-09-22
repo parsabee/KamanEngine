@@ -49,6 +49,14 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Raytracer is a desktop-only, off-by-default feature (KE-0106, KR1.4). Keep the feature
+      # path compiling and lint-clean so it does not rot; the default build above proves the
+      # rasterization path never pulls it in.
+      - name: Build + clippy raytracer feature (macOS)
+        run: |
+          cargo build -p kaman-render --features raytracer
+          cargo clippy -p kaman-render --all-targets --features raytracer -- -D warnings
+
       # Headless smoke oracle. Metal API Validation is enabled here per the ticket so that,
       # once the renderer migrates in Phase 1, this run exercises it under validation. Today
       # the oracle is CPU-only and needs no GPU (CI runners are headless).
