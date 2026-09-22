@@ -5,8 +5,8 @@ Priority:      P0
 Status:        Todo
 Integration:   Refactor
 Size:          M · A3
-Depends on:    KE-0101      Serves: KR3.1
-
+Depends on:    KE-0101      Blocks: —
+Serves:        KR3.1
 > **Backburner (rough draft).** Phase 3 / iOS is deferred until the engine is solid and the game
 > is semi-playable, and it needs full Xcode + rustup iOS targets (`./scripts/preflight.sh --ios`).
 > Fleshed out properly when Phase 3 actually starts.

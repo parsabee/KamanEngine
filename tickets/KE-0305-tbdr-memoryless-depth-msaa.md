@@ -5,7 +5,8 @@ Priority:      P0
 Status:        Todo
 Integration:   Refactor
 Size:          S · A1
-Depends on:    KE-0303      Serves: KR3.3, KR3.4
+Depends on:    KE-0303      Blocks: —
+Serves:        KR3.3, KR3.4
 
 > **Backburner (rough draft).** Deferred; needs a device to validate TBDR/thermals. Flesh out at
 > Phase 3 start.

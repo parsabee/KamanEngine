@@ -5,8 +5,8 @@ Priority:      P0
 Status:        Todo
 Integration:   New
 Size:          M · A2
-Depends on:    KE-0302      Serves: KR3.2
-
+Depends on:    KE-0302      Blocks: —
+Serves:        KR3.2
 > **Backburner (rough draft).** Deferred; needs full Xcode + a device. Flesh out at Phase 3 start.
 
 ## Problem

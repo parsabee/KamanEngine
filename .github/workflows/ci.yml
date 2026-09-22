@@ -48,6 +48,11 @@ jobs:
       - name: No prototype identifiers in shipped code
         run: "! grep -rniI projectrigor crates games"
 
+      # Ticket format + progress (scripts/check-tickets.py). Fails if any KE-*.md ticket breaks the
+      # header schema; also prints the per-phase completion report.
+      - name: Ticket format lint
+        run: python3 scripts/check-tickets.py
+
       - name: Test workspace
         run: cargo test --workspace
 

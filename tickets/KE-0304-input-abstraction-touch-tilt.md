@@ -5,8 +5,8 @@ Priority:      P1
 Status:        Todo
 Integration:   Refactor
 Size:          S · A2
-Depends on:    KE-0301, KE-0303      Serves: KR3.3
-
+Depends on:    KE-0301, KE-0303      Blocks: —
+Serves:        KR3.3
 > **Backburner (rough draft).** Deferred; needs a device for touch/tilt. Flesh out at Phase 3 start.
 
 ## Problem

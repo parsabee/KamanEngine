@@ -5,8 +5,8 @@ Priority:      P0
 Status:        Todo
 Integration:   New
 Size:          M · A2
-Depends on:    KE-0301      Serves: KR3.2
-
+Depends on:    KE-0301      Blocks: —
+Serves:        KR3.2
 > **Backburner (rough draft).** Deferred until the engine/game is mature; needs full Xcode +
 > `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`. Flesh out at Phase 3 start.
 
