@@ -23,6 +23,7 @@
 use kaman_ecs::hecs::World;
 use kaman_perf::PerfSnapshot;
 use kaman_render_api::{FrameRecorder, RenderDevice};
+use kaman_scene::Scene;
 
 use crate::input::InputState;
 
@@ -53,7 +54,11 @@ impl<T: RenderDevice + FrameRecorder> Renderer for T {}
 ///
 /// # What a game may touch
 ///
-/// - The ECS [`World`] — [`world`](Self::world) / [`world_mut`](Self::world_mut).
+/// - The [`Scene`] — [`scene`](Self::scene) / [`scene_mut`](Self::scene_mut),
+///   which owns the ECS [`World`] and the physics world and drives streaming and
+///   the floating-origin rebase.
+/// - The ECS [`World`] — [`world`](Self::world) / [`world_mut`](Self::world_mut),
+///   convenience accessors that delegate to the scene's world.
 /// - The render seam — [`renderer`](Self::renderer), a `&mut dyn Renderer`
 ///   ([`RenderDevice`] + [`FrameRecorder`]). The game records draws here in
 ///   [`render`](crate::Game::render); it never sees a Metal type.
@@ -65,7 +70,7 @@ impl<T: RenderDevice + FrameRecorder> Renderer for T {}
 /// There is deliberately no accessor for anything else: no window, no platform
 /// handle, no Metal device, and no game state.
 pub struct EngineCtx<'a> {
-    world: &'a mut World,
+    scene: &'a mut Scene,
     renderer: &'a mut dyn Renderer,
     input: &'a InputState,
     perf: PerfSnapshot,
@@ -76,21 +81,21 @@ impl<'a> EngineCtx<'a> {
     /// Assemble a context borrowing the engine's state for one hook call.
     ///
     /// This is `pub(crate)`: only the engine's loop/driver constructs an
-    /// `EngineCtx`. Each of `world`, `renderer`, and `input` is a distinct field
+    /// `EngineCtx`. Each of `scene`, `renderer`, and `input` is a distinct field
     /// of engine-owned state, so the borrows do not alias.
     ///
     /// `alpha` is the fixed-timestep interpolation factor (see
     /// [`alpha`](Self::alpha)); it is meaningful on the render path and `0.0` for
     /// `update`/`init` contexts, where interpolation does not apply.
     pub(crate) fn new(
-        world: &'a mut World,
+        scene: &'a mut Scene,
         renderer: &'a mut dyn Renderer,
         input: &'a InputState,
         perf: PerfSnapshot,
         alpha: f32,
     ) -> Self {
         Self {
-            world,
+            scene,
             renderer,
             input,
             perf,
@@ -98,24 +103,46 @@ impl<'a> EngineCtx<'a> {
         }
     }
 
-    /// Shared access to the ECS [`World`].
+    /// Shared access to the [`Scene`] — the ECS world, the physics world, and the
+    /// streaming / rebase bookkeeping.
+    ///
+    /// Use this for read-only physics queries or to inspect streaming state; use
+    /// [`scene_mut`](Self::scene_mut) to spawn bodies, step physics, or drive
+    /// [`Scene::stream`] / [`Scene::maybe_rebase`].
+    #[must_use]
+    pub fn scene(&self) -> &Scene {
+        self.scene
+    }
+
+    /// Mutable access to the [`Scene`].
+    ///
+    /// This is the handle a streaming game drives: spawn entities with physics
+    /// bodies, call [`Scene::stream`] with the current focus and a spawn callback,
+    /// [`Scene::step_physics`], and [`Scene::maybe_rebase`]. The returned borrow
+    /// lasts only as long as you hold it, so it cannot alias another accessor.
+    #[must_use]
+    pub fn scene_mut(&mut self) -> &mut Scene {
+        self.scene
+    }
+
+    /// Shared access to the ECS [`World`] (delegates to the scene's world).
     ///
     /// Use for read-only queries; call [`world_mut`](Self::world_mut) to spawn,
     /// despawn, or mutate components.
     #[must_use]
     pub fn world(&self) -> &World {
-        self.world
+        self.scene.world()
     }
 
-    /// Mutable access to the ECS [`World`] — spawn, despawn, and mutate
-    /// components.
+    /// Mutable access to the ECS [`World`] (delegates to the scene's world) —
+    /// spawn, despawn, and mutate components.
     ///
     /// The returned borrow lasts only as long as you hold it; it cannot be kept
     /// past the current statement while also reaching another accessor, which is
     /// what prevents aliasing engine state.
     #[must_use]
     pub fn world_mut(&mut self) -> &mut World {
-        self.world
+        self.scene.world_mut()
     }
 
     /// The render seam: a `&mut dyn Renderer` that is both a [`RenderDevice`] and

@@ -81,6 +81,7 @@ pub use app::{run, run_with_backend, BackendFactory};
 pub use context::{EngineCtx, Renderer};
 pub use game::Game;
 pub use input::{InputState, Key, MouseButton};
+pub use kaman_scene::{Scene, SpawnCtx, StreamingConfig};
 pub use timestep::{Accumulator, FIXED_DT, MAX_STEPS_PER_FRAME};
 
 #[cfg(test)]

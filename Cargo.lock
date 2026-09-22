@@ -801,6 +801,7 @@ dependencies = [
  "kaman-math",
  "kaman-perf",
  "kaman-render-api",
+ "kaman-scene",
  "winit",
 ]
 
@@ -857,6 +858,11 @@ dependencies = [
 [[package]]
 name = "kaman-scene"
 version = "0.1.0"
+dependencies = [
+ "kaman-ecs",
+ "kaman-math",
+ "kaman-physics",
+]
 
 [[package]]
 name = "libc"

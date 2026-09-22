@@ -9,3 +9,6 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+kaman-math.workspace = true
+kaman-ecs.workspace = true
+kaman-physics.workspace = true

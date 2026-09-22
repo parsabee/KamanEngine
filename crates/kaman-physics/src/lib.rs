@@ -581,6 +581,41 @@ impl PhysicsWorld {
         }
     }
 
+    /// Teleports a rigid body to a new world-space translation.
+    ///
+    /// Unlike integrating a velocity, this **sets** the body's position directly
+    /// (`wake_up = true`, so contacts re-evaluate). It is the primitive a
+    /// floating-origin rebase uses to shift every body by a fixed offset: the
+    /// scene layer calls it once per body **between** physics steps, never
+    /// mid-solve, so the solver never sees a discontinuous position within a
+    /// step (see the rebase-ordering invariant in `kaman-scene`).
+    ///
+    /// A stale / invalid handle is a safe no-op (stale-handle safe).
+    ///
+    /// # Arguments
+    ///
+    /// * `handle` - The handle of the rigid body to move.
+    /// * `translation` - The new world-space position.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use kaman_physics::PhysicsWorld;
+    /// use kaman_math::Transform;
+    /// use kaman_math::glam::Vec3;
+    ///
+    /// let mut physics = PhysicsWorld::new();
+    /// let body = physics.create_dynamic_body(Transform::from_position(Vec3::new(0.0, 5.0, 0.0)));
+    ///
+    /// physics.set_translation(body, Vec3::new(0.0, 2.0, 0.0));
+    /// assert_eq!(physics.get_transform(body).unwrap().position, Vec3::new(0.0, 2.0, 0.0));
+    /// ```
+    pub fn set_translation(&mut self, handle: RigidBodyHandle, translation: Vec3) {
+        if let Some(body) = self.rigid_body_set.get_mut(handle) {
+            body.set_translation(vector![translation.x, translation.y, translation.z], true);
+        }
+    }
+
     /// Gets the current linear velocity of a rigid body.
     ///
     /// # Arguments
@@ -733,6 +768,23 @@ mod tests {
             world.get_transform(new).unwrap().position,
             Vec3::new(1.0, 2.0, 3.0)
         );
+    }
+
+    #[test]
+    fn set_translation_moves_body_and_is_stale_safe() {
+        let mut world = PhysicsWorld::new();
+        let handle = world.create_dynamic_body(Transform::from_position(Vec3::new(1.0, 2.0, 3.0)));
+
+        world.set_translation(handle, Vec3::new(4.0, 5.0, 6.0));
+        assert_eq!(
+            world.get_transform(handle).unwrap().position,
+            Vec3::new(4.0, 5.0, 6.0)
+        );
+
+        // A freed handle is a safe no-op, never a panic.
+        world.remove_body(handle);
+        world.set_translation(handle, Vec3::new(9.0, 9.0, 9.0));
+        assert!(world.get_transform(handle).is_none());
     }
 
     #[test]

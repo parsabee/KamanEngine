@@ -28,6 +28,7 @@ use std::time::Duration;
 
 use kaman_ecs::hecs::World;
 use kaman_render_api::NullRenderer;
+use kaman_scene::Scene;
 
 use crate::driver::{drive_frame, Loop};
 use crate::game::Game;
@@ -126,7 +127,14 @@ impl Headless {
     /// The ECS [`World`] after (or between) runs — inspect what the game spawned.
     #[must_use]
     pub fn world(&self) -> &World {
-        &self.lp.world
+        self.lp.scene.world()
+    }
+
+    /// The [`Scene`] after (or between) runs — inspect the ECS world, the physics
+    /// world, and streaming state the game built.
+    #[must_use]
+    pub fn scene(&self) -> &Scene {
+        &self.lp.scene
     }
 
     /// The [`NullRenderer`] — inspect recorded draws / created resources.

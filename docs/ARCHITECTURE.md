@@ -115,6 +115,15 @@ upholds it is KE-0203. `PhysicsWorld::step` advances at the crate-local `FIXED_D
 mirrors `kaman-core`'s `FIXED_DT` (`kaman-physics` does **not** depend on `kaman-core`, to
 avoid a dependency cycle; a test pins the value).
 
+**Status (KE-0203):** `crates/kaman-scene` now owns the hecs `World` + `PhysicsWorld` and adds
+engine-generic **streaming** (spawn-ahead / despawn-behind by focus distance) and **floating-origin
+rebase**. Despawn is **atomic** — the physics body is removed before the ECS entity, upholding the
+handle-ownership invariant above. Rebase shifts ECS transforms and physics bodies together, only
+**between** physics steps (`stream → step_physics → maybe_rebase`), so relative positions are
+preserved and the solver never sees a mid-step discontinuity. `kaman-core` owns a `Scene` in its
+loop and exposes it via `EngineCtx`; the dependency direction stays acyclic
+(`kaman-core → kaman-scene → {kaman-ecs, kaman-physics, kaman-math}`).
+
 ## 6. Provenance
 
 Modules originate from the `ProjectRigor` prototype and are migrated here under the process

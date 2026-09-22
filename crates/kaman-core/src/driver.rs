@@ -12,8 +12,8 @@
 //! engine state in [`Loop`]. This is the single loop implementation the ticket
 //! calls for: neither driver reimplements the accumulator.
 
-use kaman_ecs::hecs::World;
 use kaman_perf::PerfTracker;
+use kaman_scene::Scene;
 use std::time::Duration;
 
 use crate::context::{EngineCtx, Renderer};
@@ -23,15 +23,16 @@ use crate::timestep::{Accumulator, FIXED_DT};
 
 /// The engine state both drivers own and hand to [`drive_frame`].
 ///
-/// Holds everything platform-neutral: the ECS [`World`], the [`InputState`]
-/// snapshot, the [`PerfTracker`], the fixed-timestep [`Accumulator`], and the
-/// once-only `init` latch. The render backend is deliberately *not* in here —
-/// each driver owns its renderer differently (a `NullRenderer` by value in
-/// headless, a `Box<dyn Renderer>` in the windowed app) and passes it into
-/// [`drive_frame`] by `&mut dyn Renderer`.
+/// Holds everything platform-neutral: the [`Scene`] (which owns the ECS world and
+/// the physics world), the [`InputState`] snapshot, the [`PerfTracker`], the
+/// fixed-timestep [`Accumulator`], and the once-only `init` latch. The render
+/// backend is deliberately *not* in here — each driver owns its renderer
+/// differently (a `NullRenderer` by value in headless, a `Box<dyn Renderer>` in
+/// the windowed app) and passes it into [`drive_frame`] by `&mut dyn Renderer`.
 pub struct Loop {
-    /// The ECS world the game mutates.
-    pub world: World,
+    /// The simulation scene (ECS world + physics world + streaming/rebase state)
+    /// the game mutates. Replaces the bare `World` the loop used to own (KE-0203).
+    pub scene: Scene,
     /// The current input snapshot the game reads.
     pub input: InputState,
     /// Frame-timing tracker.
@@ -43,11 +44,11 @@ pub struct Loop {
 }
 
 impl Loop {
-    /// A fresh loop: empty world, no input, zeroed accumulator, un-initialized.
+    /// A fresh loop: empty scene, no input, zeroed accumulator, un-initialized.
     #[must_use]
     pub fn new() -> Self {
         Self {
-            world: World::new(),
+            scene: Scene::new(),
             input: InputState::new(),
             perf: PerfTracker::new(),
             accumulator: Accumulator::new(),
@@ -63,7 +64,7 @@ impl Loop {
     pub fn init_once<G: Game>(&mut self, game: &mut G, renderer: &mut dyn Renderer) {
         if !self.initialized {
             let mut ctx = EngineCtx::new(
-                &mut self.world,
+                &mut self.scene,
                 renderer,
                 &self.input,
                 self.perf.snapshot(),
@@ -88,9 +89,19 @@ impl Default for Loop {
 /// previous frame — a synthetic delta in headless, a measured monotonic delta in
 /// the windowed driver. The accumulator turns it into a whole number of
 /// [`FIXED_DT`] steps (clamped against the spiral of death); each step calls
-/// [`Game::update`](crate::Game::update)`(ctx, FIXED_DT)`, then a single
-/// [`Game::render`](crate::Game::render) runs with the leftover interpolation
-/// [`alpha`](crate::EngineCtx::alpha).
+/// [`Game::update`](crate::Game::update)`(ctx, FIXED_DT)` and then advances the
+/// [`Scene`]'s physics by one fixed step ([`Scene::step_physics`]), so physics is
+/// integrated exactly once per fixed update in lockstep with the simulation.
+/// After the update steps, a single [`Game::render`](crate::Game::render) runs with
+/// the leftover interpolation [`alpha`](crate::EngineCtx::alpha).
+///
+/// Ordering within a fixed step is `update` → `step_physics`: the game applies
+/// intents (forces, spawns, streaming) first, then the solver integrates and syncs
+/// dynamic transforms back into the ECS. A game that also rebases should call
+/// [`Scene::maybe_rebase`] from its `update` *after* driving streaming — the
+/// documented `stream` → `step_physics` → `maybe_rebase` order lives in
+/// `kaman-scene`; since the loop steps physics right after `update`, a game rebases
+/// at the top of the *next* `update` (i.e. between this step and the next).
 ///
 /// [`init_once`](Loop::init_once) must have run first.
 pub fn drive_frame<G: Game>(
@@ -104,16 +115,20 @@ pub fn drive_frame<G: Game>(
 
     let steps = lp.accumulator.advance(elapsed);
 
-    // Fixed-timestep updates: 0..N, each with the constant FIXED_DT.
+    // Fixed-timestep updates: 0..N, each with the constant FIXED_DT, each
+    // followed by exactly one physics step so the solver stays in lockstep.
     for _ in 0..steps {
-        let mut ctx = EngineCtx::new(&mut lp.world, renderer, &lp.input, snapshot, 0.0);
-        game.update(&mut ctx, FIXED_DT);
+        {
+            let mut ctx = EngineCtx::new(&mut lp.scene, renderer, &lp.input, snapshot, 0.0);
+            game.update(&mut ctx, FIXED_DT);
+        }
+        lp.scene.step_physics();
     }
 
     // Exactly one render per frame, carrying the interpolation alpha.
     {
         let alpha = lp.accumulator.alpha();
-        let mut ctx = EngineCtx::new(&mut lp.world, renderer, &lp.input, snapshot, alpha);
+        let mut ctx = EngineCtx::new(&mut lp.scene, renderer, &lp.input, snapshot, alpha);
         game.render(&mut ctx);
     }
 
