@@ -73,9 +73,11 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
 ## Status
 
-**Phase 0 complete** (workspace, CI oracle, `kaman-math`/`kaman-perf`/`kaman-ecs` migrated,
-`kaman-render-api` seam). **Phase 1 — Renderer Foundation** is active. See the ticket board
-for live status.
+**Phases 0–2 complete.** Phase 0 (workspace, CI oracle, math/perf/ecs migrated, render seam);
+Phase 1 (raw-Metal renderer behind the seam, persistent buffers + uniform ring + triple-
+buffered frames-in-flight; `.metallib` precompile gated on full Xcode); Phase 2 (fixed-timestep
+loop, physics + removal API, world streaming, and a playable box-car runner). **Phase 3 — iOS
+bring-up** is next (needs full Xcode). See the ticket board for live status.
 
 ## License
 
