@@ -30,7 +30,7 @@
 //! - `create_pipeline` names the built-in Phong pipeline (Phase-1 port has one).
 //! - `draw_mesh(handle, transform, material)` looks the persistent vertex buffer
 //!   up by handle (**no per-frame mesh allocation**), computes an MVP from the
-//!   backend camera and this instance's transform, writes a per-draw uniform
+//!   seam-provided view-projection and this instance's transform, writes a per-draw uniform
 //!   buffer (the one remaining per-frame allocation, removed by KE-0104), and
 //!   records a triangle draw. A stale/freed handle is a defined no-op, never a
 //!   silent wrong-buffer draw (see [`RegistryError`](registry::RegistryError)).
@@ -38,11 +38,16 @@
 //!   texture) and opens a render encoder; `submit` ends encoding and presents
 //!   (windowed) or synchronizes for readback (offscreen).
 //!
-//! # Camera (temporary inline)
+//! # Camera (via the seam)
 //!
-//! `kaman-camera` is still a stub, so a **minimal** view/projection [`Camera`]
-//! is inlined here (see [`camera`]) to place the reference scene. A later
-//! camera-migration ticket should replace it with the real crate.
+//! The backend does **not** own a camera. The view-projection matrix arrives
+//! through the seam once per frame via
+//! [`FrameRecorder::set_view_projection`](kaman_render_api::FrameRecorder::set_view_projection):
+//! the game (or engine loop) computes it from a
+//! [`kaman_camera::Camera`](https://docs.rs/kaman-camera) and pushes it before
+//! the first `draw_mesh`. `draw_mesh` combines the stored view-projection with
+//! each draw's model transform to form the MVP (KE-0205). The previously-inlined
+//! minimal camera was deleted with this migration.
 //!
 //! # Ray tracer (feature-gated)
 //!
@@ -64,7 +69,6 @@
 #![deny(missing_docs)]
 
 pub mod backend;
-pub mod camera;
 pub mod frame_sync;
 pub mod registry;
 pub mod vertex;
@@ -73,7 +77,6 @@ pub mod vertex;
 pub mod raytracer;
 
 pub use backend::MetalRenderer;
-pub use camera::Camera;
 pub use registry::{Registry, RegistryError};
 pub use vertex::{LightUniforms, Uniforms, Vertex};
 

@@ -239,6 +239,7 @@ name = "car-runner"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "kaman-camera",
  "kaman-core",
  "kaman-ecs",
  "kaman-math",
@@ -793,11 +794,15 @@ dependencies = [
 [[package]]
 name = "kaman-camera"
 version = "0.1.0"
+dependencies = [
+ "kaman-math",
+]
 
 [[package]]
 name = "kaman-core"
 version = "0.1.0"
 dependencies = [
+ "kaman-camera",
  "kaman-ecs",
  "kaman-math",
  "kaman-perf",
@@ -841,6 +846,7 @@ dependencies = [
  "block",
  "cocoa",
  "core-graphics-types",
+ "kaman-camera",
  "kaman-math",
  "kaman-render-api",
  "metal",
@@ -853,6 +859,7 @@ dependencies = [
 name = "kaman-render-api"
 version = "0.1.0"
 dependencies = [
+ "kaman-camera",
  "kaman-math",
 ]
 

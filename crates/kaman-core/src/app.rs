@@ -195,10 +195,16 @@ impl<G: Game> ApplicationHandler for EngineApp<'_, '_, G> {
         if self.window.is_none() {
             let window = create_window(event_loop);
 
+            // Match the engine camera's aspect to the real window before the first
+            // frame (KE-0205); resize events keep it current thereafter.
+            let size = window.inner_size();
+            self.lp
+                .camera
+                .set_aspect_ratio(size.width as f32 / size.height.max(1) as f32);
+
             // Construct the real backend now that a window exists. Consuming the
             // factory (an `Option`) makes this happen exactly once.
             if let Some(factory) = self.factory.take() {
-                let size = window.inner_size();
                 self.renderer = factory(&window, size.width, size.height);
             }
 
@@ -241,6 +247,13 @@ impl<G: Game> ApplicationHandler for EngineApp<'_, '_, G> {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.lp.input.set_cursor_position(position.x, position.y);
+            }
+            WindowEvent::Resized(size) => {
+                // Keep the engine camera's projection correct as the window
+                // resizes (KE-0205). The backend below the seam owns no camera, so
+                // aspect is maintained here on the engine-owned `Camera`.
+                let aspect = size.width as f32 / size.height.max(1) as f32;
+                self.lp.camera.set_aspect_ratio(aspect);
             }
             WindowEvent::RedrawRequested => {
                 self.drive_frame();

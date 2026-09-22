@@ -198,3 +198,48 @@ fn switching_pipeline_and_texture_mid_frame_is_captured_per_draw() {
     assert_eq!(draws[1].pipeline, Some(p1));
     assert_eq!(draws[1].texture, Some(t1));
 }
+
+#[test]
+fn set_view_projection_is_recorded_and_readable() {
+    use kaman_camera::Camera;
+
+    let mut r = NullRenderer::new();
+
+    // No camera pushed yet.
+    assert_eq!(r.view_projection(), None);
+
+    // Push a camera's view-projection before the first draw, as the engine loop
+    // does, and read it back.
+    let mut cam = Camera::new(16.0 / 9.0);
+    cam.set_position(Vec3::new(0.0, 5.0, 10.0));
+    cam.set_target(Vec3::ZERO);
+    let vp = cam.view_projection_matrix();
+
+    r.begin_frame();
+    r.set_view_projection(vp);
+    assert_eq!(r.view_projection(), Some(vp));
+    r.submit();
+}
+
+#[test]
+fn view_projection_is_sticky_across_frames() {
+    use kaman_math::glam::Mat4;
+
+    let mut r = NullRenderer::new();
+
+    // Engine pushes the camera before the game opens its frame; the game's
+    // begin_frame must NOT clear it (sticky seam contract).
+    r.set_view_projection(Mat4::IDENTITY);
+    r.begin_frame();
+    assert_eq!(
+        r.view_projection(),
+        Some(Mat4::IDENTITY),
+        "begin_frame must not clear the sticky view-projection"
+    );
+    r.submit();
+
+    // It persists into the next frame until replaced.
+    r.begin_frame();
+    assert_eq!(r.view_projection(), Some(Mat4::IDENTITY));
+    r.submit();
+}

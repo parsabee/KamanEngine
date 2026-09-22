@@ -36,6 +36,7 @@ kaman-math = { path = "crates/kaman-math" }
 kaman-perf = { path = "crates/kaman-perf" }
 kaman-ecs = { path = "crates/kaman-ecs" }
 kaman-physics = { path = "crates/kaman-physics" }
+kaman-camera = { path = "crates/kaman-camera" }
 kaman-scene = { path = "crates/kaman-scene" }
 kaman-render-api = { path = "crates/kaman-render-api" }
 kaman-render = { path = "crates/kaman-render" }

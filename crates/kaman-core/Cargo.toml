@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 kaman-math.workspace = true
 kaman-ecs.workspace = true
+kaman-camera.workspace = true
 kaman-scene.workspace = true
 kaman-render-api.workspace = true
 kaman-perf.workspace = true

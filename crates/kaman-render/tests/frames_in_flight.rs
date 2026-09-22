@@ -23,7 +23,6 @@
 //! Like the other backend tests, these **skip** when no Metal device is
 //! available (GPU-less CI) and run + assert on a real Mac.
 
-use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render::backend::MAX_FRAMES_IN_FLIGHT;
 use kaman_render::MetalRenderer;
@@ -97,8 +96,6 @@ fn many_frames_do_not_deadlock_and_ring_region_rotates() {
         eprintln!("skipping: no Metal device (GPU-less runner)");
         return;
     };
-    r.camera_mut().set_position(Vec3::new(0.0, 0.0, 3.0));
-    r.camera_mut().set_target(Vec3::ZERO);
 
     let mesh = make_mesh(&mut r);
 
@@ -154,8 +151,6 @@ fn per_frame_path_allocates_nothing_across_the_in_flight_cycle() {
         eprintln!("skipping: no Metal device (GPU-less runner)");
         return;
     };
-    r.camera_mut().set_position(Vec3::new(0.0, 0.0, 3.0));
-    r.camera_mut().set_target(Vec3::ZERO);
 
     let mesh = make_mesh(&mut r);
 

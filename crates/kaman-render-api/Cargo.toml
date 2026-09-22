@@ -10,3 +10,9 @@ repository.workspace = true
 
 [dependencies]
 kaman-math.workspace = true
+
+[dev-dependencies]
+# Only the tests use a real Camera to produce a view-projection matrix; the seam
+# itself carries a plain `Mat4` and never depends on kaman-camera (dev-only, and
+# kaman-camera pulls in no metal, so the "no metal above the seam" firewall holds).
+kaman-camera.workspace = true

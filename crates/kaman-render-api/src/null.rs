@@ -4,6 +4,7 @@
 
 //! [`NullRenderer`] — a headless, GPU-free test double for the render seam.
 
+use kaman_math::glam::Mat4;
 use kaman_math::Transform;
 
 use crate::descriptor::MaterialParams;
@@ -64,6 +65,12 @@ pub struct NullRenderer {
     current_pipeline: Option<PipelineHandle>,
     current_texture: Option<TextureHandle>,
     draws: Vec<RecordedDraw>,
+    /// The most recent view-projection pushed via
+    /// [`set_view_projection`](FrameRecorder::set_view_projection), if any. `None`
+    /// until the first push, then **sticky** (retained across frames) — mirroring
+    /// the seam contract that a real backend keeps the last view-projection until
+    /// it is replaced.
+    view_projection: Option<Mat4>,
 }
 
 impl NullRenderer {
@@ -160,6 +167,16 @@ impl NullRenderer {
     pub fn frame_open(&self) -> bool {
         self.frame_open
     }
+
+    /// The most recent view-projection matrix recorded via
+    /// [`set_view_projection`](FrameRecorder::set_view_projection).
+    ///
+    /// `None` before the first push, then sticky (the last value pushed). Lets
+    /// tests assert the engine/game pushed the expected camera before drawing.
+    #[must_use]
+    pub fn view_projection(&self) -> Option<Mat4> {
+        self.view_projection
+    }
 }
 
 impl RenderDevice for NullRenderer {
@@ -201,9 +218,15 @@ impl FrameRecorder for NullRenderer {
     fn begin_frame(&mut self) {
         self.frame_open = true;
         self.frames_begun += 1;
-        // Per-frame state resets at the start of each frame.
+        // Per-frame state resets at the start of each frame. The view-projection
+        // is deliberately NOT reset: it is sticky across frames (seam contract),
+        // so an engine loop can push it once per frame before the game records.
         self.current_pipeline = None;
         self.current_texture = None;
+    }
+
+    fn set_view_projection(&mut self, view_proj: Mat4) {
+        self.view_projection = Some(view_proj);
     }
 
     fn set_pipeline(&mut self, handle: PipelineHandle) {

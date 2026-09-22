@@ -12,6 +12,12 @@ cargo run -p car-runner
 Opens a Metal window on macOS. You are a box driving forward down a three-lane
 road; obstacles (yellow boxes) stream toward you. Dodge them.
 
+A **chase camera** (`kaman_camera::ChaseController`) trails the box from behind
+and above and keeps it framed as it drives — so the runner is visually playable,
+not viewed from a fixed point. The game positions the engine-owned camera each
+`update`; the engine pushes its view-projection across the render seam before the
+frame is drawn (KE-0205).
+
 ### Controls
 
 | Key            | Action                          |

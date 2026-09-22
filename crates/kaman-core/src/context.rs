@@ -20,6 +20,7 @@
 //! [`renderer`](EngineCtx::renderer), …); those borrows end at the end of the
 //! statement, so the game cannot hold two conflicting mutable views at once.
 
+use kaman_camera::Camera;
 use kaman_ecs::hecs::World;
 use kaman_perf::PerfSnapshot;
 use kaman_render_api::{FrameRecorder, RenderDevice};
@@ -62,6 +63,10 @@ impl<T: RenderDevice + FrameRecorder> Renderer for T {}
 /// - The render seam — [`renderer`](Self::renderer), a `&mut dyn Renderer`
 ///   ([`RenderDevice`] + [`FrameRecorder`]). The game records draws here in
 ///   [`render`](crate::Game::render); it never sees a Metal type.
+/// - The [`Camera`] — [`camera`](Self::camera) / [`camera_mut`](Self::camera_mut).
+///   The game positions it (e.g. a chase camera following the player); the engine
+///   pushes its view-projection across the render seam each frame before
+///   [`render`](crate::Game::render), so the backend stays camera-free.
 /// - The [`InputState`] snapshot — [`input`](Self::input) (read-only; the engine
 ///   owns input).
 /// - Frame timing — [`perf`](Self::perf), a [`PerfSnapshot`] for the previous
@@ -72,6 +77,7 @@ impl<T: RenderDevice + FrameRecorder> Renderer for T {}
 pub struct EngineCtx<'a> {
     scene: &'a mut Scene,
     renderer: &'a mut dyn Renderer,
+    camera: &'a mut Camera,
     input: &'a InputState,
     perf: PerfSnapshot,
     alpha: f32,
@@ -90,6 +96,7 @@ impl<'a> EngineCtx<'a> {
     pub(crate) fn new(
         scene: &'a mut Scene,
         renderer: &'a mut dyn Renderer,
+        camera: &'a mut Camera,
         input: &'a InputState,
         perf: PerfSnapshot,
         alpha: f32,
@@ -97,6 +104,7 @@ impl<'a> EngineCtx<'a> {
         Self {
             scene,
             renderer,
+            camera,
             input,
             perf,
             alpha,
@@ -157,6 +165,30 @@ impl<'a> EngineCtx<'a> {
     #[must_use]
     pub fn renderer(&mut self) -> &mut dyn Renderer {
         self.renderer
+    }
+
+    /// Shared access to the engine [`Camera`].
+    ///
+    /// Read the current view/projection or basis vectors; use
+    /// [`camera_mut`](Self::camera_mut) to move it.
+    #[must_use]
+    pub fn camera(&self) -> &Camera {
+        self.camera
+    }
+
+    /// Mutable access to the engine [`Camera`] (KE-0205).
+    ///
+    /// Position it here — typically by driving a
+    /// [`kaman_camera::ChaseController`] toward the player each frame in
+    /// [`render`](crate::Game::render) (or [`update`](crate::Game::update)). The
+    /// engine reads `camera().view_projection_matrix()` and pushes it across the
+    /// render seam **before** the game's `render` runs, so whatever pose the game
+    /// last set is the pose the frame is drawn from. The game never touches the
+    /// render backend's camera (there isn't one) — the view crosses the seam as a
+    /// plain matrix.
+    #[must_use]
+    pub fn camera_mut(&mut self) -> &mut Camera {
+        self.camera
     }
 
     /// The read-only [`InputState`] snapshot for the current frame.

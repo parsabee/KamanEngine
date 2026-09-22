@@ -107,7 +107,6 @@ use kaman_render_api::{
     RenderDevice, TextureData, TextureHandle,
 };
 
-use crate::camera::Camera;
 use crate::frame_sync::FrameSemaphore;
 use crate::registry::Registry;
 use crate::vertex::{LightUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
@@ -182,7 +181,14 @@ pub struct MetalRenderer {
     pipeline_state: metal::RenderPipelineState,
     depth_stencil_state: metal::DepthStencilState,
     light_buffer: metal::Buffer,
-    camera: Camera,
+
+    // The world → clip view-projection, pushed through the seam via
+    // `set_view_projection` (KE-0205). The backend owns no camera; the
+    // game/engine computes this from a `kaman_camera::Camera` and hands it across
+    // the seam. Combined with each draw's model transform to form the MVP. It is
+    // **sticky** — retained across frames until replaced (the engine pushes it
+    // once per frame before the game records) — and defaults to identity.
+    view_projection: Mat4,
 
     // Persistent per-draw uniform ring (KE-0104). One `MTLBuffer` allocated at
     // build time and re-written every frame at rotating, 256-byte-aligned
@@ -272,8 +278,8 @@ impl MetalRenderer {
             let _: () = msg_send![view, setLayer: layer_ptr];
         }
 
-        let aspect = width as f32 / height.max(1) as f32;
-        Self::build(device, command_queue, RenderTarget::Surface { layer }, aspect)
+        let _ = (width, height);
+        Self::build(device, command_queue, RenderTarget::Surface { layer })
     }
 
     /// Construct a headless backend that renders into an offscreen texture.
@@ -296,7 +302,6 @@ impl MetalRenderer {
         desc.set_storage_mode(metal::MTLStorageMode::Managed);
         let color = device.new_texture(&desc);
 
-        let aspect = width as f32 / height.max(1) as f32;
         Some(Self::build(
             device,
             command_queue,
@@ -305,17 +310,11 @@ impl MetalRenderer {
                 width: width as u64,
                 height: height as u64,
             },
-            aspect,
         ))
     }
 
-    /// Shared construction: compile the pipeline, light buffer, and camera.
-    fn build(
-        device: Device,
-        command_queue: metal::CommandQueue,
-        target: RenderTarget,
-        aspect_ratio: f32,
-    ) -> Self {
+    /// Shared construction: compile the pipeline and the light buffer.
+    fn build(device: Device, command_queue: metal::CommandQueue, target: RenderTarget) -> Self {
         // Rasterization shader library. Default: compile the MSL source at runtime
         // (no toolchain needed). With `precompiled-shaders`: load a .metallib that
         // build.rs compiled ahead of time (requires the Metal toolchain). See KE-0107.
@@ -381,8 +380,6 @@ impl MetalRenderer {
             MTLResourceOptions::CPUCacheModeDefaultCache,
         );
 
-        let camera = Camera::new(aspect_ratio);
-
         // Persistent uniform ring: one buffer covering all in-flight frames.
         let ring_draws_per_frame = INITIAL_MAX_DRAWS_PER_FRAME;
         let ring_len = ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT * UNIFORM_RING_STRIDE;
@@ -396,7 +393,8 @@ impl MetalRenderer {
             pipeline_state,
             depth_stencil_state,
             light_buffer,
-            camera,
+            // No camera pushed yet; identity until the first `set_view_projection`.
+            view_projection: Mat4::IDENTITY,
             uniform_ring,
             ring_draws_per_frame,
             ring_cursor: 0,
@@ -414,11 +412,6 @@ impl MetalRenderer {
             alloc_count: AtomicU64::new(2),
             frame: None,
         }
-    }
-
-    /// Mutable access to the backend camera (view/projection).
-    pub fn camera_mut(&mut self) -> &mut Camera {
-        &mut self.camera
     }
 
     /// Read back the offscreen color texture as row-major BGRA8 bytes.
@@ -755,7 +748,11 @@ impl FrameRecorder for MetalRenderer {
         // registers a completion handler to release one).
         self.frame_semaphore.acquire();
 
-        self.camera.set_aspect_ratio(width as f32 / height.max(1) as f32);
+        // NOTE: the view-projection is deliberately NOT reset here. It is sticky
+        // across frames (seam contract, KE-0205): the engine loop pushes it once
+        // per frame via `set_view_projection` *before* the game opens its frame,
+        // so clearing it in `begin_frame` would wipe the engine's camera before
+        // the first draw. It defaults to identity until the first push.
 
         let command_buffer = self.command_queue.new_command_buffer().to_owned();
         let render_pass_descriptor = metal::RenderPassDescriptor::new();
@@ -803,6 +800,13 @@ impl FrameRecorder for MetalRenderer {
         });
     }
 
+    fn set_view_projection(&mut self, view_proj: Mat4) {
+        // Store this frame's world → clip matrix; `draw_mesh` multiplies it by
+        // each instance's model transform to form the MVP (KE-0205). Per the seam
+        // contract this is pushed once per frame before the first `draw_mesh`.
+        self.view_projection = view_proj;
+    }
+
     fn set_pipeline(&mut self, _handle: PipelineHandle) {
         // Single built-in pipeline; already bound in `begin_frame`. This exists
         // to honor the seam protocol (a pipeline must be selected before draws).
@@ -841,7 +845,7 @@ impl FrameRecorder for MetalRenderer {
         // path** (KR1.2). KE-0104 replaced the prototype's per-draw allocation
         // with this ring sub-allocation.
         let model: Mat4 = transform.to_matrix();
-        let mvp = self.camera.view_projection_matrix() * model;
+        let mvp = self.view_projection * model;
         let uniforms = Uniforms {
             model_view_projection: mvp.to_cols_array_2d(),
         };

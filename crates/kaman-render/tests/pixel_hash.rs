@@ -30,6 +30,7 @@
 //! skip line and returns) instead of failing, so it never breaks a GPU-less
 //! build. On a real Mac (this dev machine) it runs and asserts.
 
+use kaman_camera::Camera;
 use kaman_math::glam::{Quat, Vec3};
 use kaman_math::Transform;
 use kaman_render::MetalRenderer;
@@ -47,6 +48,20 @@ const HEIGHT: u32 = 64;
 ///
 /// Blessed from the migrated `kaman-render` first correct frame. Hold stable
 /// across KE-0103/0104/0105; re-bless only via the documented `BLESS=1` path.
+///
+/// # KE-0205 re-bless review (value unchanged)
+///
+/// The camera **path** changed: the view now flows through the render seam
+/// (`FrameRecorder::set_view_projection`) from a `kaman_camera::Camera` this test
+/// builds, instead of a backend-owned inline camera. The camera **math** did not:
+/// `Camera::new(WIDTH/HEIGHT)` (aspect `64/64 = 1.0`, the exact aspect the old
+/// backend applied for this offscreen size) with the same
+/// `set_position((0,0,3))` / `set_target((0,0,0))` and identical defaults (45°
+/// FOV, `0.1..100.0` clip, `+Y` up) yields the **identical** view-projection
+/// matrix. The geometry (`reference_cube`) and its transform are untouched, so the
+/// rendered pixels — and thus the FNV-1a hash — are byte-for-byte the same. The
+/// value below is therefore confirmed (re-verified through the new seam path),
+/// not changed.
 const REFERENCE_HASH: u64 = 0x292c5df343b5eba8;
 
 /// FNV-1a 64-bit hash over a byte buffer. Self-contained (no external crate) so
@@ -126,11 +141,12 @@ fn pack_vertices(vertices: &[[f32; 9]]) -> Vec<u8> {
 fn render_reference() -> Option<Vec<u8>> {
     let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
 
-    // Fixed camera looking at the cube.
-    renderer
-        .camera_mut()
-        .set_position(Vec3::new(0.0, 0.0, 3.0));
-    renderer.camera_mut().set_target(Vec3::new(0.0, 0.0, 0.0));
+    // Fixed camera looking at the cube. The view now comes through the seam
+    // (`set_view_projection`, KE-0205) instead of a backend-owned camera: build a
+    // `kaman_camera::Camera` here and push its view-projection below.
+    let mut camera = Camera::new(WIDTH as f32 / HEIGHT as f32);
+    camera.set_position(Vec3::new(0.0, 0.0, 3.0));
+    camera.set_target(Vec3::new(0.0, 0.0, 0.0));
 
     let (vertices, indices) = reference_cube();
     let bytes = pack_vertices(&vertices);
@@ -152,6 +168,7 @@ fn render_reference() -> Option<Vec<u8>> {
     );
 
     renderer.begin_frame();
+    renderer.set_view_projection(camera.view_projection_matrix());
     renderer.set_pipeline(pipeline);
     renderer.draw_mesh(mesh, &transform, &MaterialParams::default());
     renderer.submit();

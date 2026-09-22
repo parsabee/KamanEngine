@@ -39,3 +39,9 @@ cocoa.workspace = true
 core-graphics-types.workspace = true
 raw-window-handle.workspace = true
 winit.workspace = true
+
+[dev-dependencies]
+# Tests build a real Camera to produce the view-projection they push through the
+# seam (`set_view_projection`). The backend itself owns no camera and never
+# depends on kaman-camera.
+kaman-camera.workspace = true

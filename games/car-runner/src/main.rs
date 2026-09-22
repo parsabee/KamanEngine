@@ -40,6 +40,7 @@
 
 use clap::Parser;
 
+use kaman_camera::ChaseController;
 use kaman_core::input::Key;
 use kaman_core::{EngineCtx, Game};
 use kaman_ecs::hecs::Entity;
@@ -183,6 +184,10 @@ struct CarRunner {
     box_mesh: Option<MeshHandle>,
     /// The render pipeline, created once in `init`.
     pipeline: Option<PipelineHandle>,
+    /// The chase camera controller that keeps the player framed (KE-0205). It
+    /// trails the box from behind and above along the travel axis, with light
+    /// smoothing so the follow eases rather than snapping.
+    chase: ChaseController,
 }
 
 impl CarRunner {
@@ -208,6 +213,18 @@ impl CarRunner {
     const START_LANE: usize = Self::LANES / 2;
     /// Fixed seed for the run's PRNG, so a headless run is fully reproducible.
     const SEED: u64 = 0xC0FF_EE00_1234_5678;
+    /// How far behind the player the chase camera trails, along travel.
+    const CHASE_DISTANCE: f32 = 12.0;
+    /// How high above the player the chase camera sits.
+    const CHASE_HEIGHT: f32 = 6.0;
+    /// Height above the player the camera aims at, so the road ahead stays framed.
+    const CHASE_LOOK_AT_HEIGHT: f32 = 1.5;
+    /// Chase smoothing (per fixed step); small enough to ease, large enough to
+    /// keep the fast-moving box centered.
+    const CHASE_SMOOTHING: f32 = 0.2;
+    /// The car's travel direction (the streaming axis, `-Z`); the chase camera
+    /// trails along it.
+    const FORWARD: Vec3 = Vec3::new(0.0, 0.0, -1.0);
 
     /// World-space `X` of a lane center.
     fn lane_x(lane: usize) -> f32 {
@@ -233,6 +250,9 @@ impl CarRunner {
             rng: Rng::new(Self::SEED),
             box_mesh: None,
             pipeline: None,
+            chase: ChaseController::new(Self::CHASE_DISTANCE, Self::CHASE_HEIGHT)
+                .with_look_at_height(Self::CHASE_LOOK_AT_HEIGHT)
+                .with_smoothing(Self::CHASE_SMOOTHING),
         }
     }
 
@@ -456,6 +476,14 @@ impl Game for CarRunner {
                 t.transform.position = player_pos;
             }
         }
+
+        // Follow the box with the chase camera (KE-0205): trail it from behind and
+        // above along the travel axis, looking at it. The engine pushes the
+        // camera's view-projection across the render seam before `render`, so the
+        // car stays framed. Done in `update` (post-rebase) so the camera tracks
+        // the same shifted world the draws use.
+        self.chase
+            .follow(ctx.camera_mut(), player_pos, Self::FORWARD);
 
         // Then stream ahead / despawn behind, with the player as the focus.
         let tile_depth = ctx.scene().config().spawn_interval;

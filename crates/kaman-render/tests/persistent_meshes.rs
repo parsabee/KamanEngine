@@ -20,7 +20,6 @@
 //! Like the pixel-hash test, these **skip** when no Metal device is available
 //! (GPU-less CI), and run + assert on a real Mac.
 
-use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render::MetalRenderer;
 use kaman_render_api::{
@@ -100,8 +99,6 @@ fn per_frame_path_allocates_no_mesh_buffers() {
         eprintln!("skipping: no Metal device (GPU-less runner)");
         return;
     };
-    r.camera_mut().set_position(Vec3::new(0.0, 0.0, 3.0));
-    r.camera_mut().set_target(Vec3::ZERO);
 
     // Load time: upload two meshes once.
     let m0 = make_mesh(&mut r);
@@ -137,8 +134,6 @@ fn uniform_ring_slot_offsets_are_256_byte_aligned() {
         eprintln!("skipping: no Metal device (GPU-less runner)");
         return;
     };
-    r.camera_mut().set_position(Vec3::new(0.0, 0.0, 3.0));
-    r.camera_mut().set_target(Vec3::ZERO);
 
     // The per-slot stride is the Apple GPU offset requirement.
     assert_eq!(
@@ -170,8 +165,6 @@ fn drawing_a_destroyed_mesh_is_a_defined_no_op() {
         eprintln!("skipping: no Metal device (GPU-less runner)");
         return;
     };
-    r.camera_mut().set_position(Vec3::new(0.0, 0.0, 3.0));
-    r.camera_mut().set_target(Vec3::ZERO);
 
     let mesh = make_mesh(&mut r);
     assert_eq!(r.live_mesh_count(), 1);

@@ -19,10 +19,20 @@ touching ECS, physics, scene, or scripting code.
 `kaman-render-api` defines only:
 - Opaque resource handles (`MeshHandle`, `TextureHandle`, `PipelineHandle`).
 - `RenderDevice` — resource create/destroy, called at load time.
-- `FrameRecorder` — per-frame `set_pipeline` / `bind` / `draw` / `submit`.
+- `FrameRecorder` — per-frame `set_view_projection` / `set_pipeline` / `bind` / `draw` / `submit`.
 
 No crate above the seam may import `metal` types. This is enforced by crate boundaries so a
 full renderer rewrite is provably contained.
+
+**Camera crosses the seam as a matrix (KE-0205).** `FrameRecorder::set_view_projection(Mat4)`
+carries the view — a plain `kaman_math::glam::Mat4`, **no GPU type**. The engine owns a
+`kaman_camera::Camera`; the driver pushes its `view_projection_matrix()` through the seam once per
+frame before `Game::render`, and the backend forms `mvp = view_proj * model` per draw. The value is
+sticky (retained until replaced) so the engine's push survives the game's `begin_frame`. This
+**replaced and deleted** the minimal camera KE-0102 had temporarily inlined into `kaman-render`
+(`kaman-render/src/camera.rs`); the real camera now lives in `kaman-camera`, which also provides the
+`ChaseController` follow camera the `car-runner` uses. `kaman-core → kaman-camera → kaman-math` keeps
+the dependency direction acyclic and `kaman-core` metal-free.
 
 As of KE-0102 the concrete backend exists **below** this seam: `kaman-render` provides
 `MetalRenderer`, a raw-Metal type implementing both `RenderDevice` and `FrameRecorder` (and

@@ -12,6 +12,7 @@
 //! engine state in [`Loop`]. This is the single loop implementation the ticket
 //! calls for: neither driver reimplements the accumulator.
 
+use kaman_camera::Camera;
 use kaman_perf::PerfTracker;
 use kaman_scene::Scene;
 use std::time::Duration;
@@ -35,6 +36,12 @@ pub struct Loop {
     pub scene: Scene,
     /// The current input snapshot the game reads.
     pub input: InputState,
+    /// The engine-owned [`Camera`] (KE-0205). The game drives it through
+    /// [`EngineCtx::camera_mut`](crate::EngineCtx::camera_mut) (e.g. via a chase
+    /// controller); each frame the driver pushes its view-projection across the
+    /// render seam before [`Game::render`](crate::Game::render), so the game owns
+    /// the view while the render backend stays camera-free.
+    pub camera: Camera,
     /// Frame-timing tracker.
     pub perf: PerfTracker,
     /// The fixed-timestep accumulator shared with the windowed driver.
@@ -44,17 +51,24 @@ pub struct Loop {
 }
 
 impl Loop {
-    /// A fresh loop: empty scene, no input, zeroed accumulator, un-initialized.
+    /// A fresh loop: empty scene, no input, zeroed accumulator, un-initialized,
+    /// and a default [`Camera`] at [`DEFAULT_ASPECT`](Self::DEFAULT_ASPECT).
     #[must_use]
     pub fn new() -> Self {
         Self {
             scene: Scene::new(),
             input: InputState::new(),
+            camera: Camera::new(Self::DEFAULT_ASPECT),
             perf: PerfTracker::new(),
             accumulator: Accumulator::new(),
             initialized: false,
         }
     }
+
+    /// Default camera aspect ratio (4:3) until a driver reports a real viewport
+    /// size. The windowed driver updates it on resize; the headless driver never
+    /// renders pixels, so the value is inconsequential there.
+    const DEFAULT_ASPECT: f32 = 4.0 / 3.0;
 
     /// Run [`Game::init`](crate::Game::init) once, against `renderer`.
     ///
@@ -66,6 +80,7 @@ impl Loop {
             let mut ctx = EngineCtx::new(
                 &mut self.scene,
                 renderer,
+                &mut self.camera,
                 &self.input,
                 self.perf.snapshot(),
                 0.0,
@@ -119,16 +134,37 @@ pub fn drive_frame<G: Game>(
     // followed by exactly one physics step so the solver stays in lockstep.
     for _ in 0..steps {
         {
-            let mut ctx = EngineCtx::new(&mut lp.scene, renderer, &lp.input, snapshot, 0.0);
+            let mut ctx = EngineCtx::new(
+                &mut lp.scene,
+                renderer,
+                &mut lp.camera,
+                &lp.input,
+                snapshot,
+                0.0,
+            );
             game.update(&mut ctx, FIXED_DT);
         }
         lp.scene.step_physics();
     }
 
+    // Push the engine camera's view-projection across the render seam BEFORE the
+    // game records its frame (KE-0205). The seam value is sticky, so the game's
+    // own `begin_frame` inside `render` preserves it and every draw this frame is
+    // drawn from the camera the game last positioned (e.g. a chase controller in
+    // `update`). The backend below the seam owns no camera — only this matrix.
+    renderer.set_view_projection(lp.camera.view_projection_matrix());
+
     // Exactly one render per frame, carrying the interpolation alpha.
     {
         let alpha = lp.accumulator.alpha();
-        let mut ctx = EngineCtx::new(&mut lp.scene, renderer, &lp.input, snapshot, alpha);
+        let mut ctx = EngineCtx::new(
+            &mut lp.scene,
+            renderer,
+            &mut lp.camera,
+            &lp.input,
+            snapshot,
+            alpha,
+        );
         game.render(&mut ctx);
     }
 
@@ -226,5 +262,46 @@ mod tests {
         assert_eq!(steps2, 0);
         assert_eq!(game.updates, MAX_STEPS_PER_FRAME);
         assert_eq!(game.renders, 2);
+    }
+
+    /// The engine owns the camera and pushes its view-projection across the render
+    /// seam each frame **before** `Game::render` (KE-0205). A game that moves the
+    /// camera in `update` sees that pose reflected in the recorder before it draws.
+    #[test]
+    fn driver_pushes_the_engine_camera_view_projection_before_render() {
+        use kaman_math::glam::Vec3;
+
+        /// A game that moves the engine camera in `update` and records a one-draw
+        /// frame in `render` (whose `begin_frame` must not clear the seam camera).
+        #[derive(Default)]
+        struct MovesCamera;
+        impl Game for MovesCamera {
+            fn init(&mut self, _ctx: &mut EngineCtx) {}
+            fn update(&mut self, ctx: &mut EngineCtx, _dt: f32) {
+                ctx.camera_mut().set_position(Vec3::new(1.0, 2.0, 3.0));
+                ctx.camera_mut().set_target(Vec3::ZERO);
+            }
+            fn render(&mut self, ctx: &mut EngineCtx) {
+                ctx.renderer().begin_frame();
+                ctx.renderer().submit();
+            }
+        }
+
+        let mut lp = Loop::new();
+        let mut renderer = NullRenderer::new();
+        let mut game = MovesCamera;
+        lp.init_once(&mut game, &mut renderer);
+        drive_frame(
+            &mut lp,
+            &mut game,
+            &mut renderer,
+            Duration::from_secs_f64(f64::from(FIXED_DT)),
+        );
+
+        // The engine pushed the moved camera's view-projection through the seam,
+        // and the game's begin_frame did not clear it (sticky), so the recorder
+        // still holds exactly the engine camera's view-projection.
+        let expected = lp.camera.view_projection_matrix();
+        assert_eq!(renderer.view_projection(), Some(expected));
     }
 }
