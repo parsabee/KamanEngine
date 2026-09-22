@@ -9,11 +9,10 @@
 //!
 //! 1. **Allocation-free per-frame path (KR1.2).** After meshes are uploaded once
 //!    at load time, the per-frame path (`begin_frame` … `submit`) issues **zero**
-//!    `new_buffer*` calls *for the mesh geometry*. The only allocation left is the
-//!    per-draw uniform buffer (KE-0104 removes it); this test asserts the mesh
-//!    contribution is gone by drawing with and without extra meshes and checking
-//!    the per-frame delta equals exactly one uniform buffer per draw — no mesh
-//!    upload.
+//!    `new_buffer*` calls. Meshes are persistent (KE-0103) and per-draw uniforms
+//!    are written into the persistent uniform ring (KE-0104), so the per-frame
+//!    allocation delta is exactly `0` — this is the KR1.2 "zero allocations in
+//!    the per-frame path" proof.
 //! 2. **Stale-handle invariant.** Drawing a `destroy_mesh`'d handle is a defined
 //!    no-op (the generational registry rejects it), never a silent wrong-buffer
 //!    draw.
@@ -113,9 +112,9 @@ fn per_frame_path_allocates_no_mesh_buffers() {
     // before we measure — we want to prove *steady-state* per-frame allocation.
     draw_one(&mut r, m0);
 
-    // Measure a frame that draws both persistent meshes. The only allocation on
-    // the per-frame path is one uniform buffer per draw (KE-0104 removes it);
-    // crucially, NO mesh buffer is re-uploaded.
+    // Measure a frame that draws both persistent meshes. Meshes are persistent
+    // (KE-0103) and per-draw uniforms come from the persistent ring (KE-0104),
+    // so the per-frame path must allocate NOTHING.
     let before = r.allocation_count();
     r.begin_frame();
     r.draw_mesh(m0, &Transform::identity(), &MaterialParams::default());
@@ -123,13 +122,46 @@ fn per_frame_path_allocates_no_mesh_buffers() {
     r.submit();
     let per_frame = r.allocation_count() - before;
 
-    // Exactly one uniform buffer per draw, and zero mesh uploads. If a mesh were
-    // re-uploaded, this would be > 2.
+    // KR1.2: zero allocations on the per-frame path. If a mesh were re-uploaded
+    // or a per-draw uniform buffer allocated, this would be > 0.
     assert_eq!(
-        per_frame, 2,
-        "per-frame path allocated {per_frame} buffers for 2 draws; expected 2 \
-         (one uniform each) and ZERO mesh uploads"
+        per_frame, 0,
+        "per-frame path allocated {per_frame} buffers for 2 draws; expected 0 \
+         (persistent meshes + uniform ring, ZERO hot-path allocation)"
     );
+}
+
+#[test]
+fn uniform_ring_slot_offsets_are_256_byte_aligned() {
+    let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
+        eprintln!("skipping: no Metal device (GPU-less runner)");
+        return;
+    };
+    r.camera_mut().set_position(Vec3::new(0.0, 0.0, 3.0));
+    r.camera_mut().set_target(Vec3::ZERO);
+
+    // The per-slot stride is the Apple GPU offset requirement.
+    assert_eq!(
+        r.ring_stride_for_test() % 256,
+        0,
+        "uniform ring stride must be a multiple of 256"
+    );
+
+    let mesh = make_mesh(&mut r);
+
+    // Draw several meshes in one frame and check that EACH bound uniform offset
+    // is 256-byte aligned (the Apple GPU `set_vertex_buffer` offset rule).
+    r.begin_frame();
+    for _ in 0..8 {
+        let offset = r.ring_next_offset_for_test();
+        assert_eq!(
+            offset % 256,
+            0,
+            "uniform ring slot offset {offset} is not 256-byte aligned"
+        );
+        r.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
+    }
+    r.submit();
 }
 
 #[test]
@@ -148,34 +180,51 @@ fn drawing_a_destroyed_mesh_is_a_defined_no_op() {
     r.destroy_mesh(mesh);
     assert_eq!(r.live_mesh_count(), 0);
 
-    // Drawing the stale handle must not allocate a uniform buffer or draw — the
-    // registry lookup fails cleanly before any GPU work. So the per-frame
-    // allocation delta is 0 (no uniform buffer for a rejected draw).
-    let before = r.allocation_count();
-    draw_one(&mut r, mesh);
-    let per_frame = r.allocation_count() - before;
+    // Drawing the stale handle must not draw — the registry lookup fails cleanly
+    // before any GPU work. The per-frame allocation delta is 0 either way now
+    // (uniforms come from the ring), so correctness of the no-op is pinned by
+    // the ring-cursor: a rejected draw must NOT consume a ring slot. Measured
+    // inside one frame (begin_frame resets the cursor to 0).
+    r.begin_frame();
+    let before_cursor = r.ring_cursor_for_test();
+    r.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
+    let after_cursor = r.ring_cursor_for_test();
+    r.submit();
     assert_eq!(
-        per_frame, 0,
-        "a stale-handle draw must be a no-op (no uniform buffer), got {per_frame} allocations"
+        after_cursor, before_cursor,
+        "a stale-handle draw must be a no-op — it must not consume a ring slot"
     );
 
     // A brand-new mesh reusing the freed slot gets a DIFFERENT handle and draws
-    // fine — the stale handle never resolves to it.
+    // fine — the stale handle never resolves to it. A live draw consumes exactly
+    // one ring slot (and, per KR1.2, allocates nothing).
     let fresh = make_mesh(&mut r);
     assert_ne!(fresh, mesh, "reused slot must yield a new (bumped) handle");
-    let before = r.allocation_count();
-    draw_one(&mut r, fresh);
-    assert!(
-        r.allocation_count() > before,
-        "a live mesh should draw (allocating its uniform buffer)"
+    let before_alloc = r.allocation_count();
+    r.begin_frame();
+    let before_cursor = r.ring_cursor_for_test();
+    r.draw_mesh(fresh, &Transform::identity(), &MaterialParams::default());
+    let after_cursor = r.ring_cursor_for_test();
+    r.submit();
+    assert_eq!(
+        after_cursor - before_cursor,
+        1,
+        "a live mesh should draw, consuming exactly one uniform-ring slot"
+    );
+    assert_eq!(
+        r.allocation_count(),
+        before_alloc,
+        "a live mesh draw must not allocate (uniform ring, KR1.2)"
     );
 
     // The stale handle is still a no-op even after slot reuse.
-    let before = r.allocation_count();
-    draw_one(&mut r, mesh);
+    r.begin_frame();
+    let before_cursor = r.ring_cursor_for_test();
+    r.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
+    let after_cursor = r.ring_cursor_for_test();
+    r.submit();
     assert_eq!(
-        r.allocation_count() - before,
-        0,
+        after_cursor, before_cursor,
         "stale handle must stay a no-op after its slot is reused"
     );
 }

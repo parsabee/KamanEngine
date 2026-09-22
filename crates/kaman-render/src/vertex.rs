@@ -26,12 +26,37 @@ pub struct Vertex {
 /// Per-draw transform uniform: the model-view-projection matrix.
 ///
 /// Matches `Uniforms` in `rasterization.metal` — a single `float4x4`, 64 bytes.
+///
+/// # Layout contract
+///
+/// This `#[repr(C)]` struct is written verbatim into a GPU `MTLBuffer` and read
+/// back by `rasterization.metal`'s `Uniforms` at `[[buffer(1)]]`. The two sides
+/// must stay in lockstep:
+///
+/// - Rust `model_view_projection: [[f32; 4]; 4]` (column-major) ⇔ MSL
+///   `float4x4 modelViewProjection`.
+/// - Size is **exactly 64 bytes** (asserted by [`uniforms_is_64_bytes`]).
+/// - When sub-allocated from the uniform ring the struct is written at a
+///   [`UNIFORM_RING_STRIDE`]-byte-aligned offset so it satisfies the Apple GPU
+///   256-byte `set_vertex_buffer` offset requirement; the struct itself only
+///   needs its natural 16-byte alignment, the stride padding lives in the ring.
+///
+/// [`uniforms_is_64_bytes`]: tests::uniforms_is_64_bytes
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Uniforms {
     /// Combined model-view-projection matrix, column-major.
     pub model_view_projection: [[f32; 4]; 4],
 }
+
+/// Per-slot byte stride of the uniform ring.
+///
+/// Apple GPUs require the `offset` passed to `setVertexBuffer:offset:atIndex:`
+/// to be a multiple of 256 bytes. A [`Uniforms`] is only 64 bytes, so each ring
+/// slot is padded up to this stride and every per-draw offset is a multiple of
+/// it — see [`crate::backend`]'s uniform-ring docs. Kept next to [`Uniforms`] so
+/// the layout contract and its GPU alignment requirement live together.
+pub const UNIFORM_RING_STRIDE: u64 = 256;
 
 /// Directional light + Phong parameters shared across all draws in a frame.
 ///
@@ -86,6 +111,15 @@ mod tests {
     #[test]
     fn uniforms_is_64_bytes() {
         assert_eq!(size_of::<Uniforms>(), 64);
+    }
+
+    #[test]
+    fn uniform_ring_stride_is_256_aligned_and_holds_uniforms() {
+        // Apple GPU MTLBuffer offset requirement: every ring slot offset is a
+        // multiple of 256, so the stride itself must be 256-aligned and large
+        // enough to hold a `Uniforms`.
+        assert_eq!(UNIFORM_RING_STRIDE % 256, 0);
+        assert!(UNIFORM_RING_STRIDE >= size_of::<Uniforms>() as u64);
     }
 
     #[test]

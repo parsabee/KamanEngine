@@ -16,12 +16,34 @@
 //! KE-0103 makes **mesh** buffers persistent: geometry is deindexed and uploaded
 //! into an `MTLBuffer` **once** in [`create_mesh`](RenderDevice::create_mesh) and
 //! kept in a generational [`Registry`], so the per-frame draw path performs **no
-//! mesh allocation** — it looks the buffer up by [`MeshHandle`]. The one
-//! remaining per-frame allocation is the per-draw uniform buffer, kept
-//! deliberately here exactly as the prototype did (KE-0104 replaces it with a
-//! ring). The depth texture is the one texture the prototype already cached, and
-//! that caching is preserved. Making mesh upload persistent does not change any
-//! rendered pixel, so the KE-0102 pixel-hash guard stays valid.
+//! mesh allocation** — it looks the buffer up by [`MeshHandle`]. KE-0104 removes
+//! the last per-frame allocation, the per-draw uniform buffer, by writing each
+//! draw's MVP into a persistent **uniform ring** at a rotating, 256-byte-aligned
+//! offset (see [the ring section](#uniform-ring-ke-0104)). The depth texture is
+//! the one texture the prototype already cached, and that caching is preserved.
+//! None of this changes any rendered pixel, so the KE-0102 pixel-hash guard
+//! stays valid.
+//!
+//! # Uniform ring (KE-0104)
+//!
+//! A single persistent uniform `MTLBuffer` is allocated once in
+//! [`build`](MetalRenderer). Each `draw_mesh` writes its [`Uniforms`] into the
+//! next ring slot at a **256-byte-aligned offset** (the Apple GPU
+//! `set_vertex_buffer` offset requirement) and binds the ring at that offset —
+//! no `new_buffer*` on the hot path. Invariants:
+//!
+//! - **Stride/alignment:** each slot is [`UNIFORM_RING_STRIDE`] (256) bytes so
+//!   every per-draw offset is a multiple of 256; a 64-byte [`Uniforms`] fits
+//!   with padding.
+//! - **Capacity:** the ring holds `ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT`
+//!   slots; [`MAX_FRAMES_IN_FLIGHT`] is `3`. A frame that exceeds its per-frame
+//!   capacity grows the ring (doubling, an allocation-time event), never a
+//!   per-draw alloc in steady state.
+//! - **Don't stomp an in-flight slot:** the ring is partitioned into
+//!   `MAX_FRAMES_IN_FLIGHT` disjoint regions. KE-0104 always writes region 0;
+//!   **KE-0105** selects the region with `frame_index % MAX_FRAMES_IN_FLIGHT`
+//!   (behind the frames-in-flight semaphore) so the CPU never overwrites a
+//!   region the GPU is still reading. The cursor resets each `begin_frame`.
 //!
 //! # Allocation instrument (KR1.2)
 //!
@@ -29,8 +51,9 @@
 //! [`count_new_buffer`](MetalRenderer) helpers that bump an
 //! [`allocation_count`](MetalRenderer::allocation_count). Tests snapshot the
 //! count around the per-frame path and assert it stays `0` for the reference
-//! scene after load, proving the mesh-allocation removal. The counter is public
-//! so KE-0104/0105 can reuse it for the uniform-ring and frames-in-flight work.
+//! scene after load — with meshes persistent (KE-0103) and uniforms
+//! ring-allocated (KE-0104) the per-frame delta is now **0**. The counter is
+//! public so KE-0105 can reuse it for the frames-in-flight work.
 //!
 //! # Vertex color vs. material
 //!
@@ -59,11 +82,31 @@ use kaman_render_api::{
 
 use crate::camera::Camera;
 use crate::registry::Registry;
-use crate::vertex::{LightUniforms, Uniforms, Vertex};
+use crate::vertex::{LightUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
 
 /// The clear color of the reference scene (dark blue-grey), matching the
 /// prototype. Load-bearing for the pixel hash.
 const CLEAR_COLOR: (f64, f64, f64, f64) = (0.1, 0.1, 0.15, 1.0);
+
+/// Number of frames the CPU may have in flight before it must wait on the GPU.
+///
+/// The uniform ring is sized so each of `MAX_FRAMES_IN_FLIGHT` frames owns a
+/// disjoint slice: while the GPU reads frame *N*'s slice the CPU writes frame
+/// *N+1*'s. KE-0104 only carves the ring into these regions and always writes
+/// region 0; **KE-0105** adds the frames-in-flight semaphore and selects the
+/// region with `frame_index % MAX_FRAMES_IN_FLIGHT` (see
+/// [`MetalRenderer::begin_frame`]). Defined here so both tickets share one
+/// source of truth.
+pub const MAX_FRAMES_IN_FLIGHT: u64 = 3;
+
+/// Initial per-frame uniform-slot capacity of the ring, per in-flight frame.
+///
+/// The ring starts sized for `INITIAL_MAX_DRAWS_PER_FRAME * MAX_FRAMES_IN_FLIGHT`
+/// uniform slots. If a frame issues more draws than the current capacity, the
+/// ring **grows** at that draw (an allocation-time event, counted by the KR1.2
+/// instrument) rather than allocating per draw — steady state stays allocation
+/// free. Growth doubles the per-frame capacity so it amortizes.
+const INITIAL_MAX_DRAWS_PER_FRAME: u64 = 256;
 
 /// A persistent mesh resource: a deindexed vertex buffer, uploaded once, and its
 /// vertex count. Held in the [`Registry`] for the mesh's whole lifetime.
@@ -112,6 +155,23 @@ pub struct MetalRenderer {
     depth_stencil_state: metal::DepthStencilState,
     light_buffer: metal::Buffer,
     camera: Camera,
+
+    // Persistent per-draw uniform ring (KE-0104). One `MTLBuffer` allocated at
+    // build time and re-written every frame at rotating, 256-byte-aligned
+    // offsets, so the per-frame draw path issues **no** `new_buffer*` (KR1.2).
+    // See `write_uniform_to_ring` for the sub-allocation contract.
+    uniform_ring: metal::Buffer,
+    // Uniform slots per in-flight frame region; the ring holds
+    // `ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT` slots total. Grows (with a
+    // fresh, larger buffer) if a frame exceeds it — never a per-draw alloc.
+    ring_draws_per_frame: u64,
+    // Next free uniform slot **within the current frame's region**, reset to 0 in
+    // `begin_frame`. Bounded by `ring_draws_per_frame` (grow if it would exceed).
+    ring_cursor: u64,
+    // Base slot index of the region this frame writes into. KE-0104 always uses
+    // region 0; KE-0105 sets it to `(frame_index % MAX_FRAMES_IN_FLIGHT) *
+    // ring_draws_per_frame` so an in-flight frame's slots are never stomped.
+    ring_region_base: u64,
 
     // Cached depth texture (preserved from the prototype's one optimization).
     depth_texture: Option<metal::Texture>,
@@ -274,6 +334,12 @@ impl MetalRenderer {
 
         let camera = Camera::new(aspect_ratio);
 
+        // Persistent uniform ring: one buffer covering all in-flight frames.
+        let ring_draws_per_frame = INITIAL_MAX_DRAWS_PER_FRAME;
+        let ring_len = ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT * UNIFORM_RING_STRIDE;
+        let uniform_ring =
+            device.new_buffer(ring_len, MTLResourceOptions::CPUCacheModeDefaultCache);
+
         Self {
             device,
             command_queue,
@@ -282,13 +348,18 @@ impl MetalRenderer {
             depth_stencil_state,
             light_buffer,
             camera,
+            uniform_ring,
+            ring_draws_per_frame,
+            ring_cursor: 0,
+            ring_region_base: 0,
             depth_texture: None,
             depth_texture_size: (0, 0),
             meshes: Registry::new(),
             pipelines: Vec::new(),
             textures: Vec::new(),
-            // The `light_buffer` above is the one construction-time allocation.
-            alloc_count: AtomicU64::new(1),
+            // Two construction-time allocations: the `light_buffer` and the
+            // persistent `uniform_ring`. Both are load-time, off the hot path.
+            alloc_count: AtomicU64::new(2),
             frame: None,
         }
     }
@@ -356,12 +427,12 @@ impl MetalRenderer {
     /// Total number of `new_buffer*` allocations the backend has issued since
     /// construction (KR1.2 instrument).
     ///
-    /// Includes the one construction-time light-uniform buffer and every mesh
-    /// upload and per-draw uniform buffer. Tests snapshot this around the
-    /// per-frame path (`begin_frame` … `submit`) and assert the delta is `0` for
-    /// the reference scene after load, proving no mesh allocation happens on the
-    /// hot path. Exposed for reuse by KE-0104 (uniform ring) and KE-0105
-    /// (frames-in-flight).
+    /// Includes the construction-time light-uniform buffer and uniform ring, and
+    /// every mesh upload. Tests snapshot this around the per-frame path
+    /// (`begin_frame` … `submit`) and assert the delta is `0` for the reference
+    /// scene after load: meshes are persistent (KE-0103) and per-draw uniforms
+    /// come from the ring (KE-0104), so the hot path allocates nothing. Exposed
+    /// for reuse by KE-0105 (frames-in-flight).
     #[must_use]
     pub fn allocation_count(&self) -> u64 {
         self.alloc_count.load(Ordering::Relaxed)
@@ -429,6 +500,56 @@ impl MetalRenderer {
         }
     }
 
+    /// Write `uniforms` into the next slot of the uniform ring and return the
+    /// **256-byte-aligned byte offset** to bind at.
+    ///
+    /// This is the KE-0104 replacement for the prototype's per-draw
+    /// `new_buffer`: the ring is a single persistent buffer, so the steady-state
+    /// per-frame path performs **no allocation** (KR1.2). Sub-allocation rules:
+    ///
+    /// - The offset is `(ring_region_base + ring_cursor) * UNIFORM_RING_STRIDE`,
+    ///   always a multiple of 256 (the Apple GPU `set_vertex_buffer` offset
+    ///   requirement), so the caller can bind the ring at that offset directly.
+    /// - `ring_cursor` advances one slot per draw and resets in `begin_frame`;
+    ///   `ring_region_base` selects this frame's disjoint region so an in-flight
+    ///   frame's slots are never overwritten (KE-0105 sets it via
+    ///   `frame_index % MAX_FRAMES_IN_FLIGHT`).
+    /// - If the frame would exceed its region capacity the ring **grows** here
+    ///   (a load/allocation-time event, counted), never a per-draw alloc in
+    ///   steady state.
+    fn write_uniform_to_ring(&mut self, uniforms: &Uniforms) -> u64 {
+        if self.ring_cursor >= self.ring_draws_per_frame {
+            self.grow_ring();
+        }
+        let slot = self.ring_region_base + self.ring_cursor;
+        self.ring_cursor += 1;
+        let offset = slot * UNIFORM_RING_STRIDE;
+        // SAFETY: `offset + size_of::<Uniforms>()` is within the ring (slot is
+        // < total slot count) and the ring is CPU-visible; `Uniforms` is POD.
+        unsafe {
+            let dst = (self.uniform_ring.contents() as *mut u8).add(offset as usize);
+            std::ptr::write(dst as *mut Uniforms, *uniforms);
+        }
+        offset
+    }
+
+    /// Double the per-frame ring capacity and reallocate the backing buffer.
+    ///
+    /// Called only from [`write_uniform_to_ring`](Self::write_uniform_to_ring)
+    /// when a frame's draw count exceeds the current per-frame capacity — an
+    /// amortized, allocation-time event, not a per-draw one. Uniforms already
+    /// written this frame are re-issued by the caller on the next draw path, so
+    /// the old contents need not be copied; the cursor/region indices are kept.
+    fn grow_ring(&mut self) {
+        self.ring_draws_per_frame *= 2;
+        let ring_len = self.ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT * UNIFORM_RING_STRIDE;
+        self.uniform_ring =
+            self.counted_new_buffer(ring_len, MTLResourceOptions::CPUCacheModeDefaultCache);
+        // Region base must be recomputed against the new per-frame stride so it
+        // still points at this frame's region.
+        self.ring_region_base = 0;
+    }
+
     /// Number of live meshes (created minus destroyed). Test/introspection aid.
     #[must_use]
     pub fn live_mesh_count(&self) -> usize {
@@ -439,6 +560,28 @@ impl MetalRenderer {
     #[must_use]
     pub fn live_pipeline_count(&self) -> usize {
         self.pipelines.iter().filter(|p| p.is_some()).count()
+    }
+
+    /// The uniform ring's current within-frame slot cursor (0 after
+    /// `begin_frame`, advancing one per drawn mesh). Test/introspection aid used
+    /// to prove a rejected draw consumes no slot.
+    #[must_use]
+    pub fn ring_cursor_for_test(&self) -> u64 {
+        self.ring_cursor
+    }
+
+    /// The byte offset the *next* uniform-ring write will bind at. Test aid: lets
+    /// a test assert the ring's per-slot offsets are 256-byte aligned without
+    /// issuing a GPU draw.
+    #[must_use]
+    pub fn ring_next_offset_for_test(&self) -> u64 {
+        (self.ring_region_base + self.ring_cursor) * UNIFORM_RING_STRIDE
+    }
+
+    /// The per-slot byte stride of the uniform ring (256-byte aligned). Test aid.
+    #[must_use]
+    pub fn ring_stride_for_test(&self) -> u64 {
+        UNIFORM_RING_STRIDE
     }
 }
 
@@ -557,6 +700,14 @@ impl FrameRecorder for MetalRenderer {
         encoder.set_render_pipeline_state(&self.pipeline_state);
         encoder.set_depth_stencil_state(&self.depth_stencil_state);
 
+        // Reset the uniform-ring cursor for this frame. KE-0104 always writes
+        // region 0; KE-0105 will set `ring_region_base` to
+        // `(frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame` here
+        // (behind the frames-in-flight semaphore) so the CPU never overwrites a
+        // region the GPU is still reading.
+        self.ring_cursor = 0;
+        self.ring_region_base = 0;
+
         self.frame = Some(FrameState {
             command_buffer,
             encoder,
@@ -578,44 +729,42 @@ impl FrameRecorder for MetalRenderer {
     }
 
     fn draw_mesh(&mut self, mesh: MeshHandle, transform: &Transform, _material: &MaterialParams) {
-        let Some(frame) = &self.frame else {
+        if self.frame.is_none() {
             return;
-        };
+        }
         // Look the persistent vertex buffer up by handle — no allocation here.
         // A stale/freed or unknown handle is a defined no-op (the registry
-        // returns an error), never a silent wrong-buffer draw.
+        // returns an error), never a silent wrong-buffer draw. Clone the small
+        // buffer handle + count so we can drop the immutable `meshes` borrow
+        // before taking the `&mut self` uniform-ring write.
         let Ok(entry) = self.meshes.get(mesh) else {
             return;
         };
-        let Some(vertex_buffer) = &entry.vertex_buffer else {
+        let Some(vertex_buffer) = entry.vertex_buffer.clone() else {
             return;
         };
-        if entry.vertex_count == 0 {
+        let vertex_count = entry.vertex_count;
+        if vertex_count == 0 {
             return;
         }
 
-        // Per-draw MVP uniform buffer. This is the one remaining per-frame
-        // allocation, kept as the prototype had it; KE-0104 replaces it with a
-        // ring. It is counted by the KR1.2 instrument.
+        // Per-draw MVP uniform: written into the persistent uniform ring at a
+        // rotating, 256-byte-aligned offset — **no `new_buffer*` on the hot
+        // path** (KR1.2). KE-0104 replaced the prototype's per-draw allocation
+        // with this ring sub-allocation.
         let model: Mat4 = transform.to_matrix();
         let mvp = self.camera.view_projection_matrix() * model;
         let uniforms = Uniforms {
             model_view_projection: mvp.to_cols_array_2d(),
         };
-        let uniform_buffer = self.counted_new_buffer(
-            mem::size_of::<Uniforms>() as u64,
-            MTLResourceOptions::CPUCacheModeDefaultCache,
-        );
-        // SAFETY: buffer is exactly `size_of::<Uniforms>()` and CPU-visible.
-        unsafe {
-            std::ptr::write(uniform_buffer.contents() as *mut Uniforms, uniforms);
-        }
+        let uniform_offset = self.write_uniform_to_ring(&uniforms);
 
+        let frame = self.frame.as_ref().expect("frame checked Some above");
         let encoder = &frame.encoder;
-        encoder.set_vertex_buffer(0, Some(vertex_buffer), 0);
-        encoder.set_vertex_buffer(1, Some(&uniform_buffer), 0);
+        encoder.set_vertex_buffer(0, Some(&vertex_buffer), 0);
+        encoder.set_vertex_buffer(1, Some(&self.uniform_ring), uniform_offset);
         encoder.set_fragment_buffer(0, Some(&self.light_buffer), 0);
-        encoder.draw_primitives(metal::MTLPrimitiveType::Triangle, 0, entry.vertex_count);
+        encoder.draw_primitives(metal::MTLPrimitiveType::Triangle, 0, vertex_count);
     }
 
     fn submit(&mut self) {
