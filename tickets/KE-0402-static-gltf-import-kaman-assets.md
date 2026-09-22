@@ -2,7 +2,7 @@
 
 Phase:         4
 Priority:      P1
-Status:        Todo
+Status:        Done
 Integration:   New
 Size:          L · A2
 Time:          L
@@ -18,18 +18,18 @@ backend hardcodes the 36-byte `[pos,normal,color]` layout — a KE-0102 deferral
 loads a real car/obstacle mesh instead of a box. Geometry half of KR4.2 (textures are KE-0403).
 
 ## Scope & Acceptance
-- [ ] New crate `crates/kaman-assets` — **metal-free, engine-generic** (no game types); depends on
+- [x] New crate `crates/kaman-assets` — **metal-free, engine-generic** (no game types); depends on
       `gltf`, `kaman-math`, `kaman-render-api`.
-- [ ] Parse glTF meshes + node tree into a `SceneAsset` (meshes with position/normal/UV, and a node
+- [x] Parse glTF meshes + node tree into a `SceneAsset` (meshes with position/normal/UV, and a node
       hierarchy of transforms); pack onto the seam's `MeshData`/`VertexLayout`.
-- [ ] **Flexible vertex layout through the seam:** the `kaman-render` backend builds its vertex
+- [x] **Flexible vertex layout through the seam:** the `kaman-render` backend builds its vertex
       descriptor from the `VertexLayout` in `MeshData` (add UV/`Float32x2`), not a hardcoded stride.
       Keep the existing color path byte-identical (pixel-hash stable for the box scene).
-- [ ] **Upload once, reference by handle:** assets load once into persistent buffers (the KE-0103
+- [x] **Upload once, reference by handle:** assets load once into persistent buffers (the KE-0103
       registry discipline); a small load-once/dedup cache so one file parses+uploads once and is
       shared by handle across N instances.
-- [ ] A `kaman-scene`/game helper spawns ECS entities from a `SceneAsset`'s node graph.
-- [ ] `car-runner` loads a real static mesh and renders it in place of the box.
+- [x] A `kaman-scene`/game helper spawns ECS entities from a `SceneAsset`'s node graph.
+- [x] `car-runner` loads a real static mesh and renders it in place of the box.
 
 ## Technical notes
 - Optional cheap stepping stone: a tiny Wavefront `.obj` reader first to prove the file→seam path

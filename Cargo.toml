@@ -9,6 +9,7 @@ members = [
     "crates/kaman-scene",
     "crates/kaman-render-api",
     "crates/kaman-render",
+    "crates/kaman-assets",
     "crates/kaman-core",
     "games/car-runner",
 ]
@@ -40,9 +41,15 @@ kaman-camera = { path = "crates/kaman-camera" }
 kaman-scene = { path = "crates/kaman-scene" }
 kaman-render-api = { path = "crates/kaman-render-api" }
 kaman-render = { path = "crates/kaman-render" }
+kaman-assets = { path = "crates/kaman-assets" }
 kaman-core = { path = "crates/kaman-core" }
 
 glam = "0.29"
+# glTF import (KE-0402): pure-Rust parser, builds on the Command Line Tools (no
+# Metal / no C toolchain beyond std). `default-features` is disabled and only the
+# `import` + `utils` features are enabled so no image/extras baggage is pulled in
+# (textures are KE-0403).
+gltf = { version = "1.4", default-features = false, features = ["import", "utils"] }
 rapier3d = "0.22"
 hecs = "0.10"
 winit = { version = "0.30", features = ["rwh_06"] }

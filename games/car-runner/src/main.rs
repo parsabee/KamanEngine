@@ -40,16 +40,16 @@
 
 use clap::Parser;
 
+use kaman_assets::{import_gltf, MeshAsset};
 use kaman_camera::ChaseController;
 use kaman_core::input::Key;
 use kaman_core::{EngineCtx, Game};
 use kaman_ecs::hecs::Entity;
-use kaman_ecs::{DynamicTag, RenderComponent, RenderShape, StaticTag, TransformComponent};
+use kaman_ecs::{DynamicTag, RenderComponent, StaticTag, TransformComponent};
 use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render_api::{
-    MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, VertexAttribute,
-    VertexFormat, VertexLayout,
+    MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle,
 };
 use kaman_scene::Scene;
 
@@ -412,13 +412,12 @@ impl Game for CarRunner {
         let scene = ctx.scene_mut();
         self.player = Some(Self::spawn_player(scene, start));
 
-        // Upload the one shared box mesh + pipeline once.
-        let layout = mesh_layout();
-        let (vertices, indices) = match RenderShape::cube([1.0, 1.0, 1.0]) {
-            RenderShape::Mesh { vertices, indices } => (vertices, indices),
-            _ => (Vec::new(), Vec::new()),
-        };
-        let bytes = pack_vertices(&vertices);
+        // Load the one shared player mesh from a real committed glTF asset
+        // (KE-0402) instead of a procedural box: import it once, then upload its
+        // packed `[pos,normal,color]` bytes through the seam once (KE-0103) and
+        // reference it by handle for every draw thereafter.
+        let mesh: MeshAsset = load_player_mesh();
+        let layout = mesh.layout.clone();
         let renderer = ctx.renderer();
         self.pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
             vertex_shader: "vertex_main".into(),
@@ -426,8 +425,8 @@ impl Game for CarRunner {
             vertex_layout: layout.clone(),
         }));
         self.box_mesh = Some(renderer.create_mesh(&MeshData {
-            vertices: &bytes,
-            indices: &indices,
+            vertices: &mesh.vertices,
+            indices: &mesh.indices,
             layout,
         }));
 
@@ -531,40 +530,25 @@ impl Game for CarRunner {
     }
 }
 
-/// The interleaved vertex layout used by `kaman-ecs` meshes:
-/// `[position_xyz, normal_xyz, color_rgb]` at a 36-byte stride.
-fn mesh_layout() -> VertexLayout {
-    VertexLayout::new(
-        36,
-        vec![
-            VertexAttribute {
-                location: 0,
-                offset: 0,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 1,
-                offset: 12,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 2,
-                offset: 24,
-                format: VertexFormat::Float32x3,
-            },
-        ],
-    )
-}
+/// Filesystem path to the committed player mesh asset (`assets/cube.gltf`),
+/// resolved relative to this crate so it loads regardless of the working
+/// directory.
+const PLAYER_MESH_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/cube.gltf");
 
-/// Pack `[f32; 9]` vertices into tightly-interleaved bytes for the render seam.
-fn pack_vertices(vertices: &[[f32; 9]]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(vertices.len() * 36);
-    for v in vertices {
-        for f in v {
-            bytes.extend_from_slice(&f.to_ne_bytes());
-        }
-    }
-    bytes
+/// Import the shared player mesh from the committed glTF asset (KE-0402).
+///
+/// The single primitive is the whole mesh; on the (unexpected) event of a
+/// missing/empty file the game panics loudly at init rather than draw nothing —
+/// the asset is committed to the repo, so a failure here is a build/packaging
+/// bug, not a runtime condition.
+fn load_player_mesh() -> MeshAsset {
+    let scene = import_gltf(PLAYER_MESH_PATH)
+        .unwrap_or_else(|e| panic!("failed to import player mesh {PLAYER_MESH_PATH}: {e}"));
+    scene
+        .meshes
+        .into_iter()
+        .next()
+        .expect("player mesh asset has at least one mesh")
 }
 
 #[cfg(test)]

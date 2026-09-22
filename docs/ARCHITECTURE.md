@@ -45,6 +45,24 @@ process only through `kaman-render` and the game binary — never through `kaman
 firewall (`cargo tree -p kaman-core | grep metal` → nothing) still holds. The migrated renderer is
 guarded by an offscreen render pixel-hash (KR1.3, `kaman-render/tests/pixel_hash.rs`).
 
+**Flexible vertex layout through the seam (KE-0402).** The backend now builds its Metal vertex
+descriptor **from the `VertexLayout` in `MeshData`** — mapping each `VertexAttribute`'s
+`location`/`offset`/`format` (including `Float32x2` for UVs) and taking the buffer stride from
+`layout.stride` — instead of a hardcoded `[pos,normal,color]` 0/12/24 `Float3` triple. `upload_mesh`
+likewise deindexes at the layout's byte stride. For the `[pos,normal,color]` layout the resulting
+descriptor and bytes are identical to the prior hardcoded path, so the KR1.3 pixel hash is unchanged
+(`0x292c5df343b5eba8`). This lets arbitrary imported layouts flow through the one seam.
+
+**Static glTF import (`kaman-assets`, KE-0402).** The new **engine-generic, metal-free**
+`kaman-assets` crate imports static glTF (`.gltf`/`.glb`) into a `SceneAsset` (meshes + a baked node
+tree) packed onto the render seam's `MeshData`/`VertexLayout`, with a load-once/dedup `AssetCache`
+("upload once, reference by handle", one level up from KE-0103) and a `spawn_scene` ECS helper. It
+depends only on `gltf`, `kaman-math`, `kaman-render-api`, and `kaman-ecs` — the `kaman-assets →
+kaman-ecs` edge stays acyclic (`kaman-ecs` never depends on `kaman-assets`) and no `metal` enters the
+tree. Imported geometry packs onto `[pos,normal,color]` with a default vertex color so it renders
+through the existing pipeline immediately; parsed UVs are retained on `MeshAsset::uvs` for the KE-0403
+textured pipeline. `car-runner` now loads its player mesh from a committed `assets/cube.gltf`.
+
 ## 3. Workspace layout
 
 ```

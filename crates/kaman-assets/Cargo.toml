@@ -1,0 +1,18 @@
+[package]
+name = "kaman-assets"
+description = "Engine-generic static glTF import + asset cache for KamanEngine (metal-free)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+gltf.workspace = true
+kaman-math.workspace = true
+kaman-render-api.workspace = true
+# `kaman-ecs` powers the ECS spawn helper (`spawn` module). The dep direction
+# stays acyclic: kaman-ecs depends only on kaman-math/hecs/rapier, never on
+# kaman-assets, so this is a leaf → helper edge, not a cycle.
+kaman-ecs.workspace = true

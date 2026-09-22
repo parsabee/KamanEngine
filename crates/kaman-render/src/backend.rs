@@ -104,7 +104,7 @@ use kaman_math::glam::Mat4;
 use kaman_math::Transform;
 use kaman_render_api::{
     FrameRecorder, MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle,
-    RenderDevice, TextureData, TextureHandle,
+    RenderDevice, TextureData, TextureHandle, VertexFormat, VertexLayout,
 };
 
 use crate::frame_sync::FrameSemaphore;
@@ -114,6 +114,73 @@ use crate::vertex::{LightUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
 /// The clear color of the reference scene (dark blue-grey), matching the
 /// prototype. Load-bearing for the pixel hash.
 const CLEAR_COLOR: (f64, f64, f64, f64) = (0.1, 0.1, 0.15, 1.0);
+
+/// The canonical `[position_xyz, normal_xyz, color_rgb]` vertex layout the
+/// built-in Phong pipeline binds against (36-byte stride, attributes at
+/// 0/12/24). Meshes packed onto this layout (the ECS boxes, and imported glTF
+/// geometry via `kaman-assets`) all feed the single shared pipeline.
+///
+/// The vertex descriptor is now built *from* a [`VertexLayout`] (KE-0402) rather
+/// than a hardcoded 0/12/24 triple; for this layout the mapping is byte-identical
+/// to the old hardcoded descriptor, so the pixel hash is preserved.
+fn phong_vertex_layout() -> VertexLayout {
+    use kaman_render_api::VertexAttribute;
+    VertexLayout::new(
+        mem::size_of::<Vertex>() as u32,
+        vec![
+            VertexAttribute {
+                location: 0,
+                offset: 0,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 1,
+                offset: 12,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 2,
+                offset: 24,
+                format: VertexFormat::Float32x3,
+            },
+        ],
+    )
+}
+
+/// Map a seam-neutral [`VertexFormat`] to its native `MTLVertexFormat`.
+fn metal_vertex_format(format: VertexFormat) -> metal::MTLVertexFormat {
+    match format {
+        VertexFormat::Float32 => metal::MTLVertexFormat::Float,
+        VertexFormat::Float32x2 => metal::MTLVertexFormat::Float2,
+        VertexFormat::Float32x3 => metal::MTLVertexFormat::Float3,
+        VertexFormat::Float32x4 => metal::MTLVertexFormat::Float4,
+    }
+}
+
+/// Build a `metal::VertexDescriptor` from a seam [`VertexLayout`].
+///
+/// Each [`VertexAttribute`](kaman_render_api::VertexAttribute) becomes one Metal
+/// attribute at its `location`, `offset`, and mapped format; the single
+/// interleaved buffer (index 0) gets `layout.stride` as its per-vertex stride.
+/// For the `[pos,normal,color]` layout this reproduces the old hardcoded
+/// descriptor byte-for-byte (three `Float3`s at 0/12/24, stride 36), so the box
+/// scene's pixel hash is unchanged.
+fn build_vertex_descriptor(layout: &VertexLayout) -> &'static metal::VertexDescriptorRef {
+    let descriptor = metal::VertexDescriptor::new();
+    for attr in &layout.attributes {
+        let native = descriptor
+            .attributes()
+            .object_at(attr.location as u64)
+            .unwrap();
+        native.set_format(metal_vertex_format(attr.format));
+        native.set_offset(attr.offset as u64);
+        native.set_buffer_index(0);
+    }
+    let buffer_layout = descriptor.layouts().object_at(0).unwrap();
+    buffer_layout.set_stride(u64::from(layout.stride));
+    buffer_layout.set_step_function(metal::MTLVertexStepFunction::PerVertex);
+    descriptor
+}
 
 /// Number of frames the CPU may have in flight before it must wait on the GPU.
 ///
@@ -341,17 +408,12 @@ impl MetalRenderer {
             .get_function("fragment_main", None)
             .expect("fragment_main not found");
 
-        // Vertex descriptor: interleaved position/normal/color at 0/12/24.
-        let vertex_descriptor = metal::VertexDescriptor::new();
-        for (index, offset) in [(0u64, 0u64), (1, 12), (2, 24)] {
-            let attr = vertex_descriptor.attributes().object_at(index).unwrap();
-            attr.set_format(metal::MTLVertexFormat::Float3);
-            attr.set_offset(offset);
-            attr.set_buffer_index(0);
-        }
-        let layout = vertex_descriptor.layouts().object_at(0).unwrap();
-        layout.set_stride(mem::size_of::<Vertex>() as u64);
-        layout.set_step_function(metal::MTLVertexStepFunction::PerVertex);
+        // Vertex descriptor built FROM a `VertexLayout` (KE-0402) rather than a
+        // hardcoded 0/12/24 Float3 triple. The built-in Phong pipeline binds the
+        // canonical `[pos,normal,color]` layout; for that layout this yields the
+        // exact same descriptor as before (three Float3s at 0/12/24, stride 36),
+        // so the pixel hash is preserved.
+        let vertex_descriptor = build_vertex_descriptor(&phong_vertex_layout());
 
         let pipeline_descriptor = metal::RenderPipelineDescriptor::new();
         pipeline_descriptor.set_vertex_function(Some(&vertex_function));
@@ -509,39 +571,51 @@ impl MetalRenderer {
     /// [`create_mesh`](RenderDevice::create_mesh); the buffer then lives in the
     /// [`Registry`] and is referenced by handle on the allocation-free draw path.
     fn upload_mesh(&self, data: &MeshData<'_>) -> MeshEntry {
-        // Interpret the seam's raw vertex bytes as `Vertex` records.
-        let stride = mem::size_of::<Vertex>();
-        if data.indices.is_empty() || data.vertices.len() < stride {
+        // Deindex at the byte level using the layout's declared per-vertex stride
+        // (KE-0402), so any layout the seam describes is uploaded correctly — not
+        // just the 36-byte `Vertex`. For the `[pos,normal,color]` box layout the
+        // stride is `size_of::<Vertex>()`, so the resulting bytes are identical to
+        // the prior `Vertex`-typed path (pixel hash unchanged).
+        let stride = data.layout.stride as usize;
+        if stride == 0 || data.indices.is_empty() || data.vertices.len() < stride {
             return MeshEntry {
                 vertex_buffer: None,
                 vertex_count: 0,
             };
         }
         let vertex_count_in = data.vertices.len() / stride;
-        // SAFETY: `Vertex` is `#[repr(C)]` plain-old-data of `3 * [f32;3]`; the
-        // seam contract says `vertices.len()` is a whole multiple of the layout
-        // stride, which for this backend is `size_of::<Vertex>()`.
-        let src: &[Vertex] = unsafe {
-            std::slice::from_raw_parts(data.vertices.as_ptr() as *const Vertex, vertex_count_in)
-        };
 
-        let mut expanded: Vec<Vertex> = Vec::with_capacity(data.indices.len());
+        // Expand the index buffer into a flat, deindexed byte buffer: one
+        // `stride`-byte vertex record per index, copied verbatim.
+        let mut expanded: Vec<u8> = Vec::with_capacity(data.indices.len() * stride);
         for &index in data.indices {
-            expanded.push(src[index as usize]);
+            let start = index as usize * stride;
+            if index as usize >= vertex_count_in {
+                // A malformed index would read out of bounds; skip defensively
+                // rather than panic on the load path.
+                continue;
+            }
+            expanded.extend_from_slice(&data.vertices[start..start + stride]);
+        }
+        if expanded.is_empty() {
+            return MeshEntry {
+                vertex_buffer: None,
+                vertex_count: 0,
+            };
         }
 
-        // SAFETY: `expanded` is a live `Vec<Vertex>`; the pointer and byte length
+        // SAFETY: `expanded` is a live `Vec<u8>`; the pointer and byte length
         // describe exactly its contents.
         let buffer = unsafe {
             self.counted_new_buffer_with_data(
                 expanded.as_ptr() as *const _,
-                (expanded.len() * mem::size_of::<Vertex>()) as u64,
+                expanded.len() as u64,
                 MTLResourceOptions::CPUCacheModeDefaultCache,
             )
         };
         MeshEntry {
             vertex_buffer: Some(buffer),
-            vertex_count: expanded.len() as u64,
+            vertex_count: (expanded.len() / stride) as u64,
         }
     }
 
