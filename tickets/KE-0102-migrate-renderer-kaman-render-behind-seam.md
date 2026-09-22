@@ -18,19 +18,19 @@ highest-risk migration in the project; it lands behind the seam and is guarded b
 pixel-hash, and every subsequent buffer/frames-in-flight change (KE-0103–0105) builds on it.
 
 ## Scope & Acceptance
-- [ ] **Move commit:** relocate `renderer.rs` rasterization path into `crates/kaman-render`
+- [x] **Move commit:** relocate `renderer.rs` rasterization path into `crates/kaman-render`
       unchanged (raytracer comes along but is gated out in KE-0106); wire `metal`, `kaman-math`,
       `kaman-render-api`, `winit`/layer glue. No logic change. Oracle still green.
-- [ ] **Refactor commit:** implement `RenderDevice` + `FrameRecorder` for the Metal backend;
+- [x] **Refactor commit:** implement `RenderDevice` + `FrameRecorder` for the Metal backend;
       the app/game now drives rendering through the seam types, not Metal directly.
-- [ ] `metal` appears **only** in `kaman-render` (and platform glue) — the KE-0006 CI firewall
+- [x] `metal` appears **only** in `kaman-render` (and platform glue) — the KE-0006 CI firewall
       still passes for every crate above the seam.
-- [ ] **Render pixel-hash guard:** add a deterministic offscreen render of a fixed reference
+- [x] **Render pixel-hash guard:** add a deterministic offscreen render of a fixed reference
       scene → hash the pixel buffer → assert against a committed hash. Bless the baseline from the
       **migrated `kaman-render`** first-correct frame (not the prototype), then hold it stable
       across KE-0103/0104/0105. Provide a `BLESS=1` (or `xtask bless`) path with a required
       justification note. (This is the KR1.3 net; it replaces the dropped KE-0002 render scaffold.)
-- [ ] Metal API Validation on in the CI debug/offscreen run.
+- [x] Metal API Validation on in the CI debug/offscreen run.
 
 ## Technical notes
 - Per-frame allocations exist today (`renderer.rs:458` allocates a uniform buffer every frame;

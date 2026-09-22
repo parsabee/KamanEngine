@@ -17,15 +17,15 @@ renderer uploads each mesh **once** and keeps a persistent `MTLBuffer`, referenc
 stable registry to look meshes up in.
 
 ## Scope & Acceptance
-- [ ] `RenderDevice::create_mesh` uploads vertex/index data into a persistent `MTLBuffer` **once**
+- [x] `RenderDevice::create_mesh` uploads vertex/index data into a persistent `MTLBuffer` **once**
       and returns a `MeshHandle`; `destroy_mesh` frees it. Store them in a registry inside
       `kaman-render` (e.g. generational slotmap keyed by `MeshHandle`).
-- [ ] `FrameRecorder::draw_mesh` looks the buffer up by handle — **no allocation** in the draw path.
-- [ ] Move all mesh uploads to load time (game/scene setup), not the per-frame path.
-- [ ] **Allocation instrument:** a test/counter proves zero `new_buffer*` calls occur during the
+- [x] `FrameRecorder::draw_mesh` looks the buffer up by handle — **no allocation** in the draw path.
+- [x] Move all mesh uploads to load time (game/scene setup), not the per-frame path.
+- [x] **Allocation instrument:** a test/counter proves zero `new_buffer*` calls occur during the
       per-frame path for the reference scene (see KR1.2). Wire a debug hook or wrap the device so
       per-frame allocations are counted and asserted `== 0`.
-- [ ] Render pixel-hash from KE-0102 unchanged (behavior identical) — or re-blessed with written
+- [x] Render pixel-hash from KE-0102 unchanged (behavior identical) — or re-blessed with written
       justification if a legitimate change.
 
 ## Technical notes

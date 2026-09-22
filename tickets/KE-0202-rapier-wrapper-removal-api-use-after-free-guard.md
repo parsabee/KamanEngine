@@ -18,17 +18,17 @@ retained for v1 behind this wrapper so a later custom arcade-physics layer can r
 rippling. INTEGRATION §2.7: the **use-after-free test is written before the removal API**.
 
 ## Scope & Acceptance
-- [ ] **Move commit:** relocate `physics.rs` into `crates/kaman-physics` (behavior unchanged);
+- [x] **Move commit:** relocate `physics.rs` into `crates/kaman-physics` (behavior unchanged);
       depend on `kaman-math`; re-export the rapier handle types the ECS uses (`RigidBodyHandle`,
       `ColliderHandle`) consistently with `kaman-ecs::PhysicsBodyComponent`.
-- [ ] Keep the existing surface: `create_dynamic_body`, `create_static_body`, `add_box_collider`,
+- [x] Keep the existing surface: `create_dynamic_body`, `create_static_body`, `add_box_collider`,
       `add_sphere_collider`, `step`, `get_transform`, `set_velocity`, `get_velocity`.
-- [ ] **New removal API:** `remove_body(handle)` (removing its colliders too) and
+- [x] **New removal API:** `remove_body(handle)` (removing its colliders too) and
       `remove_collider(handle)`, using rapier's island/set removal correctly.
-- [ ] **Use-after-free guard (test-first):** write the test *before* the removal impl — after
+- [x] **Use-after-free guard (test-first):** write the test *before* the removal impl — after
       `remove_body`, every query on the stale handle (`get_transform`/`get_velocity`/`set_velocity`)
       returns `None`/no-ops and never panics or derefs freed storage. State the invariant in doc.
-- [ ] Step at the `FIXED_DT` from KE-0201 (kinematic/lane motion stays script/game-owned, not
+- [x] Step at the `FIXED_DT` from KE-0201 (kinematic/lane motion stays script/game-owned, not
       solver-driven — ARCHITECTURE §5).
 
 ## Technical notes

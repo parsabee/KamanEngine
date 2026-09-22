@@ -18,15 +18,15 @@ a **deterministic fixed timestep** decoupled from render rate, so simulation is 
 render state between steps.
 
 ## Scope & Acceptance
-- [ ] `kaman-core` loop accumulates real elapsed time and runs `update` in fixed increments
+- [x] `kaman-core` loop accumulates real elapsed time and runs `update` in fixed increments
       (`FIXED_DT = 1/60`), draining the accumulator; `render` runs once per frame.
-- [ ] Correct behavior at **60 and 120 Hz** display rates: same number of `update` calls per second
+- [x] Correct behavior at **60 and 120 Hz** display rates: same number of `update` calls per second
       (± the accumulator remainder), asserted by a test that feeds a synthetic clock.
-- [ ] **Spiral-of-death guard:** cap the number of catch-up steps per frame (e.g. clamp accumulated
+- [x] **Spiral-of-death guard:** cap the number of catch-up steps per frame (e.g. clamp accumulated
       time) so a stall can't wedge the loop; documented + tested.
-- [ ] Provide a render **interpolation alpha** (`0..1`) on the render path so drawing can lerp
+- [x] Provide a render **interpolation alpha** (`0..1`) on the render path so drawing can lerp
       between the previous and current fixed states (the game may ignore it in Phase 2).
-- [ ] Both drivers updated: the headless driver (deterministic, used by `--smoke`/tests) and the
+- [x] Both drivers updated: the headless driver (deterministic, used by `--smoke`/tests) and the
       winit windowed entry. `--smoke` still prints `smoke: 120 frames OK` and exits 0.
 
 ## Technical notes

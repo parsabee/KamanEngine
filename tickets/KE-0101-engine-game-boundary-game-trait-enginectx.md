@@ -18,18 +18,18 @@ and an `EngineCtx` handle the engine passes in. This is the A3 that Phase 1 hang
 first and alone (WIP-limit 1).
 
 ## Scope & Acceptance
-- [ ] Define a `Game` trait in `kaman-core` with lifecycle hooks: `init(&mut self, ctx: &mut EngineCtx)`,
+- [x] Define a `Game` trait in `kaman-core` with lifecycle hooks: `init(&mut self, ctx: &mut EngineCtx)`,
       `update(&mut self, ctx: &mut EngineCtx, dt: f32)`, and `render(&mut self, ctx: &mut EngineCtx)`
       (render hook may be a no-op in Phase 1; the fixed-timestep split is refined in KE-0201).
-- [ ] Define `EngineCtx` exposing engine services the game is allowed to touch: the ECS `World`
+- [x] Define `EngineCtx` exposing engine services the game is allowed to touch: the ECS `World`
       (`kaman-ecs`), a `&mut dyn RenderDevice` / frame recorder seam (`kaman-render-api`), input
       snapshot, and frame timing (`kaman-perf`). No Metal types, no game types.
-- [ ] Engine owns the loop: `kaman-core` drives `winit` (macOS) and calls `init` once then
+- [x] Engine owns the loop: `kaman-core` drives `winit` (macOS) and calls `init` once then
       `update`/`render` per frame, passing `EngineCtx`. The prototype's `app.rs` loop logic moves
       into `kaman-core` **as a move-commit first, refactor second** (INTEGRATION §2.3).
-- [ ] `games/car-runner` implements `Game` and contains the only game-aware code; the `--smoke`
+- [x] `games/car-runner` implements `Game` and contains the only game-aware code; the `--smoke`
       oracle boots a `Game` impl and runs 120 frames headlessly.
-- [ ] A compile-time/test guard asserts no game-named symbols leaked into `kaman-core` (extend the
+- [x] A compile-time/test guard asserts no game-named symbols leaked into `kaman-core` (extend the
       KE-0005 pattern).
 
 ## Technical notes

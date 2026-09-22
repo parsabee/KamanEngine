@@ -17,16 +17,16 @@ public API. The car is a box; the track scrolls; obstacles stream in and must be
 lane, obstacle, score) live **only in `games/car-runner`**, never in engine crates.
 
 ## Scope & Acceptance
-- [ ] Player = a box entity; **kinematic lane movement** (left/right between lanes) driven by input
+- [x] Player = a box entity; **kinematic lane movement** (left/right between lanes) driven by input
       from `EngineCtx`, script/game-owned (not solver-driven), per ARCHITECTURE §5.
-- [ ] Forward motion + a scrolling track built from streamed segments (KE-0203 focus = the car).
-- [ ] **Obstacles** stream ahead and despawn behind (KE-0203); collision with the car via
+- [x] Forward motion + a scrolling track built from streamed segments (KE-0203 focus = the car).
+- [x] **Obstacles** stream ahead and despawn behind (KE-0203); collision with the car via
       `kaman-physics` ends/《resets》the run.
-- [ ] **Score** increases with distance; shown at least via stdout/log (HUD overlay is Phase 4).
-- [ ] Runs interactively: `cargo run -p car-runner` opens the Metal window and is playable; the
+- [x] **Score** increases with distance; shown at least via stdout/log (HUD overlay is Phase 4).
+- [x] Runs interactively: `cargo run -p car-runner` opens the Metal window and is playable; the
       `--smoke` headless path still boots the game and exits 0.
-- [ ] Fixed-timestep gameplay (KE-0201) so behavior is framerate-independent.
-- [ ] The `kaman-*` no-game-symbol guards still pass (car/road/score exist only in `car-runner`).
+- [x] Fixed-timestep gameplay (KE-0201) so behavior is framerate-independent.
+- [x] The `kaman-*` no-game-symbol guards still pass (car/road/score exist only in `car-runner`).
 
 ## Technical notes
 - A0 for the *engine* (no engine-crate API change) — all churn is in `games/car-runner`. If you find

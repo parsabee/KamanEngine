@@ -16,13 +16,13 @@ that the `Game` trait (Phase 1) and KamanScript (Phase 5) bind against, so its p
 matters more than most.
 
 ## Scope & Acceptance
-- [ ] **Move commit:** relocate `ecs.rs` into `crates/kaman-ecs`; depend on `kaman-math`; re-export `hecs`.
-- [ ] Keep components engine-generic only — **no game types** (no car/road/score). Verify none leaked in.
-- [ ] Public API: component types (`Transform`, `Render*`, physics-handle, static/dynamic tags),
+- [x] **Move commit:** relocate `ecs.rs` into `crates/kaman-ecs`; depend on `kaman-math`; re-export `hecs`.
+- [x] Keep components engine-generic only — **no game types** (no car/road/score). Verify none leaked in.
+- [x] Public API: component types (`Transform`, `Render*`, physics-handle, static/dynamic tags),
       mesh-shape generation helpers as present.
-- [ ] `#[non_exhaustive]` on component enums where future variants are expected, to protect the
+- [x] `#[non_exhaustive]` on component enums where future variants are expected, to protect the
       A1 boundary from becoming an accidental A2 later.
-- [ ] Unit tests: spawn/query round-trips; component (de)composition invariants.
+- [x] Unit tests: spawn/query round-trips; component (de)composition invariants.
 
 ## Technical notes
 - This is Reuse-as-is but marked A1: tightening visibility / `#[non_exhaustive]` reshapes the

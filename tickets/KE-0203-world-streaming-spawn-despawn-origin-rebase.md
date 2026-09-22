@@ -17,19 +17,19 @@ builds `crates/kaman-scene` as the owner of the hecs `World` + `kaman-physics::P
 never drift into float-precision error. Memory must be flat over long play (KR2.3).
 
 ## Scope & Acceptance
-- [ ] `kaman-scene` owns the `World` + `PhysicsWorld` and exposes an engine-generic streaming API:
+- [x] `kaman-scene` owns the `World` + `PhysicsWorld` and exposes an engine-generic streaming API:
       register spawn/despawn *policies* by distance from a focus point (the game supplies the focus
       and the spawn callback; scene owns the bookkeeping). **No game types in `kaman-scene`.**
-- [ ] **Spawn-ahead / despawn-behind:** entities beyond the despawn threshold are removed —
+- [x] **Spawn-ahead / despawn-behind:** entities beyond the despawn threshold are removed —
       ECS entity + its physics body via `remove_body` — **atomically** (KE-0202 invariant), leaving
       no stale handles.
-- [ ] **Origin rebase:** when the focus passes a threshold, shift all positions (ECS transforms +
+- [x] **Origin rebase:** when the focus passes a threshold, shift all positions (ECS transforms +
       physics bodies) by a fixed offset back toward the origin, transparently to gameplay. A test
       asserts relative positions are preserved across a rebase.
-- [ ] **No unbounded growth:** a test spawns/despawns over many simulated frames and asserts entity
+- [x] **No unbounded growth:** a test spawns/despawns over many simulated frames and asserts entity
       count, physics body count, and a capacity proxy stay bounded (stands in for the "10 min, no
       memory growth" KR; the wall-clock soak is validated manually).
-- [ ] Steps physics at `FIXED_DT` inside the fixed-timestep loop (KE-0201).
+- [x] Steps physics at `FIXED_DT` inside the fixed-timestep loop (KE-0201).
 
 ## Technical notes
 - A2: `kaman-scene` becomes the API the game drives and that KE-0204 builds on; design the

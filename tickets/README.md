@@ -101,14 +101,16 @@ time per WIP limit) → KE-0105; KE-0106/0107 (A0/A1) land any time after KE-010
 then KE-0203 (A2) needs both; KE-0204 (the playable prototype + "is it fun?" gate) is last.
 All of Phase 2 is macOS/CLT-friendly (pure Rust + rapier) — no Xcode needed.
 
-### Phase 3 — iOS Bring-up *(planned)*
-| # | Title | Pri | Int | Size |
-|---|---|---|---|---|
-| KE-0301 | Platform abstraction (`#[cfg]` surface/input) | P0 | Refactor | M · A3 |
-| KE-0302 | iOS app target + bundle + staticlib C-ABI | P0 | New | M · A2 |
-| KE-0303 | CAMetalLayer on UIView + CADisplayLink loop | P0 | New | M · A2 |
-| KE-0304 | Input abstraction + touch/tilt | P1 | Refactor | S · A2 |
-| KE-0305 | TBDR memoryless depth / MSAA | P0 | Refactor | S · A1 |
+### Phase 3 — iOS Bring-up *(backburner — rough tickets drafted)*
+Deferred until the engine is solid and the game is semi-playable; needs full Xcode + rustup iOS
+targets (`./scripts/preflight.sh --ios`). Tickets below are intentionally rough drafts.
+| # | Title | Pri | Int | Size | Status |
+|---|---|---|---|---|---|
+| KE-0301 | Platform abstraction (`#[cfg]` surface/input) | P0 | Refactor | M · A3 | Todo |
+| KE-0302 | iOS app target + bundle + staticlib C-ABI | P0 | New | M · A2 | Todo |
+| KE-0303 | CAMetalLayer on UIView + CADisplayLink loop | P0 | New | M · A2 | Todo |
+| KE-0304 | Input abstraction + touch/tilt | P1 | Refactor | S · A2 | Todo |
+| KE-0305 | TBDR memoryless depth / MSAA | P0 | Refactor | S · A1 | Todo |
 
 ### Phase 4 — Look & Feel + Content *(planned)*
 | # | Title | Pri | Int | Size |

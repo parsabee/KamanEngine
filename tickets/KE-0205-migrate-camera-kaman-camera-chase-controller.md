@@ -20,24 +20,24 @@ camera, deletes the inlined camera, and adds a **chase controller** so the camer
 This also restores the intended migration order (camera before scene, INTEGRATION §2.2).
 
 ## Scope & Acceptance
-- [ ] **`kaman-camera`:** migrate `ProjectRigor/src/camera.rs` into the crate (currently a stub):
+- [x] **`kaman-camera`:** migrate `ProjectRigor/src/camera.rs` into the crate (currently a stub):
       `Camera` with `view_matrix`/`projection_matrix`/`view_projection_matrix`, aspect update,
       `set_position`/`set_target`, basis vectors as present. Depend on `kaman-math`.
-- [ ] **Chase controller:** add a follow camera — given a target position (and facing/axis), place
+- [x] **Chase controller:** add a follow camera — given a target position (and facing/axis), place
       the camera behind + above the target and look at it, with a configurable offset and optional
       smoothing. Engine-generic (no game types).
-- [ ] **Seam carries the view (A2):** add `set_view_projection(&mut self, view_proj: Mat4)` (or
+- [x] **Seam carries the view (A2):** add `set_view_projection(&mut self, view_proj: Mat4)` (or
       `set_camera`) to `FrameRecorder` in `kaman-render-api` (`Mat4` via `kaman-math`, **no metal**).
       Update the `NullRenderer` double to record it.
-- [ ] **`kaman-render`:** use the seam-provided view-projection for the MVP; **delete the inlined
+- [x] **`kaman-render`:** use the seam-provided view-projection for the MVP; **delete the inlined
       `camera.rs`** (the feature-gated raytracer, if it needs a camera, uses `kaman-camera`).
-- [ ] **`kaman-core`:** engine owns a `kaman_camera::Camera`; `EngineCtx` exposes `camera_mut()`;
+- [x] **`kaman-core`:** engine owns a `kaman_camera::Camera`; `EngineCtx` exposes `camera_mut()`;
       the driver pushes the camera's view-projection to the recorder each frame before `Game::render`;
       aspect updates on resize. Keep `kaman-core` **metal-free**; dep direction stays acyclic
       (`kaman-core → kaman-camera → kaman-math`).
-- [ ] **`car-runner`:** drive the chase controller so the camera follows the car → the car stays
+- [x] **`car-runner`:** drive the chase controller so the camera follows the car → the car stays
       framed on screen. `cargo run -p car-runner` is now visually playable; `--smoke` still exits 0.
-- [ ] Pixel-hash (KE-0102) updated: the reference-scene view now comes through the seam. Re-bless the
+- [x] Pixel-hash (KE-0102) updated: the reference-scene view now comes through the seam. Re-bless the
       committed hash **with a written justification** (the camera path changed, not the geometry).
 
 ## Technical notes

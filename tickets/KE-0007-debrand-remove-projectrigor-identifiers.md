@@ -16,12 +16,12 @@ KamanEngine is its own product with its own license; no `ProjectRigor`/`projectr
 identifiers should remain in shipped code. Provenance is kept in docs only.
 
 ## Scope & Acceptance
-- [ ] Replace crate/module identifiers, `projectrigor::` paths, and doc references with the
+- [x] Replace crate/module identifiers, `projectrigor::` paths, and doc references with the
       `kaman-*` equivalents across all migrated crates.
-- [ ] Update per-file license headers to the KamanEngine MIT header (2026, Parsa Bagheri).
-- [ ] A CI grep check fails the build if `ProjectRigor`/`projectrigor` appears anywhere except
+- [x] Update per-file license headers to the KamanEngine MIT header (2026, Parsa Bagheri).
+- [x] A CI grep check fails the build if `ProjectRigor`/`projectrigor` appears anywhere except
       `docs/` provenance notes.
-- [ ] Add a short "Provenance" note in `ARCHITECTURE.md` (origin prototype) — the only allowed mention.
+- [x] Add a short "Provenance" note in `ARCHITECTURE.md` (origin prototype) — the only allowed mention.
 
 ## Technical notes
 - Run after the leaf migrations so renames touch already-moved code; keep as its own commit for

@@ -15,11 +15,11 @@ Serves:        KR0.3
 (INTEGRATION §2.3) at the lowest possible risk.
 
 ## Scope & Acceptance
-- [ ] **Move commit:** relocate the prototype's `math.rs` into `crates/kaman-math` unchanged;
+- [x] **Move commit:** relocate the prototype's `math.rs` into `crates/kaman-math` unchanged;
       wire the `glam` dep; fix visibility. No logic change.
-- [ ] Oracle still green after the move; crate unit tests cover the moved behavior.
-- [ ] Public surface re-exports `glam` and exposes `Transform`, `Ray`, `AABB` (as present).
-- [ ] Unit tests cover the public API (table-driven known-value tests for transforms/projections).
+- [x] Oracle still green after the move; crate unit tests cover the moved behavior.
+- [x] Public surface re-exports `glam` and exposes `Transform`, `Ray`, `AABB` (as present).
+- [x] Unit tests cover the public API (table-driven known-value tests for transforms/projections).
 
 ## Technical notes
 - This crate is a dependency of `kaman-ecs`, `kaman-physics`, `kaman-camera`, `kaman-scene`.

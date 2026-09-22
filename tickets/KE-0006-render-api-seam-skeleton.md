@@ -16,14 +16,14 @@ implements a contract rather than exporting Metal types. This is the firewall th
 renderer rewrite from rippling into ECS/scene/physics.
 
 ## Scope & Acceptance
-- [ ] Define opaque handles: `MeshHandle`, `TextureHandle`, `PipelineHandle` (newtypes, no
+- [x] Define opaque handles: `MeshHandle`, `TextureHandle`, `PipelineHandle` (newtypes, no
       Metal types).
-- [ ] Define `RenderDevice` trait: create/destroy mesh, texture, pipeline (load-time ops).
-- [ ] Define `FrameRecorder` trait: `begin_frame`, `set_pipeline`, `bind_texture`,
+- [x] Define `RenderDevice` trait: create/destroy mesh, texture, pipeline (load-time ops).
+- [x] Define `FrameRecorder` trait: `begin_frame`, `set_pipeline`, `bind_texture`,
       `draw_mesh(handle, transform, material_params)`, `submit`.
-- [ ] Define plain-data descriptor structs (vertex layout, material params) with **no** `metal`
+- [x] Define plain-data descriptor structs (vertex layout, material params) with **no** `metal`
       dependency in this crate's `Cargo.toml`.
-- [ ] A `NullRenderer` test-double implementing both traits (records calls) so scene/game code
+- [x] A `NullRenderer` test-double implementing both traits (records calls) so scene/game code
       can be unit-tested headlessly without a GPU.
 
 ## Technical notes

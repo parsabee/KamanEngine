@@ -17,13 +17,13 @@ N=3 frames ahead, gated by a semaphore signalled on `MTLCommandBuffer` completio
 per-frame ring/argument storage from KE-0104. This is the standard mobile-safe pacing model.
 
 ## Scope & Acceptance
-- [ ] Introduce `MAX_FRAMES_IN_FLIGHT = 3` and a dispatch semaphore (or equivalent) that blocks the
+- [x] Introduce `MAX_FRAMES_IN_FLIGHT = 3` and a dispatch semaphore (or equivalent) that blocks the
       CPU when 3 frames are already queued; signal it from the command-buffer completion handler.
-- [ ] Each frame selects its ring slot by `frame_index % MAX_FRAMES_IN_FLIGHT`; the KE-0104 ring is
+- [x] Each frame selects its ring slot by `frame_index % MAX_FRAMES_IN_FLIGHT`; the KE-0104 ring is
       sized for 3 slots so an in-flight slot is never overwritten.
-- [ ] Present pacing tied to the drawable; no busy-wait spin.
-- [ ] The `--smoke` oracle runs 120 frames through the in-flight path and exits 0.
-- [ ] Render pixel-hash stable across the change (single-frame offscreen hash is unaffected by
+- [x] Present pacing tied to the drawable; no busy-wait spin.
+- [x] The `--smoke` oracle runs 120 frames through the in-flight path and exits 0.
+- [x] Render pixel-hash stable across the change (single-frame offscreen hash is unaffected by
       in-flight count; assert it still matches).
 
 ## Technical notes

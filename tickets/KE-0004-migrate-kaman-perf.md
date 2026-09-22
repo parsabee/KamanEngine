@@ -15,11 +15,11 @@ The prototype has ~670 LOC of profiling/frame-timing already wired into the loop
 low-coupling module worth keeping; migrate it cleanly so Phase 1/3 have profiling from day one.
 
 ## Scope & Acceptance
-- [ ] **Move commit:** relocate `perf.rs` into `crates/kaman-perf` unchanged; fix visibility.
-- [ ] Feature-gate any stdout/debug-print behavior behind a `perf-hud` feature (off by default
+- [x] **Move commit:** relocate `perf.rs` into `crates/kaman-perf` unchanged; fix visibility.
+- [x] Feature-gate any stdout/debug-print behavior behind a `perf-hud` feature (off by default
       in the oracle so smoke output stays clean).
-- [ ] Public API: frame timer start/stop, rolling averages, a snapshot struct.
-- [ ] Unit tests for the timing/rolling-average math (use a mock clock, not wall time).
+- [x] Public API: frame timer start/stop, rolling averages, a snapshot struct.
+- [x] Unit tests for the timing/rolling-average math (use a mock clock, not wall time).
 
 ## Technical notes
 - GPU timing via `MTLCommandBuffer` completion handlers is added later (Phase 3, KE-0602); this

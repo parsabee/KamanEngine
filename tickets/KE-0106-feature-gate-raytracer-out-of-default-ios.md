@@ -17,13 +17,13 @@ in per-frame allocations and a second shader library. Gate it behind an off-by-d
 `raytracer` feature and exclude it from iOS, so the default/mobile path is lean (INTEGRATION §2.5).
 
 ## Scope & Acceptance
-- [ ] Put the raytracer path (module, pipeline setup, RT buffers, `raytracing.metal` load) behind
+- [x] Put the raytracer path (module, pipeline setup, RT buffers, `raytracing.metal` load) behind
       `#[cfg(feature = "raytracer")]` in `kaman-render` (and re-export gating in `kaman-core` as
       needed). Feature is **off by default**.
-- [ ] Compile-guard it off on iOS regardless of feature (`#[cfg(all(feature = "raytracer",
+- [x] Compile-guard it off on iOS regardless of feature (`#[cfg(all(feature = "raytracer",
       not(target_os = "ios")))]`), so an accidental feature enable can't pull it into an iOS build.
-- [ ] Default build has zero raytracer symbols and does not compile `raytracing.metal`.
-- [ ] Both states build and are clippy-clean: `--no-default-features`-equivalent default, and
+- [x] Default build has zero raytracer symbols and does not compile `raytracing.metal`.
+- [x] Both states build and are clippy-clean: `--no-default-features`-equivalent default, and
       `--features raytracer` on macOS.
 
 ## Technical notes

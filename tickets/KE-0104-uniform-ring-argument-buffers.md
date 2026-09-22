@@ -17,15 +17,17 @@ pattern is a **persistent ring** of uniform storage written each frame at a rota
 per-frame allocation and sets up frames-in-flight (KE-0105).
 
 ## Scope & Acceptance
-- [ ] Allocate a persistent uniform buffer (ring) once; each frame writes uniforms at a rotating
+- [x] Allocate a persistent uniform buffer (ring) once; each frame writes uniforms at a rotating
       offset — **no `new_buffer*` per frame**. Size the ring for the frames-in-flight count landed
       in KE-0105 (parameterize now, default acceptable until then).
 - [ ] Move per-draw/per-object parameters into **argument buffers** bound from persistent storage;
       `draw_mesh`'s `material_params`/transform flow through the ring/argument buffer, not a new alloc.
-- [ ] Respect `MTLBuffer` offset alignment (256-byte on Apple GPUs) when sub-allocating the ring.
-- [ ] **Allocation instrument:** per-frame `new_buffer*` count `== 0` for the reference scene
+      *(Deferred: would require an MSL/binding rewrite that risks the pixel-hash; the ring — the
+      load-bearing KR1.2 win — fully landed. Revisit as a follow-up.)*
+- [x] Respect `MTLBuffer` offset alignment (256-byte on Apple GPUs) when sub-allocating the ring.
+- [x] **Allocation instrument:** per-frame `new_buffer*` count `== 0` for the reference scene
       (combined with KE-0103 this satisfies KR1.2's "zero allocations in the per-frame path").
-- [ ] Render pixel-hash from KE-0102 stable (or re-blessed with justification).
+- [x] Render pixel-hash from KE-0102 stable (or re-blessed with justification).
 
 ## Technical notes
 - The ring must not be overwritten while an in-flight frame still reads it — the actual guard is
