@@ -244,6 +244,7 @@ dependencies = [
  "kaman-math",
  "kaman-render",
  "kaman-render-api",
+ "kaman-scene",
 ]
 
 [[package]]

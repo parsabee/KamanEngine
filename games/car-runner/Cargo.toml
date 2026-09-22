@@ -18,6 +18,7 @@ kaman-core.workspace = true
 kaman-ecs.workspace = true
 kaman-math.workspace = true
 kaman-render-api.workspace = true
+kaman-scene.workspace = true
 
 # The Metal backend lives below the render seam. Only the game binary depends on
 # `kaman-render` (and thus `metal`); it constructs the backend and hands it to

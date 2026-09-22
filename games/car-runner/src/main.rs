@@ -2,31 +2,55 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! `car-runner` — KamanEngine's first title, and the host for the headless smoke oracle.
+//! `car-runner` — KamanEngine's first title: a playable endless runner, and the
+//! host for the headless smoke oracle.
 //!
 //! This binary is the *only* place game-specific code lives: it implements
 //! [`kaman_core::Game`] and is driven by the engine loop through the
 //! [`EngineCtx`](kaman_core::EngineCtx) seam. The engine crates never see any of
-//! the car/road/score concepts modelled here.
+//! the car / road / lane / obstacle / score concepts modelled here — they are
+//! composed entirely from the engine-generic ECS, physics, and scene-streaming
+//! primitives.
 //!
-//! Phase 1 has no visible renderer yet (that is KE-0102), so the binary's real
-//! job today is the `--smoke` oracle: it boots the [`Game`] via the engine's
-//! headless driver, runs 120 frames offscreen against a
-//! [`NullRenderer`](kaman_core) with **no GPU / Metal device**, and exits 0. That
-//! keeps it valid on headless GitHub macOS CI runners (see `docs/INTEGRATION.md`
-//! §1). Without `--smoke` it would open a window via [`kaman_core::run`], but the
-//! window shows nothing until the Metal backend lands.
+//! # The game
+//!
+//! The player is a box that drives forward at a constant speed along the
+//! streaming axis (`-Z`). Three discrete lanes run along `X`; Left/A and Right/D
+//! move the box between them (kinematic — the transform is set directly, the
+//! physics solver never drives the box, per ARCHITECTURE §5). The road and its
+//! obstacles are produced by [`Scene::stream`](kaman_scene::Scene::stream) with
+//! the box as the focus, so the world scrolls endlessly and content behind the
+//! player despawns. Obstacles appear in deterministic (seeded PRNG) lanes ahead;
+//! colliding with one resets the run. Score climbs with distance travelled.
+//!
+//! # Controls
+//!
+//! - **Left / A** — move one lane left.
+//! - **Right / D** — move one lane right.
+//! - **Space** — restart after a crash (or any time; resets the run).
+//! - **Escape** — quit (handled by the engine's windowed entry).
+//!
+//! # The smoke oracle
+//!
+//! Without a window the binary runs the `--smoke` oracle: it boots the [`Game`]
+//! via the engine's headless driver, runs 120 frames offscreen against a
+//! `NullRenderer` with **no GPU / Metal device**, and exits 0. Headless input is
+//! empty, so the box just runs straight down the middle lane — a deterministic
+//! run valid on headless CI (see `docs/INTEGRATION.md` §1).
 
 use clap::Parser;
 
+use kaman_core::input::Key;
 use kaman_core::{EngineCtx, Game};
 use kaman_ecs::hecs::Entity;
 use kaman_ecs::{DynamicTag, RenderComponent, RenderShape, StaticTag, TransformComponent};
 use kaman_math::glam::Vec3;
+use kaman_math::Transform;
 use kaman_render_api::{
     MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, VertexAttribute,
     VertexFormat, VertexLayout,
 };
+use kaman_scene::Scene;
 
 /// Number of frames the smoke oracle simulates before exiting.
 const SMOKE_FRAMES: u32 = 120;
@@ -59,10 +83,6 @@ fn main() {
 }
 
 /// Launch the windowed engine with the Metal backend on macOS.
-///
-/// On macOS this passes a factory that constructs a `kaman-render::MetalRenderer`
-/// for the created window; the engine drives every frame through it. On other
-/// platforms (none shipped in Phase 1) it falls back to the GPU-free entry.
 #[cfg(target_os = "macos")]
 fn run_windowed(game: &mut CarRunner) {
     use kaman_core::Renderer;
@@ -81,14 +101,6 @@ fn run_windowed(game: &mut CarRunner) {
 }
 
 /// Boot the `car-runner` [`Game`] and drive `frames` frames headlessly, then report success.
-///
-/// This is the continuous macOS oracle from `docs/INTEGRATION.md`: it exercises
-/// the whole engine/game boundary — `init` once, then the fixed-timestep loop for
-/// `frames` frames (the headless driver advances a synthetic clock by one
-/// `FIXED_DT` per frame, so one `update` + one `render` each) — with no GPU work,
-/// so it is valid on headless CI. A "frame" here is one headless driver step; the
-/// oracle asserts the driver ran exactly `frames` of them and prints the fixed
-/// `smoke: <n> frames OK` contract line on success.
 fn run_smoke(frames: u32) {
     let mut game = CarRunner::new();
     let harness = kaman_core::headless::run(&mut game, frames);
@@ -100,169 +112,392 @@ fn run_smoke(frames: u32) {
 }
 
 /// The exact stdout contract line the smoke oracle prints on success.
-///
-/// Kept as its own function so the `--smoke` output contract can be asserted in a
-/// test without spawning the binary (`smoke: <n> frames OK`).
 fn smoke_report(frames: u32) -> String {
     format!("smoke: {frames} frames OK")
 }
 
+/// A tiny deterministic PRNG (SplitMix64) so obstacle placement is reproducible
+/// from a seed — no wall-clock time is ever read, which the smoke path and the
+/// game-logic tests rely on.
+///
+/// This lives in the game crate on purpose: randomness is a *game* concern, not
+/// an engine one, so it stays out of the `kaman-*` crates.
+#[derive(Debug, Clone)]
+struct Rng {
+    state: u64,
+}
+
+impl Rng {
+    /// Seed the generator. The same seed always yields the same sequence.
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    /// Next 64-bit value (SplitMix64).
+    fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// A value in `0..n` (`n > 0`).
+    fn next_below(&mut self, n: u32) -> u32 {
+        (self.next_u64() % u64::from(n)) as u32
+    }
+}
+
 /// The car-runner game state.
 ///
-/// Phase 1 keeps this minimal but real: it spawns a small scene of
-/// engine-generic ECS entities in [`init`](Game::init) and advances them in
-/// [`update`](Game::update). All meaning (which entity is the vehicle, how the
-/// world scrolls) lives here in the game crate, composed from the engine-generic
-/// components in `kaman-ecs`.
+/// The scene (ECS world + physics world + streaming) is owned by the engine loop
+/// and reached through [`EngineCtx::scene_mut`]. This struct holds only the
+/// *game's* own bookkeeping.
+///
+/// # Two distances
+///
+/// The world scrolls forever, so the player's **`travel`** (its monotonically
+/// increasing world position along the axis) never rewinds — that keeps the
+/// scene's spawn frontier valid, since the engine-owned streaming frontier is
+/// private and cannot be reset. The **`distance`** the *score* is built from is a
+/// separate tally that resets to zero on a crash. So "restart the run" means:
+/// score back to zero and the obstacles around the player cleared, while the road
+/// keeps scrolling seamlessly.
 struct CarRunner {
-    /// The player-controlled vehicle entity.
-    vehicle: Option<Entity>,
-    /// The scrolling ground/track segments.
-    track: Vec<Entity>,
-    /// Distance travelled so far (the running tally).
+    /// The player-controlled box entity (spawned once in `init`).
+    player: Option<Entity>,
+    /// The lane the player currently occupies (`0..LANES`).
+    lane: usize,
+    /// Monotonic world distance travelled (drives the player's `Z` and the
+    /// streaming focus). Never rewinds, so the scene frontier stays valid.
+    travel: f32,
+    /// Score distance for the current run; resets to zero on a crash.
     distance: f32,
-    /// Persistent mesh handles, one per renderable entity, uploaded **once** in
-    /// [`init`](Game::init) and referenced every frame in [`render`](Game::render)
-    /// (KE-0103: upload once, reference by handle — no per-frame mesh upload).
-    meshes: Vec<(Entity, MeshHandle)>,
-    /// The render pipeline, created once in [`init`](Game::init).
+    /// Best run distance this session, for the crash report.
+    best: f32,
+    /// Deterministic obstacle-placement PRNG (seeded once; the same seed always
+    /// streams the same obstacle world).
+    rng: Rng,
+    /// The one shared box mesh, uploaded once in `init` and referenced by every
+    /// box thereafter (KE-0103: upload once, reference by handle).
+    box_mesh: Option<MeshHandle>,
+    /// The render pipeline, created once in `init`.
     pipeline: Option<PipelineHandle>,
 }
 
 impl CarRunner {
-    /// Forward speed of the world, in world-units per second.
-    const SPEED: f32 = 12.0;
-    /// Number of track segments laid out ahead of the vehicle.
-    const TRACK_SEGMENTS: usize = 8;
-    /// Spacing between track segments along the travel axis.
-    const SEGMENT_SPACING: f32 = 6.0;
+    /// Forward speed of the player along the streaming axis, in units/second.
+    const SPEED: f32 = 14.0;
+    /// Number of discrete lanes.
+    const LANES: usize = 3;
+    /// Distance between adjacent lane centers along `X`, in world units.
+    const LANE_WIDTH: f32 = 3.0;
+    /// The player box's resting height (its transform's `Y`).
+    const PLAYER_Y: f32 = 0.6;
+    /// Half-extents of the player box (a 1×1×1 cube ⇒ 0.5 each) used for the
+    /// game-side overlap test.
+    const PLAYER_HALF: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+    /// Half-extents of an obstacle box, used for the game-side overlap test.
+    const OBSTACLE_HALF: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+    /// Spawn an obstacle on every Nth streaming slot; the rest are clear road.
+    const OBSTACLE_EVERY: i64 = 2;
+    /// On a restart, clear obstacles within this many units of the player (both
+    /// ahead and behind) so the fresh run has a safe runway.
+    const CLEAR_AHEAD: f32 = 10.0;
+    /// The starting lane (center) and the reset lane.
+    const START_LANE: usize = Self::LANES / 2;
+    /// Fixed seed for the run's PRNG, so a headless run is fully reproducible.
+    const SEED: u64 = 0xC0FF_EE00_1234_5678;
+
+    /// World-space `X` of a lane center.
+    fn lane_x(lane: usize) -> f32 {
+        // Center lanes about x=0: lane 0 → -LANE_WIDTH, center → 0, etc.
+        (lane as f32 - (Self::LANES as f32 - 1.0) / 2.0) * Self::LANE_WIDTH
+    }
+
+    /// The player's current world position (lane along `X`, monotonic travel along
+    /// `-Z`). A pure function of game state, so it matches the ECS transform and is
+    /// used for the streaming focus and the overlap test.
+    fn player_position(&self) -> Vec3 {
+        Vec3::new(Self::lane_x(self.lane), Self::PLAYER_Y, -self.travel)
+    }
 
     /// Create an unspawned game; [`init`](Game::init) populates the world.
     fn new() -> Self {
         Self {
-            vehicle: None,
-            track: Vec::new(),
+            player: None,
+            lane: Self::START_LANE,
+            travel: 0.0,
             distance: 0.0,
-            meshes: Vec::new(),
+            best: 0.0,
+            rng: Rng::new(Self::SEED),
+            box_mesh: None,
             pipeline: None,
         }
+    }
+
+    /// The score derived from the current run's distance (1 point per world unit).
+    fn score(&self) -> u64 {
+        self.distance.max(0.0) as u64
+    }
+
+    /// Apply lane-switch input for this fixed step (kinematic, level-triggered).
+    ///
+    /// Left/A move one lane toward 0, Right/D one lane toward `LANES-1`, clamped at
+    /// the edges. Both directions at once cancel. Level input means holding the key
+    /// glides across lanes; that is fine for a first prototype (edge detection is
+    /// KE-0304).
+    fn apply_lane_input(&mut self, ctx: &EngineCtx) {
+        let input = ctx.input();
+        let left = input.is_key_down(Key::Left) || input.is_key_down(Key::A);
+        let right = input.is_key_down(Key::Right) || input.is_key_down(Key::D);
+        match (left, right) {
+            (true, false) => self.lane = self.lane.saturating_sub(1),
+            (false, true) => self.lane = (self.lane + 1).min(Self::LANES - 1),
+            _ => {}
+        }
+    }
+
+    /// Whether the player box overlaps `obstacle_pos` — a game-side AABB test
+    /// (same-lane proximity along `X` and overlap along the travel axis `Z`).
+    ///
+    /// This is deliberately a *game* computation over entity transforms: it does
+    /// **not** query `kaman-physics` for contacts (that would be an engine API
+    /// change, out of scope for this A0 ticket).
+    fn overlaps(&self, obstacle_pos: Vec3) -> bool {
+        let player = self.player_position();
+        let dx = (player.x - obstacle_pos.x).abs();
+        let dz = (player.z - obstacle_pos.z).abs();
+        dx < Self::PLAYER_HALF.x + Self::OBSTACLE_HALF.x
+            && dz < Self::PLAYER_HALF.z + Self::OBSTACLE_HALF.z
+    }
+
+    /// Spawn the player box at `position` and return its entity.
+    fn spawn_player(scene: &mut Scene, position: Vec3) -> Entity {
+        scene.world_mut().spawn((
+            TransformComponent::from_position(position),
+            RenderComponent::cube([0.9, 0.15, 0.1]),
+            DynamicTag,
+        ))
+    }
+
+    /// Restart the run after a crash (or on demand): report the score, zero it,
+    /// recenter the lane, and clear the obstacles around the player so it doesn't
+    /// instantly re-collide. The world keeps scrolling — `travel` is monotonic, so
+    /// the scene's (private) spawn frontier stays valid and the road ahead is
+    /// unbroken. Fully deterministic: no PRNG reseed, no wall-clock read.
+    fn reset(&mut self, ctx: &mut EngineCtx) {
+        self.best = self.best.max(self.distance);
+        println!(
+            "crash! score {} (distance {:.1}) — best {:.1}. restarting.",
+            self.score(),
+            self.distance,
+            self.best
+        );
+
+        // Clear obstacles within a window around the player so the restart lane is
+        // safe. Obstacles are the streamed entities that carry a physics body;
+        // despawn removes the ECS entity and its rigid body atomically.
+        let player_along = self.player_position().dot(ctx.scene().config().axis);
+        let window = Self::CLEAR_AHEAD;
+        let victims: Vec<Entity> = ctx
+            .world()
+            .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
+            .iter()
+            .filter(|(_e, (t, _))| {
+                let d = t.transform.position.dot(ctx.scene().config().axis);
+                (d - player_along).abs() <= window
+            })
+            .map(|(e, _)| e)
+            .collect();
+        let scene = ctx.scene_mut();
+        for e in victims {
+            scene.despawn(e);
+        }
+
+        self.lane = Self::START_LANE;
+        self.distance = 0.0;
+    }
+
+    /// Fill one streaming slot with a road tile and, on the obstacle cadence, an
+    /// obstacle in a deterministically-chosen lane.
+    ///
+    /// Both road and obstacle entities are reported via
+    /// [`SpawnCtx::spawned`](kaman_scene::SpawnCtx::spawned) so the scene despawns
+    /// them (and any physics body) once they fall behind the player.
+    fn spawn_slot(rng: &mut Rng, tile_depth: f32, cx: &mut kaman_scene::SpawnCtx<'_>) {
+        // Road tile: a wide, flat, dark box centered across all lanes at this slot.
+        let road_z = cx.position.z;
+        let road_width = Self::LANES as f32 * Self::LANE_WIDTH + Self::LANE_WIDTH;
+        let road = cx.world.spawn((
+            TransformComponent::new(Transform {
+                position: Vec3::new(0.0, -0.5, road_z),
+                scale: Vec3::new(road_width, 0.4, tile_depth),
+                ..Transform::identity()
+            }),
+            RenderComponent::cube([0.16, 0.16, 0.2]),
+            StaticTag,
+        ));
+        cx.spawned(road);
+
+        // Obstacle cadence: not every slot, and never at slot 0 (right on the
+        // player's start) so the very first frame is always survivable.
+        if cx.slot != 0 && cx.slot.rem_euclid(Self::OBSTACLE_EVERY) == 0 {
+            let lane = rng.next_below(Self::LANES as u32) as usize;
+            let pos = Vec3::new(Self::lane_x(lane), Self::PLAYER_Y, road_z);
+
+            // Give the obstacle a static physics body + collider so streaming's
+            // atomic despawn (ECS entity + rigid body together) is exercised. The
+            // body is not used to drive the player; collision is a game-side AABB.
+            let handle = cx.physics.create_static_body(Transform::from_position(pos));
+            cx.physics.add_box_collider(handle, Self::OBSTACLE_HALF);
+
+            let obstacle = cx.world.spawn((
+                TransformComponent::from_position(pos),
+                kaman_ecs::PhysicsBodyComponent::new(handle),
+                RenderComponent::cube([0.95, 0.8, 0.1]),
+                StaticTag,
+            ));
+            cx.spawned(obstacle);
+        }
+    }
+
+    /// Test the player against every streamed obstacle; return `true` on a hit.
+    ///
+    /// An obstacle is any streamed entity with `PhysicsBodyComponent` (only
+    /// obstacles get one — road tiles do not), so this reads their transforms and
+    /// runs the game-side overlap test.
+    fn hit_any_obstacle(&self, ctx: &EngineCtx) -> bool {
+        for (_e, (t, _body)) in ctx
+            .world()
+            .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
+            .iter()
+        {
+            if self.overlaps(t.transform.position) {
+                return true;
+            }
+        }
+        false
     }
 }
 
 impl Game for CarRunner {
     fn init(&mut self, ctx: &mut EngineCtx) {
-        let world = ctx.world_mut();
+        // The scene is owned by the loop and created with the engine-default
+        // `StreamingConfig` — which streams along `-Z`, exactly our travel axis
+        // (adjusting it would need an engine API, out of scope for this A0
+        // ticket). We drive `stream` / `maybe_rebase` against that scene; road
+        // tiles are sized to the scene's own `spawn_interval` so they tile flush.
+        let start = self.player_position();
+        let scene = ctx.scene_mut();
+        self.player = Some(Self::spawn_player(scene, start));
 
-        // The player vehicle: a dynamic red cube at the origin.
-        self.vehicle = Some(world.spawn((
-            TransformComponent::from_position(Vec3::new(0.0, 0.5, 0.0)),
-            RenderComponent::cube([0.9, 0.1, 0.1]),
-            DynamicTag,
-        )));
-
-        // A run of static track segments laid out ahead along -Z.
-        for i in 0..Self::TRACK_SEGMENTS {
-            let z = -(i as f32) * Self::SEGMENT_SPACING;
-            let seg = world.spawn((
-                TransformComponent::from_position(Vec3::new(0.0, 0.0, z)),
-                RenderComponent::cube([0.2, 0.2, 0.25]),
-                StaticTag,
-            ));
-            self.track.push(seg);
-        }
-
-        // Upload each renderable entity's geometry **once**, at load time, and
-        // keep the returned `MeshHandle`s (KE-0103). Collect the raw geometry
-        // from the world first so that borrow ends before we borrow the renderer.
-        let geometry: Vec<(Entity, Vec<[f32; 9]>, Vec<u32>)> = ctx
-            .world()
-            .query::<&RenderComponent>()
-            .iter()
-            .map(|(e, r)| {
-                let (vertices, indices) = match &r.shape {
-                    RenderShape::Mesh { vertices, indices } => (vertices.clone(), indices.clone()),
-                    // `RenderShape` is `#[non_exhaustive]`; only meshes exist today.
-                    _ => (Vec::new(), Vec::new()),
-                };
-                (e, vertices, indices)
-            })
-            .collect();
-
+        // Upload the one shared box mesh + pipeline once.
         let layout = mesh_layout();
+        let (vertices, indices) = match RenderShape::cube([1.0, 1.0, 1.0]) {
+            RenderShape::Mesh { vertices, indices } => (vertices, indices),
+            _ => (Vec::new(), Vec::new()),
+        };
+        let bytes = pack_vertices(&vertices);
         let renderer = ctx.renderer();
-
-        // One persistent pipeline for the whole run.
         self.pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
             vertex_shader: "vertex_main".into(),
             fragment_shader: "fragment_main".into(),
             vertex_layout: layout.clone(),
         }));
+        self.box_mesh = Some(renderer.create_mesh(&MeshData {
+            vertices: &bytes,
+            indices: &indices,
+            layout,
+        }));
 
-        for (entity, vertices, indices) in &geometry {
-            let bytes = pack_vertices(vertices);
-            let mesh = renderer.create_mesh(&MeshData {
-                vertices: &bytes,
-                indices,
-                layout: layout.clone(),
-            });
-            self.meshes.push((*entity, mesh));
-        }
+        // Prime the road ahead so the first frame is not empty.
+        let focus = self.player_position();
+        let tile_depth = ctx.scene().config().spawn_interval;
+        let rng = &mut self.rng;
+        ctx.scene_mut()
+            .stream(focus, |cx| Self::spawn_slot(rng, tile_depth, cx));
     }
 
     fn update(&mut self, ctx: &mut EngineCtx, dt: f32) {
-        // KE-0201 cadence: `dt` is always the engine's fixed timestep
-        // (`kaman_core::FIXED_DT`), and this may be called 0..N times per rendered
-        // frame. We advance purely by `dt`, so the simulation is identical whether
-        // the display runs at 60 or 120 Hz — no wall-clock time is read here.
-        let step = Self::SPEED * dt;
-        self.distance += step;
+        // Restart on demand (Space): also the "start over" affordance after a
+        // crash, and always deterministic.
+        if ctx.input().is_key_down(Key::Space) {
+            self.reset(ctx);
+        }
 
-        let world = ctx.world_mut();
+        // Kinematic lane movement from input (no solver involvement).
+        self.apply_lane_input(ctx);
 
-        // Scroll each track segment toward the vehicle; recycle it to the back of
-        // the run once it passes behind, giving an endless track from a fixed pool.
-        let span = Self::TRACK_SEGMENTS as f32 * Self::SEGMENT_SPACING;
-        for &seg in &self.track {
-            if let Ok(mut t) = world.get::<&mut TransformComponent>(seg) {
-                t.transform.position.z += step;
-                if t.transform.position.z > Self::SEGMENT_SPACING {
-                    t.transform.position.z -= span;
-                }
+        // Advance forward by a fixed step. `dt` is always `FIXED_DT`, so the
+        // simulation is framerate-independent (KE-0201) — no wall-clock is read.
+        // `travel` (world position) and `distance` (score) advance together; only
+        // `distance` rewinds on a crash.
+        self.travel += Self::SPEED * dt;
+        self.distance += Self::SPEED * dt;
+
+        // Streaming cadence: rebase FIRST (between physics steps), against the
+        // focus. A rebase shifts every streamed transform back toward the origin;
+        // the player is kinematic and rebuilt from `travel`, so we fold the same
+        // shift into `travel` to stay aligned with the shifted world.
+        let axis = ctx.scene().config().axis;
+        let offset = ctx.scene_mut().maybe_rebase(self.player_position());
+        if offset != Vec3::ZERO {
+            // `travel` is measured along +axis from the origin; shifting the world
+            // by `offset` moves the player's along-axis coordinate by offset·axis.
+            self.travel += offset.dot(axis);
+        }
+
+        // Drive the player's transform kinematically to its lane + travel position,
+        // now consistent with any rebase this step.
+        let player_pos = self.player_position();
+        if let Some(p) = self.player {
+            if let Ok(mut t) = ctx.world_mut().get::<&mut TransformComponent>(p) {
+                t.transform.position = player_pos;
             }
         }
 
-        // Bob the vehicle slightly so its transform visibly changes each frame.
-        if let Some(v) = self.vehicle {
-            if let Ok(mut t) = world.get::<&mut TransformComponent>(v) {
-                t.transform.position.y = 0.5 + 0.1 * (self.distance * 0.5).sin();
-            }
+        // Then stream ahead / despawn behind, with the player as the focus.
+        let tile_depth = ctx.scene().config().spawn_interval;
+        let rng = &mut self.rng;
+        ctx.scene_mut()
+            .stream(player_pos, |cx| Self::spawn_slot(rng, tile_depth, cx));
+
+        // Collision → reset the run.
+        if self.hit_any_obstacle(ctx) {
+            self.reset(ctx);
+            return;
+        }
+
+        // Score: report on each whole-unit milestone so stdout shows progress
+        // without spamming every frame.
+        let prev = (self.distance - Self::SPEED * dt).max(0.0) as u64;
+        if self.score() / 50 != prev / 50 {
+            println!("score: {}", self.score());
         }
     }
 
     fn render(&mut self, ctx: &mut EngineCtx) {
-        // Read this frame's transforms from the ECS world first, so that borrow
-        // ends before we borrow the renderer from the same context. Meshes were
-        // uploaded once in `init`; this hot path allocates **no** mesh buffers —
-        // it just references the persistent handles by looking up each entity's
-        // transform (KE-0103).
-        let draws: Vec<(MeshHandle, kaman_math::Transform)> = self
-            .meshes
+        // Read this frame's transforms + colors, then record draws referencing the
+        // one persistent box mesh (KE-0103: no per-frame mesh upload).
+        let mesh = self.box_mesh.expect("mesh created in init");
+        let draws: Vec<(kaman_math::Transform, [f32; 3])> = ctx
+            .world()
+            .query::<(&TransformComponent, &RenderComponent)>()
             .iter()
-            .filter_map(|&(entity, mesh)| {
-                ctx.world()
-                    .get::<&TransformComponent>(entity)
-                    .ok()
-                    .map(|t| (mesh, t.transform))
-            })
+            .map(|(_e, (t, r))| (t.transform, r.color))
             .collect();
 
         let pipeline = self.pipeline.expect("pipeline created in init");
         let renderer = ctx.renderer();
-
         renderer.begin_frame();
         renderer.set_pipeline(pipeline);
-        for (mesh, transform) in &draws {
-            renderer.draw_mesh(*mesh, transform, &MaterialParams::default());
+        for (transform, color) in &draws {
+            let material = MaterialParams {
+                base_color: [color[0], color[1], color[2], 1.0],
+                ..MaterialParams::default()
+            };
+            renderer.draw_mesh(mesh, transform, &material);
         }
         renderer.submit();
     }
@@ -321,37 +556,151 @@ mod tests {
     }
 
     #[test]
-    fn init_spawns_the_expected_scene() {
+    fn init_spawns_player_and_streams_road() {
         let mut game = CarRunner::new();
         let harness = kaman_core::headless::run(&mut game, 0);
-        // Vehicle + one entity per track segment.
-        let expected = 1 + CarRunner::TRACK_SEGMENTS;
-        assert_eq!(harness.world().len() as usize, expected);
-        assert!(game.vehicle.is_some());
-        assert_eq!(game.track.len(), CarRunner::TRACK_SEGMENTS);
+        assert!(game.player.is_some(), "player spawned in init");
+        // Streaming primed some road/obstacles ahead.
+        assert!(
+            harness.scene().streamed_count() > 0,
+            "init primed streamed content ahead of the player"
+        );
     }
 
     #[test]
-    fn update_advances_distance_and_recycles_track() {
+    fn lane_x_is_centered_and_ordered() {
+        // Three lanes centered on 0: -W, 0, +W.
+        assert!((CarRunner::lane_x(0) + CarRunner::LANE_WIDTH).abs() < 1e-6);
+        assert!(CarRunner::lane_x(1).abs() < 1e-6);
+        assert!((CarRunner::lane_x(2) - CarRunner::LANE_WIDTH).abs() < 1e-6);
+    }
+
+    #[test]
+    fn lane_input_clamps_at_both_edges() {
+        use kaman_core::headless::Headless;
+
+        // Hold Left from the center for many steps: reach lane 0 and never underflow.
+        let mut left_game = CarRunner::new();
+        let mut hl = Headless::new();
+        hl.input_mut().press_key(Key::Left);
+        hl.run(&mut left_game, 10);
+        assert_eq!(left_game.lane, 0, "clamped at the left edge");
+
+        // Hold Right from the center: reach the last lane and never overflow.
+        let mut right_game = CarRunner::new();
+        let mut hr = Headless::new();
+        hr.input_mut().press_key(Key::D); // the `D` alias also moves right
+        hr.run(&mut right_game, 10);
+        assert_eq!(right_game.lane, CarRunner::LANES - 1, "clamped at the right edge");
+    }
+
+    #[test]
+    fn score_increases_with_distance() {
         let mut game = CarRunner::new();
-        let harness = kaman_core::headless::run(&mut game, SMOKE_FRAMES);
+        let mut h = kaman_core::headless::Headless::new();
+        h.run(&mut game, 1);
+        let after_one = game.distance;
+        assert!(after_one > 0.0, "distance advanced after one step");
+        h.run(&mut game, 60);
+        assert!(game.distance > after_one, "distance keeps increasing");
+        // Score tracks distance monotonically.
+        assert!(game.score() >= after_one as u64);
+    }
 
-        assert_eq!(harness.frames_run(), SMOKE_FRAMES);
-        // Distance grew by SPEED * dt each frame.
-        assert!(game.distance > 0.0);
+    #[test]
+    fn obstacle_placement_is_deterministic_from_seed() {
+        // Two independent runs of the same seed produce the identical lane sequence.
+        let lanes = |n: usize| {
+            let mut rng = Rng::new(CarRunner::SEED);
+            (0..n)
+                .map(|_| rng.next_below(CarRunner::LANES as u32))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(lanes(50), lanes(50), "same seed ⇒ same obstacle lanes");
 
-        // Every track segment stays within the recycling window along Z.
-        let span = CarRunner::TRACK_SEGMENTS as f32 * CarRunner::SEGMENT_SPACING;
-        for &seg in &game.track {
-            let z = harness
+        // And the full game streams the same obstacle world twice for the same seed.
+        let obstacle_zs = || {
+            let mut game = CarRunner::new();
+            let harness = kaman_core::headless::run(&mut game, 30);
+            let mut zs: Vec<i64> = harness
+                .scene()
                 .world()
-                .get::<&TransformComponent>(seg)
-                .unwrap()
-                .transform
-                .position
-                .z;
-            assert!(z <= CarRunner::SEGMENT_SPACING + 1e-3);
-            assert!(z >= CarRunner::SEGMENT_SPACING - span - 1e-3);
+                .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
+                .iter()
+                .map(|(_e, (t, _))| (t.transform.position.z * 100.0) as i64)
+                .collect();
+            zs.sort_unstable();
+            zs
+        };
+        assert_eq!(obstacle_zs(), obstacle_zs(), "deterministic obstacle stream");
+    }
+
+    #[test]
+    fn overlap_detects_same_lane_hit_only() {
+        let mut game = CarRunner::new();
+        game.lane = 1;
+        game.travel = 10.0;
+        let player = game.player_position();
+        // Same lane, same Z ⇒ hit.
+        assert!(game.overlaps(Vec3::new(player.x, player.y, player.z)));
+        // Different lane, same Z ⇒ no hit.
+        assert!(!game.overlaps(Vec3::new(CarRunner::lane_x(0), player.y, player.z)));
+        // Same lane, far ahead ⇒ no hit.
+        assert!(!game.overlaps(Vec3::new(player.x, player.y, player.z - 5.0)));
+    }
+
+    #[test]
+    fn collision_resets_the_run() {
+        // Drive many frames: the deterministic stream guarantees the middle-lane
+        // runner eventually meets an obstacle, which resets distance to ~0.
+        let mut game = CarRunner::new();
+        let mut h = kaman_core::headless::Headless::new();
+
+        let mut saw_reset = false;
+        let mut prev = 0.0f32;
+        for _ in 0..600 {
+            h.run(&mut game, 1);
+            // A reset is a large backward jump in distance.
+            if game.distance + 1.0 < prev {
+                saw_reset = true;
+                break;
+            }
+            prev = game.distance;
         }
+        assert!(saw_reset, "the runner eventually crashes and the run resets");
+    }
+
+    #[test]
+    fn restart_zeroes_score_but_keeps_world_scrolling() {
+        // Run a while, move off-center, then press Space (restart). Score resets
+        // to zero and the lane recenters, but the monotonic world position keeps
+        // advancing so the road never breaks.
+        let mut game = CarRunner::new();
+        let mut h = kaman_core::headless::Headless::new();
+        h.input_mut().press_key(Key::Left);
+        h.run(&mut game, 40);
+        let travel_before = game.travel;
+        assert!(game.distance > 0.0);
+        assert_ne!(game.lane, CarRunner::START_LANE, "moved off center");
+
+        // Release the lane key, press Space, step once to trigger the restart.
+        h.input_mut().release_key(Key::Left);
+        h.input_mut().press_key(Key::Space);
+        h.run(&mut game, 1);
+
+        assert!(game.distance < CarRunner::SPEED * 0.05, "score distance reset");
+        assert_eq!(game.lane, CarRunner::START_LANE, "lane recentered");
+        assert!(game.travel >= travel_before, "world travel stays monotonic");
+    }
+
+    #[test]
+    fn streaming_stays_bounded_over_a_long_run() {
+        // Endless streaming must not leak: entity/body counts stay flat across a
+        // long headless run (also exercises a floating-origin rebase or two).
+        let mut game = CarRunner::new();
+        let harness = kaman_core::headless::run(&mut game, 5000);
+        let entities = harness.scene().world().len();
+        // A generous bound: the streaming window holds only a handful of slots.
+        assert!(entities < 200, "entity count stayed bounded: {entities}");
     }
 }
