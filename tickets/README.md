@@ -88,14 +88,14 @@ are bumped one tier (not fully unit-testable).
 **Phase 1 order:** KE-0101 (A3, alone) → KE-0102 (A2) → then KE-0103/0104 (A2, one at a
 time per WIP limit) → KE-0105; KE-0106/0107 (A0/A1) land any time after KE-0102.
 
-### Phase 2 — Gameplay Core  *(core complete; KE-0205 camera in progress)*
+### Phase 2 — Gameplay Core  *(complete)*
 | # | Title | Pri | Int | Size | Status | Depends | Serves |
 |---|---|---|---|---|---|---|---|
 | KE-0201 | Fixed-timestep loop + `Game::update` hook | P0 | Refactor | M · A2 | Done | KE-0101 | KR2.1 |
 | KE-0202 | rapier wrapper + removal API + use-after-free guard | P0 | Refactor | S · A0 | Done | KE-0005 | KR2.2 |
 | KE-0203 | World streaming: spawn/despawn + origin rebase | P0 | New | L · A2 | Done | KE-0201, KE-0202 | KR2.3 |
 | KE-0204 | `car-runner` prototype (box car) | P1 | New | M · A0 | Done | KE-0201, KE-0202, KE-0203 | KR2.4 |
-| KE-0205 | Migrate camera → `kaman-camera` + chase controller | P1 | Refactor | L · A2 | Todo | KE-0102, KE-0204 | KR2.4 |
+| KE-0205 | Migrate camera → `kaman-camera` + chase controller | P1 | Refactor | L · A2 | Done | KE-0102, KE-0204 | KR2.4 |
 
 **Phase 2 order:** KE-0201 (A2) and KE-0202 (A0) can go in either order (0202 is independent);
 then KE-0203 (A2) needs both; KE-0204 (the playable prototype + "is it fun?" gate) is last.
