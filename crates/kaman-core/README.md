@@ -30,10 +30,32 @@ The engine owns the loop and calls into the game through two types:
 
 ### `Game` call ordering (invariant)
 
-For a driver that runs `N` frames: `init` once, then `(update, render)` × `N`.
-`init` never runs twice; `render` never runs before `init`; `update` and
-`render` are always paired in that order. The doc comment states it, the driver
-enforces it, and `headless::tests::init_once_then_update_render_pairs` tests it.
+The engine runs a **fixed timestep** (`FIXED_DT = 1/60 s`, the single source of
+truth in `timestep.rs`) decoupled from the display rate. For a driver that runs
+`N` frames: `init` once, then per frame `(update × k, render)`, where `k` is the
+whole number of fixed steps drained from the accumulator that frame — **0..N**,
+not necessarily 1. `init` never runs twice; `render` never runs before `init` and
+runs **exactly once per frame**; each `update` receives the constant `FIXED_DT`.
+A game must not assume one `update` per `render`.
+
+### Fixed timestep (KE-0201)
+
+Each frame banks the real elapsed time in a shared `Accumulator` and runs
+`update(FIXED_DT)` a whole number of times (draining full steps), then `render`
+once. Consequences:
+
+- **Framerate independence:** the `update` count per second of simulated time is
+  identical at 60 and 120 Hz (± the sub-step remainder). Asserted by
+  `driver::tests::same_update_count_at_60hz_and_120hz_through_the_loop` (and at
+  the accumulator level in `timestep::tests`), both feeding a *synthetic* clock —
+  no wall time.
+- **Spiral-of-death guard:** catch-up is capped at `MAX_STEPS_PER_FRAME` (5)
+  steps per frame; surplus accumulated time is discarded so a long stall slows the
+  sim rather than wedging the loop. Tested by
+  `driver::tests::loop_clamps_catch_up_on_a_long_stall`.
+- **Interpolation alpha:** `EngineCtx::alpha()` (`0.0..=1.0`) is exposed on the
+  render path (`remainder / FIXED_DT`) so `render` can lerp between the previous
+  and current fixed states. Phase 2 games may ignore it.
 
 ### What `EngineCtx` exposes (and only this)
 
@@ -45,6 +67,8 @@ enforces it, and `headless::tests::init_once_then_update_render_pairs` tests it.
   cursor position). Backend-agnostic `Key`/`MouseButton` enums, not `winit`
   types. The full input abstraction is KE-0304.
 - `perf()` — a `PerfSnapshot` (frame timing) from `kaman-perf`.
+- `alpha()` — the fixed-timestep interpolation factor in `0.0..=1.0`, meaningful
+  on the render path (`0.0` in `init`/`update`).
 
 `EngineCtx` is the borrow-checker chokepoint: the engine builds a fresh
 `EngineCtx` borrowing its state for each hook call and hands out `&mut EngineCtx`.
@@ -52,6 +76,13 @@ The game reaches each service through a short-lived accessor borrow, so it canno
 alias engine state across a frame or stash a handle past the call.
 
 ## Two drivers, one loop
+
+Both drivers own a shared `driver::Loop` (world, input, perf, `Accumulator`) and
+run the *same* `driver::drive_frame` — the one implementation of the
+fixed-timestep cadence. Only the clock source differs: the headless driver
+advances a **synthetic clock** by one `FIXED_DT` per frame (deterministic, one
+step per frame); the windowed driver measures a real monotonic `Instant` delta
+(variable 0..N steps per frame).
 
 - **`headless`** — no window, no GPU, against a `NullRenderer`. Used by the
   `--smoke` oracle and all tests; runs on headless CI. `headless::run(game, n)`

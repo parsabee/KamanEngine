@@ -83,8 +83,11 @@ fn run_windowed(game: &mut CarRunner) {
 /// Boot the `car-runner` [`Game`] and drive `frames` frames headlessly, then report success.
 ///
 /// This is the continuous macOS oracle from `docs/INTEGRATION.md`: it exercises
-/// the whole engine/game boundary — `init` once, then `update`/`render` per frame
-/// — with no GPU work, so it is valid on headless CI. It prints the fixed
+/// the whole engine/game boundary — `init` once, then the fixed-timestep loop for
+/// `frames` frames (the headless driver advances a synthetic clock by one
+/// `FIXED_DT` per frame, so one `update` + one `render` each) — with no GPU work,
+/// so it is valid on headless CI. A "frame" here is one headless driver step; the
+/// oracle asserts the driver ran exactly `frames` of them and prints the fixed
 /// `smoke: <n> frames OK` contract line on success.
 fn run_smoke(frames: u32) {
     let mut game = CarRunner::new();
@@ -207,6 +210,10 @@ impl Game for CarRunner {
     }
 
     fn update(&mut self, ctx: &mut EngineCtx, dt: f32) {
+        // KE-0201 cadence: `dt` is always the engine's fixed timestep
+        // (`kaman_core::FIXED_DT`), and this may be called 0..N times per rendered
+        // frame. We advance purely by `dt`, so the simulation is identical whether
+        // the display runs at 60 or 120 Hz — no wall-clock time is read here.
         let step = Self::SPEED * dt;
         self.distance += step;
 

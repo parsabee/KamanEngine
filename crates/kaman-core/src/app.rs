@@ -6,11 +6,14 @@
 //! macOS.
 //!
 //! This is the platform half of the engine loop. It opens a window, translates
-//! `winit` events into the engine's backend-agnostic [`InputState`], and drives
-//! the *same* [`Game`](crate::Game) hooks in the *same* order as the headless
-//! driver (`init` once, then `update`/`render` per frame). `dt` is measured from
-//! wall-clock time and per-frame drawing goes through the backend the game
-//! binary supplies via a **backend factory**.
+//! `winit` events into the engine's backend-agnostic
+//! [`InputState`](crate::InputState), and drives the *same* shared
+//! [`drive_frame`](crate::driver::drive_frame) as the headless driver — the only
+//! difference is the clock. Here the per-frame elapsed time comes from a real
+//! monotonic [`Instant`], so the fixed-timestep
+//! [`Accumulator`](crate::timestep::Accumulator) may run 0..N `update`s before the
+//! single `render`; per-frame drawing goes through the backend the game binary
+//! supplies via a **backend factory**.
 //!
 //! # The backend seam (metal stays out of `kaman-core`)
 //!
@@ -39,13 +42,12 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-use kaman_ecs::hecs::World;
-use kaman_perf::PerfTracker;
 use kaman_render_api::NullRenderer;
 
-use crate::context::{EngineCtx, Renderer};
+use crate::context::Renderer;
+use crate::driver::{drive_frame, Loop};
 use crate::game::Game;
-use crate::input::{InputState, Key, MouseButton};
+use crate::input::{Key, MouseButton};
 
 /// A factory that constructs the render backend for a freshly-created window.
 ///
@@ -140,21 +142,19 @@ const WINDOW_HEIGHT: u32 = 600;
 
 /// The `winit` [`ApplicationHandler`] that owns engine state and drives the game.
 ///
-/// Mirrors the ownership of [`Headless`](crate::headless::Headless) — an ECS
-/// [`World`], a render seam, an [`InputState`], and a [`PerfTracker`] — plus the
-/// window and the game reference. The render seam is a `Box<dyn Renderer>`: a
+/// Holds the shared [`Loop`] (ECS [`World`](kaman_ecs::hecs::World), input, perf,
+/// and the fixed-timestep [`Accumulator`](crate::timestep::Accumulator)) exactly
+/// like [`Headless`](crate::headless::Headless) does, plus the window, the render
+/// seam, and the game reference. The render seam is a `Box<dyn Renderer>`: a
 /// [`NullRenderer`] until (and unless) the backend factory replaces it with a
 /// real backend on first resume.
 struct EngineApp<'g, 'f, G: Game> {
     game: &'g mut G,
     window: Option<Window>,
-    world: World,
+    lp: Loop,
     renderer: Box<dyn Renderer>,
     factory: Option<BackendFactory<'f>>,
-    input: InputState,
-    perf: PerfTracker,
     last_frame: Option<Instant>,
-    initialized: bool,
 }
 
 impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
@@ -162,42 +162,31 @@ impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
         Self {
             game,
             window: None,
-            world: World::new(),
+            lp: Loop::new(),
             renderer: Box::new(NullRenderer::new()),
             factory,
-            input: InputState::new(),
-            perf: PerfTracker::new(),
             last_frame: None,
-            initialized: false,
         }
     }
 
-    /// Run one frame: `update(dt)` then `render`, wrapped in perf timing.
+    /// Run one display frame through the shared [`drive_frame`].
     ///
-    /// Platform-neutral: builds an [`EngineCtx`] over the app's engine state and
-    /// calls the game hooks, exactly as the headless driver does. `dt` is the
-    /// measured seconds since the previous frame. The game records its frame
-    /// through the seam (`begin_frame` … `submit`), which the real backend turns
-    /// into a GPU present.
+    /// Measures the real seconds since the previous frame from a monotonic
+    /// [`Instant`] (the *only* thing this driver adds over the headless one) and
+    /// hands that elapsed time to the shared accumulator-based loop, which runs
+    /// 0..N fixed `update`s and one `render`. The game records its frame through
+    /// the seam (`begin_frame` … `submit`), which the real backend turns into a
+    /// GPU present.
     fn drive_frame(&mut self) {
         let now = Instant::now();
-        let dt = match self.last_frame {
-            Some(prev) => now.duration_since(prev).as_secs_f32(),
-            None => crate::headless::FIXED_DT,
+        let elapsed = match self.last_frame {
+            Some(prev) => now.duration_since(prev),
+            // First frame: bank exactly one fixed step so a game still ticks once.
+            None => std::time::Duration::from_secs_f64(f64::from(crate::FIXED_DT)),
         };
         self.last_frame = Some(now);
 
-        self.perf.begin_frame();
-        let snapshot = self.perf.snapshot();
-
-        {
-            let mut ctx =
-                EngineCtx::new(&mut self.world, self.renderer.as_mut(), &self.input, snapshot);
-            self.game.update(&mut ctx, dt);
-            self.game.render(&mut ctx);
-        }
-
-        self.perf.end_frame();
+        drive_frame(&mut self.lp, self.game, self.renderer.as_mut(), elapsed);
     }
 }
 
@@ -217,14 +206,9 @@ impl<G: Game> ApplicationHandler for EngineApp<'_, '_, G> {
             self.window = Some(window);
         }
 
-        // First activation: run the game's one-time init against the live seam.
-        if !self.initialized {
-            let snapshot = self.perf.snapshot();
-            let mut ctx =
-                EngineCtx::new(&mut self.world, self.renderer.as_mut(), &self.input, snapshot);
-            self.game.init(&mut ctx);
-            self.initialized = true;
-        }
+        // First activation: run the game's one-time init against the live seam
+        // through the shared loop (idempotent).
+        self.lp.init_once(self.game, self.renderer.as_mut());
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -240,9 +224,9 @@ impl<G: Game> ApplicationHandler for EngineApp<'_, '_, G> {
                             if key == Key::Escape {
                                 event_loop.exit();
                             }
-                            self.input.press_key(key);
+                            self.lp.input.press_key(key);
                         } else {
-                            self.input.release_key(key);
+                            self.lp.input.release_key(key);
                         }
                     }
                 }
@@ -250,13 +234,13 @@ impl<G: Game> ApplicationHandler for EngineApp<'_, '_, G> {
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(btn) = translate_mouse_button(button) {
                     match state {
-                        ElementState::Pressed => self.input.press_mouse(btn),
-                        ElementState::Released => self.input.release_mouse(btn),
+                        ElementState::Pressed => self.lp.input.press_mouse(btn),
+                        ElementState::Released => self.lp.input.release_mouse(btn),
                     }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.input.set_cursor_position(position.x, position.y);
+                self.lp.input.set_cursor_position(position.x, position.y);
             }
             WindowEvent::RedrawRequested => {
                 self.drive_frame();

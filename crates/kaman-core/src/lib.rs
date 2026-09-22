@@ -27,14 +27,28 @@
 //!
 //! # Two drivers, one loop
 //!
-//! The same game hooks run under two entry points:
+//! The same game hooks run under two entry points, both sharing the fixed-timestep
+//! [`Accumulator`] (only the clock source differs):
 //!
 //! - [`headless`] — no window, no GPU, against a
-//!   [`NullRenderer`](kaman_render_api::NullRenderer). This is what the `--smoke`
-//!   oracle and tests use; it runs on headless CI.
-//! - [`run`] — a `winit` window on macOS driving the identical hook sequence,
-//!   with per-frame drawing behind an isolated function that KE-0102 fills with
-//!   the Metal backend.
+//!   [`NullRenderer`](kaman_render_api::NullRenderer), driven by a synthetic
+//!   clock. This is what the `--smoke` oracle and tests use; it runs on headless
+//!   CI.
+//! - [`run`] — a `winit` window on macOS driving the identical hook sequence off
+//!   a real monotonic clock, with per-frame drawing behind an isolated function
+//!   that KE-0102 fills with the Metal backend.
+//!
+//! # Fixed timestep (KE-0201)
+//!
+//! Simulation is decoupled from display rate. Each frame the driver banks the
+//! real elapsed time in the [`Accumulator`] and runs
+//! [`Game::update`](Game::update)`(ctx, `[`FIXED_DT`]`)` a whole number of times
+//! (0..N) — draining the accumulator — then [`Game::render`](Game::render) once.
+//! So the `update` count per second of simulated time is framerate-independent
+//! (identical at 60 and 120 Hz), a spiral-of-death clamp
+//! ([`MAX_STEPS_PER_FRAME`]) keeps a stall from wedging the loop, and
+//! [`EngineCtx::alpha`] carries the render interpolation factor. See
+//! [`timestep`] for the full contract.
 //!
 //! # Example
 //!
@@ -57,14 +71,17 @@
 
 pub mod app;
 pub mod context;
+pub mod driver;
 pub mod game;
 pub mod headless;
 pub mod input;
+pub mod timestep;
 
 pub use app::{run, run_with_backend, BackendFactory};
 pub use context::{EngineCtx, Renderer};
 pub use game::Game;
 pub use input::{InputState, Key, MouseButton};
+pub use timestep::{Accumulator, FIXED_DT, MAX_STEPS_PER_FRAME};
 
 #[cfg(test)]
 mod boundary_tests {
@@ -90,9 +107,11 @@ mod boundary_tests {
             ("lib.rs", include_str!("lib.rs")),
             ("app.rs", include_str!("app.rs")),
             ("context.rs", include_str!("context.rs")),
+            ("driver.rs", include_str!("driver.rs")),
             ("game.rs", include_str!("game.rs")),
             ("headless.rs", include_str!("headless.rs")),
             ("input.rs", include_str!("input.rs")),
+            ("timestep.rs", include_str!("timestep.rs")),
         ];
 
         // Game concepts, built from ASCII byte codes so the words never appear

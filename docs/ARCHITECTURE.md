@@ -74,6 +74,27 @@ the top. Game concepts (car, road, score) never enter engine crates — the boun
 | Assets | `gltf` + `image` | static meshes only for v1 |
 | Scripting | KamanScript (custom) | frozen 20-construct spec → tree-walk interpreter → bytecode VM later; `mlua` is the fallback behind an `Interpreter` trait |
 
+### 4a. Fixed-timestep loop (KE-0201)
+
+`kaman-core` drives simulation on a **fixed timestep decoupled from the display
+rate**. `FIXED_DT = 1/60 s` is the single source of truth (`kaman-core`'s
+`timestep.rs`); physics (`kaman-physics`) steps at the same rate so its behavior
+is deterministic. Each display frame:
+
+1. banks the real elapsed time in an `Accumulator`,
+2. calls `Game::update(ctx, FIXED_DT)` a whole number of times (0..N), draining
+   the accumulator, then
+3. calls `Game::render(ctx)` **once**, carrying an interpolation `alpha`
+   (`remainder / FIXED_DT`, `0..1`) so rendering can lerp between fixed states.
+
+This makes the `update` count per second of simulated time framerate-independent
+(identical at 60 and 120 Hz). A **spiral-of-death guard** caps catch-up at
+`MAX_STEPS_PER_FRAME` steps per frame and discards the surplus, so a stall slows
+the sim rather than wedging the loop. The headless driver (synthetic clock, one
+step/frame — deterministic tests + `--smoke`) and the winit windowed driver (real
+monotonic clock, variable steps) share **one** loop implementation
+(`driver::drive_frame`); only the clock source differs.
+
 ## 5. Physics decision (v1)
 
 rapier3d is retained for v1 because it is already integrated and gets us to the "is it fun?"

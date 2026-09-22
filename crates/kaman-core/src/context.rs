@@ -69,6 +69,7 @@ pub struct EngineCtx<'a> {
     renderer: &'a mut dyn Renderer,
     input: &'a InputState,
     perf: PerfSnapshot,
+    alpha: f32,
 }
 
 impl<'a> EngineCtx<'a> {
@@ -77,17 +78,23 @@ impl<'a> EngineCtx<'a> {
     /// This is `pub(crate)`: only the engine's loop/driver constructs an
     /// `EngineCtx`. Each of `world`, `renderer`, and `input` is a distinct field
     /// of engine-owned state, so the borrows do not alias.
+    ///
+    /// `alpha` is the fixed-timestep interpolation factor (see
+    /// [`alpha`](Self::alpha)); it is meaningful on the render path and `0.0` for
+    /// `update`/`init` contexts, where interpolation does not apply.
     pub(crate) fn new(
         world: &'a mut World,
         renderer: &'a mut dyn Renderer,
         input: &'a InputState,
         perf: PerfSnapshot,
+        alpha: f32,
     ) -> Self {
         Self {
             world,
             renderer,
             input,
             perf,
+            alpha,
         }
     }
 
@@ -142,5 +149,25 @@ impl<'a> EngineCtx<'a> {
     #[must_use]
     pub fn perf(&self) -> PerfSnapshot {
         self.perf
+    }
+
+    /// The fixed-timestep **interpolation factor** in `0.0..=1.0`, for the
+    /// render path.
+    ///
+    /// Because the engine simulates in fixed [`FIXED_DT`](crate::FIXED_DT) steps
+    /// but renders once per display frame, the render usually falls *between* two
+    /// simulated states. `alpha` is the fraction of a fixed step that has elapsed
+    /// since the last [`update`](crate::Game::update): `0.0` means "exactly at the
+    /// last fixed state", approaching `1.0` means "almost at the next one". A game
+    /// may lerp between the previous and current fixed states by this amount in
+    /// [`render`](crate::Game::render) for motion that stays smooth even when the
+    /// display rate doesn't divide evenly into the fixed rate.
+    ///
+    /// It is `0.0` in [`init`](crate::Game::init) and
+    /// [`update`](crate::Game::update) contexts, where interpolation has no
+    /// meaning. Phase 2 games may ignore it; it is wired through for later use.
+    #[must_use]
+    pub fn alpha(&self) -> f32 {
+        self.alpha
     }
 }

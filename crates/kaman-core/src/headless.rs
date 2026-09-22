@@ -4,35 +4,44 @@
 
 //! The headless driver — run a [`Game`](crate::Game) with no window and no GPU.
 //!
-//! This is the engine loop with the platform layer stripped away: it owns the
-//! ECS world, a [`NullRenderer`](kaman_render_api::NullRenderer) standing in for
-//! the render seam, an [`InputState`](crate::InputState), and a
-//! [`PerfTracker`](kaman_perf::PerfTracker), and it drives a game for a fixed
-//! number of frames. It requires **no display and no Metal device**, so it is
-//! what the `--smoke` oracle and the crate's tests use, and it runs on headless
-//! CI runners.
+//! This is the engine loop with the platform layer stripped away: it holds a
+//! [`Loop`](crate::driver::Loop) (the ECS world, an [`InputState`](crate::InputState),
+//! a [`PerfTracker`](kaman_perf::PerfTracker), and the fixed-timestep
+//! [`Accumulator`](crate::timestep::Accumulator)) plus a
+//! [`NullRenderer`](kaman_render_api::NullRenderer) standing in for the render
+//! seam, and drives a game for a fixed number of frames. It requires **no display
+//! and no Metal device**, so it is what the `--smoke` oracle and the crate's
+//! tests use, and it runs on headless CI runners.
 //!
-//! The windowed entry ([`run`](crate::run)) drives the *same* game hooks in the
-//! same order against the same kinds of engine state; the only difference is
-//! where input and timing come from and that a real backend replaces the
-//! `NullRenderer` (KE-0102). Keeping this loop separate from the platform code
-//! is what guarantees the headless path never depends on `winit` succeeding.
+//! # The synthetic clock
+//!
+//! To stay deterministic, this driver does not read wall time: each frame it
+//! advances a **synthetic clock** by exactly one [`FIXED_DT`], so the shared
+//! [`drive_frame`](crate::driver::drive_frame) runs exactly one `update` and one
+//! `render` per frame. The windowed entry ([`run`](crate::run)) runs the *same*
+//! [`drive_frame`] but off a real monotonic clock, so a fast display yields 0..N
+//! `update`s per frame. Only the clock source differs; the accumulator logic is
+//! shared, which is what keeps simulation identical across drivers and frame
+//! rates.
+
+use std::time::Duration;
 
 use kaman_ecs::hecs::World;
-use kaman_perf::PerfTracker;
 use kaman_render_api::NullRenderer;
 
-use crate::context::EngineCtx;
+use crate::driver::{drive_frame, Loop};
 use crate::game::Game;
 use crate::input::InputState;
 
+pub use crate::timestep::FIXED_DT;
+
 /// Drive `game` headlessly for `frames` frames and return the engine state.
 ///
-/// Calls [`Game::init`](crate::Game::init) once, then
-/// [`Game::update`](crate::Game::update) followed by
-/// [`Game::render`](crate::Game::render) for each of `frames` frames, honoring
-/// the call-ordering contract on [`Game`]. A fixed `dt` of 1/60 s is used so runs
-/// are deterministic (the accumulator-based variable timestep is KE-0201).
+/// Calls [`Game::init`](crate::Game::init) once, then advances a synthetic clock
+/// by one [`FIXED_DT`] per frame — so each of `frames` frames runs exactly one
+/// [`Game::update`](crate::Game::update)`(ctx, FIXED_DT)` followed by one
+/// [`Game::render`](crate::Game::render), honoring the call-ordering contract on
+/// [`Game`]. The synthetic clock keeps runs fully deterministic.
 ///
 /// Returns the [`Headless`] harness so callers/tests can inspect the resulting
 /// ECS [`World`] and the [`NullRenderer`]'s recorded draws. Input stays empty for
@@ -62,29 +71,20 @@ pub fn run<G: Game>(game: &mut G, frames: u32) -> Headless {
     harness
 }
 
-/// Fixed timestep used by the headless driver: 1/60 second.
-///
-/// Phase 1 uses a constant `dt` for determinism. KE-0201 introduces the
-/// fixed-timestep accumulator; until then the windowed entry uses a measured
-/// `dt` and the headless driver this constant.
-pub const FIXED_DT: f32 = 1.0 / 60.0;
-
 /// A reusable headless harness owning the engine state a [`Game`](crate::Game)
 /// runs against.
 ///
-/// Holds the ECS [`World`], a [`NullRenderer`] (the render seam double), an
-/// [`InputState`], and a [`PerfTracker`]. Construct one with [`new`](Self::new),
-/// optionally seed input, then call [`run`](Self::run) (or the free
-/// [`run`](crate::headless::run) function). After a run, inspect
+/// Wraps a shared [`Loop`] (ECS [`World`], [`InputState`], `PerfTracker`, and the
+/// fixed-timestep [`Accumulator`](crate::timestep::Accumulator)) plus a
+/// [`NullRenderer`] (the render seam double). Construct one with
+/// [`new`](Self::new), optionally seed input, then call [`run`](Self::run) (or
+/// the free [`run`](crate::headless::run) function). After a run, inspect
 /// [`world`](Self::world) and [`renderer`](Self::renderer) to assert what the
 /// game did.
 pub struct Headless {
-    world: World,
+    lp: Loop,
     renderer: NullRenderer,
-    input: InputState,
-    perf: PerfTracker,
     frames_run: u32,
-    initialized: bool,
 }
 
 impl Headless {
@@ -92,12 +92,9 @@ impl Headless {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            world: World::new(),
+            lp: Loop::new(),
             renderer: NullRenderer::new(),
-            input: InputState::new(),
-            perf: PerfTracker::new(),
             frames_run: 0,
-            initialized: false,
         }
     }
 
@@ -105,33 +102,17 @@ impl Headless {
     ///
     /// [`Game::init`](crate::Game::init) runs on the first call to `run` only;
     /// subsequent calls continue driving `update`/`render` without re-`init`, so
-    /// a caller can step a game in chunks. Each frame builds a fresh
-    /// [`EngineCtx`](crate::EngineCtx) borrowing this harness's state and calls
-    /// `update(dt)` then `render`.
+    /// a caller can step a game in chunks. Each frame advances the synthetic
+    /// clock by one [`FIXED_DT`] and runs the shared
+    /// [`drive_frame`](crate::driver::drive_frame), so it produces exactly one
+    /// `update` and one `render` per frame.
     pub fn run<G: Game>(&mut self, game: &mut G, frames: u32) {
-        if !self.initialized {
-            let mut ctx = EngineCtx::new(
-                &mut self.world,
-                &mut self.renderer,
-                &self.input,
-                self.perf.snapshot(),
-            );
-            game.init(&mut ctx);
-            self.initialized = true;
-        }
+        self.lp.init_once(game, &mut self.renderer);
 
+        let step = Duration::from_secs_f64(f64::from(FIXED_DT));
         for _ in 0..frames {
-            self.perf.begin_frame();
-            let snapshot = self.perf.snapshot();
-
-            {
-                let mut ctx =
-                    EngineCtx::new(&mut self.world, &mut self.renderer, &self.input, snapshot);
-                game.update(&mut ctx, FIXED_DT);
-                game.render(&mut ctx);
-            }
-
-            self.perf.end_frame();
+            let steps = drive_frame(&mut self.lp, game, &mut self.renderer, step);
+            debug_assert_eq!(steps, 1, "headless synthetic clock is one FIXED_DT per frame");
             self.frames_run += 1;
         }
     }
@@ -139,13 +120,13 @@ impl Headless {
     /// Mutable access to the input snapshot, so tests can drive keys/mouse
     /// before a [`run`](Self::run).
     pub fn input_mut(&mut self) -> &mut InputState {
-        &mut self.input
+        &mut self.lp.input
     }
 
     /// The ECS [`World`] after (or between) runs — inspect what the game spawned.
     #[must_use]
     pub fn world(&self) -> &World {
-        &self.world
+        &self.lp.world
     }
 
     /// The [`NullRenderer`] — inspect recorded draws / created resources.
