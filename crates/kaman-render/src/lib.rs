@@ -60,6 +60,7 @@
 
 pub mod backend;
 pub mod camera;
+pub mod frame_sync;
 pub mod registry;
 pub mod vertex;
 

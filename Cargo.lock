@@ -832,6 +832,7 @@ version = "0.1.0"
 name = "kaman-render"
 version = "0.1.0"
 dependencies = [
+ "block",
  "cocoa",
  "core-graphics-types",
  "kaman-math",

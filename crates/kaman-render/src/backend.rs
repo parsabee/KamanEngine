@@ -40,10 +40,35 @@
 //!   capacity grows the ring (doubling, an allocation-time event), never a
 //!   per-draw alloc in steady state.
 //! - **Don't stomp an in-flight slot:** the ring is partitioned into
-//!   `MAX_FRAMES_IN_FLIGHT` disjoint regions. KE-0104 always writes region 0;
-//!   **KE-0105** selects the region with `frame_index % MAX_FRAMES_IN_FLIGHT`
-//!   (behind the frames-in-flight semaphore) so the CPU never overwrites a
-//!   region the GPU is still reading. The cursor resets each `begin_frame`.
+//!   `MAX_FRAMES_IN_FLIGHT` disjoint regions. **KE-0105** selects the region with
+//!   `frame_index % MAX_FRAMES_IN_FLIGHT` (behind the frames-in-flight
+//!   semaphore) so the CPU never overwrites a region the GPU is still reading.
+//!   The cursor resets each `begin_frame`.
+//!
+//! # Frames-in-flight pacing (KE-0105)
+//!
+//! The backend triple-buffers with a counting [`FrameSemaphore`] initialized to
+//! [`MAX_FRAMES_IN_FLIGHT`] (`3`) permits:
+//!
+//! - **Wait:** [`begin_frame`](FrameRecorder::begin_frame) *acquires* one permit
+//!   before it records anything. If three frames are already queued on the GPU
+//!   the CPU **blocks** here (on a condvar — never a busy-wait) until the oldest
+//!   frame finishes.
+//! - **Signal:** [`submit`](FrameRecorder::submit) registers an
+//!   `MTLCommandBuffer` **completion handler** that *releases* one permit. The
+//!   handler runs on a Metal-owned thread and is **allocation-free** — it only
+//!   signals the semaphore (see [`FrameSemaphore::release`]).
+//! - **Region selection:** a monotonically increasing `frame_index` advances
+//!   once per submitted frame; `begin_frame` sets
+//!   `ring_region_base = (frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame`
+//!   so consecutive frames write disjoint ring regions in the cycle `0,1,2,0,…`.
+//!
+//! **Invariant (wait on frame F before writing slot F+N):** frame `F`'s ring
+//! region is reused only by frame `F + MAX_FRAMES_IN_FLIGHT`, and the CPU cannot
+//! begin that later frame until frame `F`'s completion handler has released a
+//! permit. The semaphore therefore *enforces* that no in-flight ring slot is
+//! CPU-written while the GPU still reads it. Present is tied to the drawable
+//! (windowed path), so pacing needs no spin.
 //!
 //! # Allocation instrument (KR1.2)
 //!
@@ -64,7 +89,9 @@
 
 use std::mem;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
+use block::ConcreteBlock;
 use cocoa::base::id as cocoa_id;
 use cocoa::foundation::NSRect;
 use core_graphics_types::geometry::CGSize;
@@ -81,6 +108,7 @@ use kaman_render_api::{
 };
 
 use crate::camera::Camera;
+use crate::frame_sync::FrameSemaphore;
 use crate::registry::Registry;
 use crate::vertex::{LightUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
 
@@ -92,10 +120,10 @@ const CLEAR_COLOR: (f64, f64, f64, f64) = (0.1, 0.1, 0.15, 1.0);
 ///
 /// The uniform ring is sized so each of `MAX_FRAMES_IN_FLIGHT` frames owns a
 /// disjoint slice: while the GPU reads frame *N*'s slice the CPU writes frame
-/// *N+1*'s. KE-0104 only carves the ring into these regions and always writes
-/// region 0; **KE-0105** adds the frames-in-flight semaphore and selects the
-/// region with `frame_index % MAX_FRAMES_IN_FLIGHT` (see
-/// [`MetalRenderer::begin_frame`]). Defined here so both tickets share one
+/// *N+1*'s. **KE-0105** uses this as the frames-in-flight semaphore's permit
+/// count and to select each frame's ring region with
+/// `frame_index % MAX_FRAMES_IN_FLIGHT` (see [`MetalRenderer::begin_frame`]).
+/// Defined here so the ring sizing (KE-0104) and the pacing (KE-0105) share one
 /// source of truth.
 pub const MAX_FRAMES_IN_FLIGHT: u64 = 3;
 
@@ -168,10 +196,19 @@ pub struct MetalRenderer {
     // Next free uniform slot **within the current frame's region**, reset to 0 in
     // `begin_frame`. Bounded by `ring_draws_per_frame` (grow if it would exceed).
     ring_cursor: u64,
-    // Base slot index of the region this frame writes into. KE-0104 always uses
-    // region 0; KE-0105 sets it to `(frame_index % MAX_FRAMES_IN_FLIGHT) *
-    // ring_draws_per_frame` so an in-flight frame's slots are never stomped.
+    // Base slot index of the region this frame writes into, set in `begin_frame`
+    // to `(frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame` so an
+    // in-flight frame's slots are never stomped (KE-0105).
     ring_region_base: u64,
+
+    // Frames-in-flight pacing (KE-0105). The semaphore starts with
+    // `MAX_FRAMES_IN_FLIGHT` permits: `begin_frame` acquires one (blocking if 3
+    // frames are queued) and each command buffer's completion handler releases
+    // one. `Arc` so a completion handler running on a Metal-owned thread can hold
+    // a clone. `frame_index` advances once per submitted frame and drives the
+    // per-frame ring region.
+    frame_semaphore: Arc<FrameSemaphore>,
+    frame_index: u64,
 
     // Cached depth texture (preserved from the prototype's one optimization).
     depth_texture: Option<metal::Texture>,
@@ -352,6 +389,9 @@ impl MetalRenderer {
             ring_draws_per_frame,
             ring_cursor: 0,
             ring_region_base: 0,
+            // Triple-buffer pacing: start with a full complement of permits.
+            frame_semaphore: Arc::new(FrameSemaphore::new(MAX_FRAMES_IN_FLIGHT as u32)),
+            frame_index: 0,
             depth_texture: None,
             depth_texture_size: (0, 0),
             meshes: Registry::new(),
@@ -539,15 +579,18 @@ impl MetalRenderer {
     /// when a frame's draw count exceeds the current per-frame capacity — an
     /// amortized, allocation-time event, not a per-draw one. Uniforms already
     /// written this frame are re-issued by the caller on the next draw path, so
-    /// the old contents need not be copied; the cursor/region indices are kept.
+    /// the old contents need not be copied; the cursor is kept.
     fn grow_ring(&mut self) {
         self.ring_draws_per_frame *= 2;
         let ring_len = self.ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT * UNIFORM_RING_STRIDE;
         self.uniform_ring =
             self.counted_new_buffer(ring_len, MTLResourceOptions::CPUCacheModeDefaultCache);
-        // Region base must be recomputed against the new per-frame stride so it
-        // still points at this frame's region.
-        self.ring_region_base = 0;
+        // The per-frame stride just changed, so the region base must be
+        // recomputed against the *live* frame index — not hardcoded to 0, which
+        // would put this frame's writes in region 0 while the GPU may still be
+        // reading region 0 from an earlier in-flight frame (KE-0105).
+        self.ring_region_base =
+            (self.frame_index % MAX_FRAMES_IN_FLIGHT) * self.ring_draws_per_frame;
     }
 
     /// Number of live meshes (created minus destroyed). Test/introspection aid.
@@ -582,6 +625,30 @@ impl MetalRenderer {
     #[must_use]
     pub fn ring_stride_for_test(&self) -> u64 {
         UNIFORM_RING_STRIDE
+    }
+
+    /// The current frame's ring-region **base slot index** (KE-0105). After
+    /// `begin_frame` this is `(frame_index % MAX_FRAMES_IN_FLIGHT) *
+    /// ring_draws_per_frame`. Test aid: lets the frames-in-flight test assert the
+    /// region rotates `0, ring_draws_per_frame, 2*…, 0, …` across frames.
+    #[must_use]
+    pub fn ring_region_base_for_test(&self) -> u64 {
+        self.ring_region_base
+    }
+
+    /// The current per-frame ring capacity in slots (`ring_draws_per_frame`).
+    /// Test aid: the region-base rotation test divides
+    /// [`ring_region_base_for_test`](Self::ring_region_base_for_test) by this to
+    /// recover the region index `0,1,2,0,…`.
+    #[must_use]
+    pub fn ring_draws_per_frame_for_test(&self) -> u64 {
+        self.ring_draws_per_frame
+    }
+
+    /// The number of frames submitted so far (KE-0105 `frame_index`). Test aid.
+    #[must_use]
+    pub fn frame_index_for_test(&self) -> u64 {
+        self.frame_index
     }
 }
 
@@ -668,6 +735,14 @@ impl FrameRecorder for MetalRenderer {
             } => (color.clone(), None, *width, *height),
         };
 
+        // Frames-in-flight gate (KE-0105): block until at most
+        // `MAX_FRAMES_IN_FLIGHT - 1` frames are still queued on the GPU, so this
+        // frame can be prepared without stomping a ring region the GPU is still
+        // reading. Acquired here — *after* the drawable/target is secured — so a
+        // skipped frame (no drawable) never leaks a permit (it also never
+        // registers a completion handler to release one).
+        self.frame_semaphore.acquire();
+
         self.camera.set_aspect_ratio(width as f32 / height.max(1) as f32);
 
         let command_buffer = self.command_queue.new_command_buffer().to_owned();
@@ -700,13 +775,14 @@ impl FrameRecorder for MetalRenderer {
         encoder.set_render_pipeline_state(&self.pipeline_state);
         encoder.set_depth_stencil_state(&self.depth_stencil_state);
 
-        // Reset the uniform-ring cursor for this frame. KE-0104 always writes
-        // region 0; KE-0105 will set `ring_region_base` to
-        // `(frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame` here
-        // (behind the frames-in-flight semaphore) so the CPU never overwrites a
-        // region the GPU is still reading.
+        // Reset the uniform-ring cursor and select this frame's disjoint region
+        // (KE-0105): `(frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame`
+        // cycles the region base `0,1,2,0,…`. Behind the semaphore acquired
+        // above, so the region the CPU is about to write is guaranteed not to be
+        // one the GPU is still reading.
         self.ring_cursor = 0;
-        self.ring_region_base = 0;
+        self.ring_region_base =
+            (self.frame_index % MAX_FRAMES_IN_FLIGHT) * self.ring_draws_per_frame;
 
         self.frame = Some(FrameState {
             command_buffer,
@@ -772,14 +848,38 @@ impl FrameRecorder for MetalRenderer {
             return;
         };
         frame.encoder.end_encoding();
+
+        // Frames-in-flight release (KE-0105): register a completion handler that
+        // signals the semaphore when the GPU finishes this frame. The handler
+        // runs on a Metal-owned thread, so it must be allocation-free — it holds
+        // an `Arc<FrameSemaphore>` (cloned here on the CPU submit path, not in
+        // the handler) and does nothing but `release()`, which is a lock +
+        // counter bump + condvar notify (no allocation). The permit released
+        // here is the one `begin_frame` acquired for this frame.
+        let semaphore = Arc::clone(&self.frame_semaphore);
+        let completion = ConcreteBlock::new(move |_cb: &metal::CommandBufferRef| {
+            semaphore.release();
+        })
+        .copy();
+        frame.command_buffer.add_completed_handler(&completion);
+
+        // This frame is now fully recorded and about to be committed: advance the
+        // frame index so the *next* `begin_frame` rotates to the next ring region
+        // (`0,1,2,0,…`).
+        self.frame_index = self.frame_index.wrapping_add(1);
+
         match &frame.drawable {
             Some(drawable) => {
+                // Present is tied to the drawable; pacing is the semaphore, so
+                // there is no busy-wait/spin here.
                 frame.command_buffer.present_drawable(drawable);
                 frame.command_buffer.commit();
             }
             None => {
                 // Offscreen: for a Managed texture, synchronize to CPU so the
                 // readback sees the rendered pixels, then wait for completion.
+                // The completion handler (and its `release`) still fires on the
+                // wait, keeping the semaphore balanced on the offscreen path.
                 if let RenderTarget::Offscreen { color, .. } = &self.target {
                     let blit = frame.command_buffer.new_blit_command_encoder();
                     blit.synchronize_resource(color);

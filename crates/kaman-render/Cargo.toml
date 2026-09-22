@@ -25,6 +25,7 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(cargo_clippy)'] }
 kaman-math.workspace = true
 kaman-render-api.workspace = true
 metal.workspace = true
+block.workspace = true
 objc.workspace = true
 cocoa.workspace = true
 core-graphics-types.workspace = true
