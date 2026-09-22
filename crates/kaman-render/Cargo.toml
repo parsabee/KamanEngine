@@ -15,6 +15,13 @@ repository.workspace = true
 default = []
 raytracer = []
 
+# Precompiled shaders (KE-0107, partial). OFF by default so the engine builds with
+# only the Command Line Tools (shaders compile at runtime via new_library_with_source).
+# When ON, build.rs compiles shaders/*.metal to a .metallib ahead of time and the
+# backend loads it via new_library_with_data — this REQUIRES the Metal toolchain (full
+# Xcode). See scripts/preflight.sh --ios. Enable once Xcode is installed.
+precompiled-shaders = []
+
 # The `objc` 0.2 `msg_send!`/`sel_impl!` macros emit a `cfg(cargo-clippy)` check
 # that trips `unexpected_cfgs` on our call sites (the cfg is defined by clippy,
 # not us). Allow that one unknown cfg value so `-D warnings` stays clean; it is a

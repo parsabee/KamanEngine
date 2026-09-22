@@ -77,13 +77,13 @@ are bumped one tier (not fully unit-testable).
 ### Phase 1 — Renderer Foundation  *(active — written in full)*
 | # | Title | Pri | Int | Size | Status | Depends | Serves |
 |---|---|---|---|---|---|---|---|
-| KE-0101 | Engine/game boundary: `Game` trait + `EngineCtx` | P0 | Refactor | L · A3 | Todo | KE-0005 | KR1.1 |
-| KE-0102 | Migrate renderer → `kaman-render` behind seam | P0 | Refactor | L · A2 | Todo | KE-0006, KE-0101 | KR1.3/1.5 |
-| KE-0103 | Persistent mesh buffers + handle registry | P0 | Refactor | M · A2 | Todo | KE-0102 | KR1.2 |
-| KE-0104 | Uniform ring + argument buffers | P0 | Refactor | M · A2 | Todo | KE-0102 | KR1.2 |
-| KE-0105 | Triple-buffered frames-in-flight + pacing | P0 | Refactor | S · A1 | Todo | KE-0102, KE-0104 | KR1.2/1.5 |
-| KE-0106 | Feature-gate raytracer out of default/iOS | P0 | Refactor | XS · A0 | Todo | KE-0102 | KR1.4 |
-| KE-0107 | Precompiled `.metallib` shaders | P0 | Refactor | S · A1 | Todo | KE-0102 | KR1.4 |
+| KE-0101 | Engine/game boundary: `Game` trait + `EngineCtx` | P0 | Refactor | L · A3 | Done | KE-0005 | KR1.1 |
+| KE-0102 | Migrate renderer → `kaman-render` behind seam | P0 | Refactor | L · A2 | Done | KE-0006, KE-0101 | KR1.3/1.5 |
+| KE-0103 | Persistent mesh buffers + handle registry | P0 | Refactor | M · A2 | Done | KE-0102 | KR1.2 |
+| KE-0104 | Uniform ring + argument buffers | P0 | Refactor | M · A2 | Done | KE-0102 | KR1.2 |
+| KE-0105 | Triple-buffered frames-in-flight + pacing | P0 | Refactor | S · A1 | Done | KE-0102, KE-0104 | KR1.2/1.5 |
+| KE-0106 | Feature-gate raytracer out of default/iOS | P0 | Refactor | XS · A0 | Done | KE-0102 | KR1.4 |
+| KE-0107 | Precompiled `.metallib` shaders | P0 | Refactor | S · A1 | In-Progress | KE-0102 | KR1.4 |
 
 **Phase 1 order:** KE-0101 (A3, alone) → KE-0102 (A2) → then KE-0103/0104 (A2, one at a
 time per WIP limit) → KE-0105; KE-0106/0107 (A0/A1) land any time after KE-0102.

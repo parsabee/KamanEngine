@@ -2,13 +2,23 @@
 
 Phase:         1
 Priority:      P0
-Status:        Todo
+Status:        In-Progress
 Integration:   Refactor
 Size:          S · A1
 Time:          M
 Risk:          Med
 Depends on:    KE-0102      Blocks: —
 Serves:        KR1.4
+
+> **Status note (2026-09-21):** Landed behind an off-by-default `precompiled-shaders`
+> cargo feature so the engine still builds with only the Command Line Tools. `build.rs`
+> compiles `shaders/rasterization.metal` → `.metallib` and the backend loads it via
+> `new_library_with_data` **when the feature is on**; the feature fails with a clear
+> message if the Metal toolchain (full Xcode) is absent. Verified locally: default build
+> green, feature-on fails cleanly (no toolchain here).
+> **Remaining (needs full Xcode):** verify the feature-on compile+load on a machine with
+> the Metal toolchain, add a CI step building `--features precompiled-shaders`, then decide
+> whether to flip it on by default per the acceptance below.
 
 ## Problem / Motivation
 The prototype compiles MSL at runtime (`new_library_with_source(include_str!("../shaders/

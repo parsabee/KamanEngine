@@ -53,10 +53,13 @@
 //! desktop-only, non-shipping path, so enabling the feature has no effect in an
 //! iOS build.
 //!
-//! # Runtime shader compilation
+//! # Shader compilation
 //!
-//! Shaders still compile at runtime via `include_str!` + `new_library_with_source`
-//! (the `.metallib` precompile is KE-0107).
+//! By default shaders compile at runtime via `include_str!` + `new_library_with_source`,
+//! which needs no toolchain beyond the Command Line Tools. The off-by-default
+//! `precompiled-shaders` feature instead loads a `.metallib` compiled ahead of time by
+//! `build.rs` (via `new_library_with_data`); it requires the Metal toolchain (full Xcode)
+//! and is the KE-0107 path. See `scripts/preflight.sh --ios`.
 
 #![deny(missing_docs)]
 

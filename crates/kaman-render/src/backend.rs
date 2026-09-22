@@ -316,12 +316,24 @@ impl MetalRenderer {
         target: RenderTarget,
         aspect_ratio: f32,
     ) -> Self {
-        // Compile the rasterization shader at runtime (the .metallib precompile
-        // is KE-0107).
-        let shader_source = include_str!("../shaders/rasterization.metal");
-        let library = device
-            .new_library_with_source(shader_source, &metal::CompileOptions::new())
-            .expect("failed to compile rasterization shader");
+        // Rasterization shader library. Default: compile the MSL source at runtime
+        // (no toolchain needed). With `precompiled-shaders`: load a .metallib that
+        // build.rs compiled ahead of time (requires the Metal toolchain). See KE-0107.
+        #[cfg(not(feature = "precompiled-shaders"))]
+        let library = {
+            let shader_source = include_str!("../shaders/rasterization.metal");
+            device
+                .new_library_with_source(shader_source, &metal::CompileOptions::new())
+                .expect("failed to compile rasterization shader")
+        };
+        #[cfg(feature = "precompiled-shaders")]
+        let library = {
+            // KAMAN_RASTER_METALLIB is set by build.rs to the compiled library path.
+            let metallib: &[u8] = include_bytes!(env!("KAMAN_RASTER_METALLIB"));
+            device
+                .new_library_with_data(metallib)
+                .expect("failed to load precompiled rasterization.metallib")
+        };
 
         let vertex_function = library
             .get_function("vertex_main", None)
