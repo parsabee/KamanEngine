@@ -29,6 +29,26 @@ the next phase starts. Provenance of the prototype is recorded in
 - Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Ticket system & backlog: [tickets/README.md](tickets/README.md)
 
+## Prerequisites
+
+KamanEngine is **Apple-only** (macOS + iOS, raw Metal). Verify your toolchain before building:
+
+```sh
+./scripts/preflight.sh          # deps needed to build the engine today
+./scripts/preflight.sh --ios    # also require the Phase 3 (iOS) + .metallib toolchain
+```
+
+Two tiers of dependencies:
+
+| Tier | Tools | Needed for |
+|---|---|---|
+| **Required now** | macOS · Rust ≥ 1.91 (`cargo`/`rustc`, MSRV enforced by cargo) · Apple `clang` + macOS SDK (Command Line Tools) | Build/run the engine on macOS |
+| **iOS / KE-0107** | Full **Xcode** (`metal`/`metallib` shader compiler) · `rustup` + `aarch64-apple-ios`(`-sim`) targets | iOS bring-up (Phase 3) and precompiled `.metallib` shaders |
+
+Command Line Tools alone (`xcode-select --install`) covers the engine today — shaders currently
+compile at runtime. Full Xcode becomes required at Phase 3; install it then (App Store), which
+also unblocks KE-0107.
+
 ## Building
 
 ```sh

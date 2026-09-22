@@ -17,6 +17,10 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+# Minimum supported Rust version. Enforced by cargo on build (a required project
+# dependency), matched to the channel pinned in rust-toolchain.toml, and re-checked
+# by scripts/preflight.sh. Bump deliberately.
+rust-version = "1.91"
 license = "Apache-2.0"
 authors = ["Parsa Bagheri"]
 repository = "https://github.com/parsabee/KamanEngine"

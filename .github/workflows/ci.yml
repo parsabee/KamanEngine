@@ -27,6 +27,11 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
+      # Verify the project's declared toolchain dependencies are present before building.
+      # Default tier only (iOS/.metallib tier is enforced with --ios once Phase 3 starts).
+      - name: Toolchain preflight
+        run: ./scripts/preflight.sh
+
       - name: Build workspace
         run: cargo build --workspace
 
