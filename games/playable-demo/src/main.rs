@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! `car-runner` — KamanEngine's first title: a playable endless runner, and the
+//! `playable-demo` — KamanEngine's first title: a playable endless runner, and the
 //! host for the headless smoke oracle.
 //!
 //! This binary is the *only* place game-specific code lives: it implements
@@ -55,9 +55,9 @@ use kaman_scene::Scene;
 /// Number of frames the smoke oracle simulates before exiting.
 const SMOKE_FRAMES: u32 = 120;
 
-/// Command-line arguments for `car-runner`.
+/// Command-line arguments for `playable-demo`.
 #[derive(Parser, Debug)]
-#[command(name = "car-runner", about = "KamanEngine car-runner + headless smoke oracle")]
+#[command(name = "playable-demo", about = "KamanEngine playable-demo + headless smoke oracle")]
 struct Cli {
     /// Run the headless smoke oracle: boot the game and drive a fixed frame loop, then exit 0.
     ///
@@ -100,7 +100,7 @@ fn run_windowed(game: &mut CarRunner) {
     kaman_core::run(game);
 }
 
-/// Boot the `car-runner` [`Game`] and drive `frames` frames headlessly, then report success.
+/// Boot the `playable-demo` [`Game`] and drive `frames` frames headlessly, then report success.
 fn run_smoke(frames: u32) {
     let mut game = CarRunner::new();
     let harness = kaman_core::headless::run(&mut game, frames);
@@ -148,7 +148,7 @@ impl Rng {
     }
 }
 
-/// The car-runner game state.
+/// The playable-demo game state.
 ///
 /// The scene (ECS world + physics world + streaming) is owned by the engine loop
 /// and reached through [`EngineCtx::scene_mut`]. This struct holds only the

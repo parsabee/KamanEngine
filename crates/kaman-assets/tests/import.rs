@@ -165,7 +165,7 @@ fn committed_game_asset_imports_from_path() {
     // The asset the game loads is a real file on disk (not gitignored).
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../games/car-runner/assets/cube.gltf"
+        "/../../games/playable-demo/assets/cube.gltf"
     );
     let scene = import_gltf(path).expect("committed cube.gltf imports");
     assert_eq!(scene.meshes[0].vertex_count(), 24);

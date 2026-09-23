@@ -34,7 +34,7 @@ frame before `Game::render`, and the backend forms `mvp = view_proj * model` per
 sticky (retained until replaced) so the engine's push survives the game's `begin_frame`. This
 **replaced and deleted** the minimal camera KE-0102 had temporarily inlined into `kaman-render`
 (`kaman-render/src/camera.rs`); the real camera now lives in `kaman-camera`, which also provides the
-`ChaseController` follow camera the `car-runner` uses. `kaman-core → kaman-camera → kaman-math` keeps
+`ChaseController` follow camera the `playable-demo` uses. `kaman-core → kaman-camera → kaman-math` keeps
 the dependency direction acyclic and `kaman-core` metal-free.
 
 As of KE-0102 the concrete backend exists **below** this seam: `kaman-render` provides
@@ -42,7 +42,7 @@ As of KE-0102 the concrete backend exists **below** this seam: `kaman-render` pr
 therefore `kaman-core`'s `Renderer` marker). `kaman-render` is the *only* crate that depends on
 `metal`. Crucially, `kaman-core` does **not** depend on `kaman-render`: the windowed entry
 `kaman-core::run_with_backend` takes a backend **factory**
-(`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`), and the game binary (`car-runner`, which does
+(`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`), and the game binary (`playable-demo`, which does
 depend on `kaman-render`) constructs the Metal backend and injects it. So `metal` reaches the
 process only through `kaman-render` and the game binary — never through `kaman-core` — and the CI
 firewall (`cargo tree -p kaman-core | grep metal` → nothing) still holds. The migrated renderer is
@@ -64,7 +64,7 @@ depends only on `gltf`, `kaman-math`, `kaman-render-api`, and `kaman-ecs` — th
 kaman-ecs` edge stays acyclic (`kaman-ecs` never depends on `kaman-assets`) and no `metal` enters the
 tree. Imported geometry packs onto `[pos,normal,color]` with a default vertex color so it renders
 through the existing pipeline immediately; parsed UVs are retained on `MeshAsset::uvs` for the KE-0403
-textured pipeline. `car-runner` now loads its player mesh from a committed `assets/cube.gltf`.
+textured pipeline. `playable-demo` now loads its player mesh from a committed `assets/cube.gltf`.
 
 **Modern-look rendering stack (KE-0401).** Below the seam, `kaman-render` applies a small,
 mobile/TBDR-safe look stack — nothing above the seam learns about it. In pass order per frame:
@@ -99,7 +99,7 @@ kaman-engine/
 │   ├── kaman-assets        # glTF + textures                         (new)
 │   └── kaman-script        # KamanScript lexer/parser/interpreter    (new)
 ├── games/
-│   └── car-runner          # first title; only uses engine public API
+│   └── playable-demo          # first title; only uses engine public API
 ├── shaders/                # MSL source → precompiled .metallib
 └── platform/{macos,ios}    # thin app wrappers (iOS added in Phase 3)
 ```

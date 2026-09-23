@@ -2,7 +2,7 @@
 
 Phase:         7
 Priority:      P0
-Status:        Todo
+Status:        Done
 Integration:   Refactor
 Size:          S · A1
 Time:          S
@@ -16,12 +16,12 @@ for what it is: the **Playable Demo**. Rename the `car-runner` crate/binary to `
 update every reference before the rest of Phase 7 builds on it (fewer references to churn later).
 
 ## Scope & Acceptance
-- [ ] Move `games/car-runner` → `games/playable-demo`; crate + `[[bin]]` name `playable-demo`.
-- [ ] Update the root `Cargo.toml` workspace members, `docs/ARCHITECTURE.md` §3 layout, `README`,
+- [x] Move `games/car-runner` → `games/playable-demo`; crate + `[[bin]]` name `playable-demo`.
+- [x] Update the root `Cargo.toml` workspace members, `docs/ARCHITECTURE.md` §3 layout, `README`,
       and the CI smoke step (`cargo run -p playable-demo -- --smoke`).
-- [ ] Update the `--smoke` oracle references and any `-p car-runner` invocations across the repo.
-- [ ] Keep the game engine-public-API-only (the boundary is unchanged); no engine crate renamed.
-- [ ] A short in-repo display name "Playable Demo" (window title if trivial, README, crate description).
+- [x] Update the `--smoke` oracle references and any `-p car-runner` invocations across the repo.
+- [x] Keep the game engine-public-API-only (the boundary is unchanged); no engine crate renamed.
+- [x] A short in-repo display name "Playable Demo" (window title if trivial, README, crate description).
 
 ## Technical notes
 - Pure rename/move; no gameplay change. Keep it as its own commit for a clean diff (INTEGRATION §2.5).

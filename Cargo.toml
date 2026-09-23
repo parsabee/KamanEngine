@@ -11,7 +11,7 @@ members = [
     "crates/kaman-render",
     "crates/kaman-assets",
     "crates/kaman-core",
-    "games/car-runner",
+    "games/playable-demo",
 ]
 
 # Shared package metadata. Individual crates inherit these via `field.workspace = true`.

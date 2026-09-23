@@ -76,9 +76,9 @@ so the box scene's pixel hash is unchanged.
 
 ## Regenerating the fixture
 
-The committed cube fixture (`games/car-runner/assets/cube.gltf`, and the test copy
+The committed cube fixture (`games/playable-demo/assets/cube.gltf`, and the test copy
 `tests/fixtures/cube.gltf`) is produced by:
 
 ```sh
-cargo run -p kaman-assets --example gen_cube -- games/car-runner/assets/cube.gltf
+cargo run -p kaman-assets --example gen_cube -- games/playable-demo/assets/cube.gltf
 ```

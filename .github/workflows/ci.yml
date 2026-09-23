@@ -80,4 +80,4 @@ jobs:
       - name: Smoke oracle (Metal API Validation on)
         env:
           METAL_DEVICE_WRAPPER_TYPE: "1"
-        run: cargo run -p car-runner -- --smoke
+        run: cargo run -p playable-demo -- --smoke

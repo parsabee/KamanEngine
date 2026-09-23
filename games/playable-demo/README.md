@@ -1,4 +1,4 @@
-# car-runner
+# playable-demo
 
 KamanEngine's first title — a playable **endless runner** — and the host for the
 headless **smoke oracle**.
@@ -6,7 +6,7 @@ headless **smoke oracle**.
 ## Play it
 
 ```sh
-cargo run -p car-runner
+cargo run -p playable-demo
 ```
 
 Opens a Metal window on macOS. You are a box driving forward down a three-lane
@@ -54,7 +54,7 @@ so a run is fully reproducible.
 ## The smoke oracle
 
 ```sh
-cargo run -p car-runner -- --smoke
+cargo run -p playable-demo -- --smoke
 ```
 
 Boots the same game via the engine's headless driver, simulates 120 frames

@@ -10,7 +10,7 @@ for authoring gameplay.
 - **Apple-only, raw Metal.** macOS and iOS both use Metal natively, so raw Metal is *one*
   code path, not two. A `kaman-render-api` trait seam keeps the door open for a future
   portable backend without touching engine logic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-- **Cargo workspace** of focused `kaman-*` crates + a `games/car-runner` consumer that only
+- **Cargo workspace** of focused `kaman-*` crates + a `games/playable-demo` consumer that only
   ever touches the engine's public API.
 - **hecs** (ECS) · **rapier3d** (physics, v1) · **glam** (math) · **kira** (audio, later).
   Physics uses rapier now; a custom arcade-physics/spatial-query layer replaces it later.
@@ -55,10 +55,10 @@ also unblocks KE-0107.
 cargo build --workspace
 cargo test  --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo run -p car-runner -- --smoke   # headless oracle: 120 frames, exits 0
+cargo run -p playable-demo -- --smoke   # headless oracle: 120 frames, exits 0
 ```
 
-The workspace is `crates/kaman-*` (engine) plus `games/car-runner` (first title + smoke
+The workspace is `crates/kaman-*` (engine) plus `games/playable-demo` (first title + smoke
 oracle). Layout follows [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §3.
 
 **Toolchain:** `rust-toolchain.toml` pins `1.91.0` (with `rustfmt`, `clippy`, `rust-analyzer`).

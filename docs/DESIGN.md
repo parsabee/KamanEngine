@@ -17,7 +17,7 @@ seam**; nothing above it may import `metal`.
 
 ```mermaid
 graph TD
-    subgraph Game["Game (games/car-runner)"]
+    subgraph Game["Game (games/playable-demo)"]
         CR["CarRunner : Game"]
     end
     subgraph Core["kaman-core — lifecycle & loop"]
@@ -56,7 +56,7 @@ graph TD
     class SEAM seam;
 ```
 
-The `car-runner` **binary** is the only thing that both implements `Game` *and* constructs the
+The `playable-demo` **binary** is the only thing that both implements `Game` *and* constructs the
 Metal backend — it injects the backend into `kaman-core` through a factory, so `kaman-core` itself
 never depends on `metal`.
 
@@ -65,7 +65,7 @@ never depends on `metal`.
 ## 2. Crate dependency graph
 
 Acyclic, leaf-first (`kaman-math` at the bottom). `metal` is reachable **only** through
-`kaman-render` and the `car-runner` binary — the CI firewall asserts it never enters `kaman-core`
+`kaman-render` and the `playable-demo` binary — the CI firewall asserts it never enters `kaman-core`
 or `kaman-render-api`.
 
 ```mermaid
@@ -80,7 +80,7 @@ graph LR
     assets["kaman-assets"]
     render["kaman-render"]
     core["kaman-core"]
-    game["games/car-runner"]
+    game["games/playable-demo"]
     metal(["metal (extern)"])
 
     ecs --> math

@@ -1,6 +1,6 @@
 [package]
-name = "car-runner"
-description = "First KamanEngine title: an infinite car runner. Also hosts the headless smoke oracle."
+name = "playable-demo"
+description = "Playable Demo — KamanEngine's reference example game (an endless runner). Also hosts the headless smoke oracle."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "car-runner"
+name = "playable-demo"
 path = "src/main.rs"
 
 [dependencies]
