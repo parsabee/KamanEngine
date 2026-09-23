@@ -2,6 +2,9 @@
 
 Status: authoritative. Decisions here are intentional constraints, not defaults.
 
+> For a **visual** walkthrough — component, UML class, and sequence diagrams — see
+> [DESIGN.md](DESIGN.md). This document is the *why*; DESIGN.md is the *how it fits and moves*.
+
 ## 1. Targets and the rendering choice
 
 KamanEngine targets **macOS and iPhone only**. On both, Metal is the single native GPU

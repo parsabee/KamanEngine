@@ -74,9 +74,13 @@ API docs are generated with **rustdoc** — every engine crate compiles under
 cargo doc --workspace --no-deps --open   # build + open the API docs in a browser
 ```
 
-`docs/ARCHITECTURE.md` (intentional constraints + the render seam), `docs/ROADMAP.md` (phases +
-OKRs), and `docs/INTEGRATION.md` (test/migration discipline) cover the design; the rustdoc covers
-the code. CI keeps the docs free of broken intra-doc links.
+Architecture docs (prose + diagrams):
+- [docs/DESIGN.md](docs/DESIGN.md) — **diagrams**: component, UML class, and sequence diagrams
+  (Mermaid) of the layers, the render seam, the frame loop, streaming, and asset load.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — intentional constraints + the render seam.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — phases + OKRs · [docs/INTEGRATION.md](docs/INTEGRATION.md) — test/migration discipline.
+
+The rustdoc covers the code; CI keeps it free of broken intra-doc links.
 
 **iOS targets (Phase 3 prerequisite, not installed now):**
 
