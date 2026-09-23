@@ -910,6 +910,7 @@ name = "kaman-assets"
 version = "0.1.0"
 dependencies = [
  "gltf",
+ "image",
  "kaman-ecs",
  "kaman-math",
  "kaman-render-api",

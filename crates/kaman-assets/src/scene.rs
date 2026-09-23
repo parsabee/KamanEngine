@@ -19,6 +19,12 @@ pub const RENDER_VERTEX_FLOATS: usize = 9;
 /// Byte stride of the packed `[pos,normal,color]` render vertex (36 bytes).
 pub const RENDER_VERTEX_STRIDE: u32 = (RENDER_VERTEX_FLOATS * 4) as u32;
 
+/// Number of `f32`s in one packed **textured** vertex: `[pos_xyz, normal_xyz, uv]`.
+pub const TEXTURED_VERTEX_FLOATS: usize = 8;
+
+/// Byte stride of the packed `[pos,normal,uv]` textured vertex (32 bytes).
+pub const TEXTURED_VERTEX_STRIDE: u32 = (TEXTURED_VERTEX_FLOATS * 4) as u32;
+
 /// The canonical interleaved `[position_xyz, normal_xyz, color_rgb]` render
 /// layout that imported geometry is packed onto.
 ///
@@ -50,6 +56,56 @@ pub fn render_vertex_layout() -> VertexLayout {
     )
 }
 
+/// The interleaved `[position_xyz, normal_xyz, uv]` render layout that a mesh
+/// carrying a base-color texture is packed onto (KE-0403).
+///
+/// Textured meshes swap the `color_rgb` attribute for a two-float `uv` at
+/// location 2 (offset 24, 32-byte stride) so the backend's **textured** pipeline
+/// can sample the bound base-color texture at each vertex's UV. Untextured meshes
+/// stay on [`render_vertex_layout`] with a default vertex color — the two paths
+/// are distinct pipelines, so the untextured (box) pixel-hash is unaffected.
+#[must_use]
+pub fn textured_vertex_layout() -> VertexLayout {
+    VertexLayout::new(
+        TEXTURED_VERTEX_STRIDE,
+        vec![
+            VertexAttribute {
+                location: 0,
+                offset: 0,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 1,
+                offset: 12,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 2,
+                offset: 24,
+                format: VertexFormat::Float32x2,
+            },
+        ],
+    )
+}
+
+/// A decoded 2D base-color (albedo) texture retained on a [`MeshAsset`].
+///
+/// Pixels are 8-bit **RGBA**, row-major, top-left origin (`4 * width * height`
+/// bytes) — exactly the shape the render seam's
+/// [`TextureData`](kaman_render_api::TextureData) accepts. This is engine-generic
+/// CPU-side data: there is no GPU type here. The importer decodes glTF images
+/// (PNG/JPEG) into this form; on device the backend uploads it (with mipmaps),
+/// optionally transcoding to ASTC (KE-0403 leaves RGBA8 the macOS fallback).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BaseColorTexture {
+    /// Texture width in pixels.
+    pub width: u32,
+    /// Texture height in pixels.
+    pub height: u32,
+    /// Row-major 8-bit RGBA pixel bytes (`4 * width * height`).
+    pub rgba8: Vec<u8>,
+}
+
 /// A single imported mesh: geometry packed for the render seam plus the parsed
 /// attributes retained for later use.
 ///
@@ -74,10 +130,28 @@ pub struct MeshAsset {
     /// Per-vertex normals, one per packed vertex (parsed source; defaulted to
     /// `+Y` when the source mesh has none).
     pub normals: Vec<[f32; 3]>,
-    /// Per-vertex texture coordinates, one per packed vertex — **retained for
-    /// KE-0403**, deliberately not packed into [`vertices`](Self::vertices).
-    /// Defaults to `[0, 0]` when the source mesh has no UV set.
+    /// Per-vertex texture coordinates, one per packed vertex. When this mesh has
+    /// a [`base_color`](Self::base_color) texture these UVs are packed **into**
+    /// [`vertices`](Self::vertices) (the `[pos,normal,uv]`
+    /// [`textured_vertex_layout`]); otherwise they are retained here but not
+    /// packed. Defaults to `[0, 0]` when the source mesh has no UV set.
     pub uvs: Vec<[f32; 2]>,
+    /// The decoded base-color (albedo) texture from this primitive's glTF
+    /// material, if it has one. `Some` ⇒ this mesh is packed on the
+    /// `[pos,normal,uv]` [`textured_vertex_layout`] and should be drawn with the
+    /// textured pipeline; `None` ⇒ the default-color `[pos,normal,color]` path.
+    pub base_color: Option<BaseColorTexture>,
+    /// The material's base-color factor (linear RGBA), multiplied with the
+    /// sampled base-color texture (or used alone when there is no texture).
+    /// Defaults to opaque white.
+    pub base_color_factor: [f32; 4],
+    /// The decoded normal map, if the material has one (best-effort, KE-0403).
+    /// RGBA8 like [`base_color`](Self::base_color); the tangent-space normal is
+    /// in RGB. Plumbed toward a basic lit material.
+    pub normal_map: Option<BaseColorTexture>,
+    /// The decoded metallic-roughness texture, if present (best-effort). glTF
+    /// packs roughness in G and metalness in B; retained RGBA8.
+    pub metallic_roughness: Option<BaseColorTexture>,
 }
 
 impl MeshAsset {
@@ -91,6 +165,15 @@ impl MeshAsset {
     #[must_use]
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
+    }
+
+    /// Whether this mesh carries a base-color texture (and is therefore packed on
+    /// the `[pos,normal,uv]` [`textured_vertex_layout`] for the textured
+    /// pipeline). `false` ⇒ the untextured, default-color `[pos,normal,color]`
+    /// path.
+    #[must_use]
+    pub fn is_textured(&self) -> bool {
+        self.base_color.is_some()
     }
 }
 
@@ -166,6 +249,36 @@ pub(crate) fn pack_render_vertices(
             bytes.extend_from_slice(&f.to_ne_bytes());
         }
         for f in &default_color {
+            bytes.extend_from_slice(&f.to_ne_bytes());
+        }
+    }
+    bytes
+}
+
+/// Pack parsed per-vertex attributes into the `[pos,normal,uv]` textured render
+/// bytes (KE-0403).
+///
+/// Used for a mesh that has a base-color texture: positions and normals come
+/// from the source mesh, and each vertex carries its UV instead of a color, so
+/// the backend's textured pipeline can sample the bound base-color texture.
+/// `positions.len()` drives the count; shorter `normals`/`uvs` are padded
+/// (`+Y` / `[0, 0]`).
+pub(crate) fn pack_textured_vertices(
+    positions: &[[f32; 3]],
+    normals: &[[f32; 3]],
+    uvs: &[[f32; 2]],
+) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(positions.len() * TEXTURED_VERTEX_STRIDE as usize);
+    for (i, pos) in positions.iter().enumerate() {
+        let n = normals.get(i).copied().unwrap_or([0.0, 1.0, 0.0]);
+        let uv = uvs.get(i).copied().unwrap_or([0.0, 0.0]);
+        for f in pos {
+            bytes.extend_from_slice(&f.to_ne_bytes());
+        }
+        for f in &n {
+            bytes.extend_from_slice(&f.to_ne_bytes());
+        }
+        for f in &uv {
             bytes.extend_from_slice(&f.to_ne_bytes());
         }
     }

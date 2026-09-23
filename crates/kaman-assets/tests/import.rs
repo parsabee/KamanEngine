@@ -11,7 +11,9 @@
 
 use std::io::Write;
 
-use kaman_assets::scene::{DEFAULT_IMPORT_COLOR, RENDER_VERTEX_STRIDE};
+use kaman_assets::scene::{
+    textured_vertex_layout, DEFAULT_IMPORT_COLOR, RENDER_VERTEX_STRIDE, TEXTURED_VERTEX_STRIDE,
+};
 use kaman_assets::{
     import_gltf, import_slice, render_vertex_layout, AssetCache, MeshAsset, SceneAsset,
 };
@@ -20,8 +22,25 @@ use kaman_render_api::{MeshData, MeshHandle, NullRenderer, RenderDevice, VertexF
 /// The committed cube fixture, embedded so slice-import tests are hermetic.
 const CUBE_GLTF: &[u8] = include_bytes!("fixtures/cube.gltf");
 
+/// The committed **textured** cube fixture (KE-0403): a cube with UVs, a material,
+/// and an embedded base-color checkerboard PNG.
+const TEXTURED_CUBE_GLTF: &[u8] = include_bytes!("fixtures/textured_cube.gltf");
+
 fn cube_scene() -> SceneAsset {
     import_slice(CUBE_GLTF).expect("cube fixture parses")
+}
+
+fn textured_cube_scene() -> SceneAsset {
+    // The `gltf` slice importer rejects `data:` **image** URIs
+    // (`ExternalReferenceInSliceImport`), so write the fixture to a temp file and
+    // import it by path — which resolves embedded images.
+    let dir = std::env::temp_dir().join(format!("kaman-assets-tex-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("textured_cube.gltf");
+    std::fs::write(&path, TEXTURED_CUBE_GLTF).unwrap();
+    let scene = import_gltf(&path).expect("textured cube fixture parses");
+    let _ = std::fs::remove_dir_all(&dir);
+    scene
 }
 
 #[test]
@@ -150,6 +169,79 @@ fn committed_game_asset_imports_from_path() {
     );
     let scene = import_gltf(path).expect("committed cube.gltf imports");
     assert_eq!(scene.meshes[0].vertex_count(), 24);
+    // KE-0403: the committed game asset is now textured (base-color checkerboard).
+    assert!(
+        scene.meshes[0].is_textured(),
+        "the committed game asset carries a base-color texture"
+    );
+}
+
+#[test]
+fn parses_material_base_color_texture() {
+    // The textured fixture's primitive references a material with a base-color
+    // texture; the importer decodes it to RGBA8 and attaches it to the mesh.
+    let scene = textured_cube_scene();
+    let mesh = &scene.meshes[0];
+    assert!(mesh.is_textured(), "mesh has a base-color texture");
+    let tex = mesh.base_color.as_ref().expect("decoded base-color texture");
+    // The generator writes an 8x8 checkerboard.
+    assert_eq!(tex.width, 8);
+    assert_eq!(tex.height, 8);
+    assert_eq!(
+        tex.rgba8.len(),
+        (tex.width * tex.height * 4) as usize,
+        "tightly-packed RGBA8"
+    );
+    // Checkerboard ⇒ the decoded pixels are non-uniform (not all one color).
+    let first4 = &tex.rgba8[0..4];
+    assert!(
+        tex.rgba8.chunks_exact(4).any(|p| p != first4),
+        "base-color texture is non-uniform (checkerboard decoded)"
+    );
+    // Opaque white base-color factor from the material.
+    assert_eq!(mesh.base_color_factor, [1.0, 1.0, 1.0, 1.0]);
+}
+
+#[test]
+fn textured_mesh_packs_pos_normal_uv_layout() {
+    let scene = textured_cube_scene();
+    let mesh = &scene.meshes[0];
+
+    // A textured mesh packs the `[pos,normal,uv]` layout, not `[pos,normal,color]`.
+    assert_eq!(mesh.layout, textured_vertex_layout());
+    assert_eq!(mesh.layout.stride, TEXTURED_VERTEX_STRIDE);
+    assert_eq!(mesh.layout.stride, 32);
+    assert_eq!(mesh.layout.attributes.len(), 3);
+    assert_eq!(
+        mesh.layout.attributes[2].format,
+        VertexFormat::Float32x2,
+        "attribute 2 is UV (2 floats), not color"
+    );
+    assert_eq!(
+        mesh.vertices.len(),
+        mesh.vertex_count() * TEXTURED_VERTEX_STRIDE as usize
+    );
+
+    // The packed UV bytes match the retained UVs (offset 24, 8 bytes/vertex).
+    let stride = TEXTURED_VERTEX_STRIDE as usize;
+    for (i, uv) in mesh.uvs.iter().enumerate() {
+        let base = i * stride + 24;
+        let u = f32::from_ne_bytes(mesh.vertices[base..base + 4].try_into().unwrap());
+        let v = f32::from_ne_bytes(mesh.vertices[base + 4..base + 8].try_into().unwrap());
+        assert!((u - uv[0]).abs() < 1e-6 && (v - uv[1]).abs() < 1e-6, "uv {i}");
+    }
+    // The fixture's UVs span the full 0..1 range (not all default [0,0]).
+    assert!(mesh.uvs.iter().any(|uv| *uv != [0.0, 0.0]), "real UVs parsed");
+}
+
+#[test]
+fn untextured_mesh_keeps_default_color_layout() {
+    // The original (untextured) fixture stays on the `[pos,normal,color]` path.
+    let mesh = &cube_scene().meshes[0];
+    assert!(!mesh.is_textured());
+    assert!(mesh.base_color.is_none());
+    assert_eq!(mesh.layout, render_vertex_layout());
+    assert_eq!(mesh.layout.stride, RENDER_VERTEX_STRIDE);
 }
 
 #[test]

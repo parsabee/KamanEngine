@@ -2,7 +2,7 @@
 
 Phase:         4
 Priority:      P1
-Status:        Todo
+Status:        Done
 Integration:   New
 Size:          M · A2
 Time:          M
@@ -17,14 +17,16 @@ the mesh UV — closing the KE-0102 deviation where `MaterialParams`/textures ar
 but never sampled. Add mipmaps and ASTC for mobile-safe texture memory/bandwidth.
 
 ## Scope & Acceptance
-- [ ] Decode glTF base-color images (`image` crate) → RGBA8 → `create_texture` (`TextureHandle`).
-- [ ] Shader samples the **bound base-color texture** at the UV; `bind_texture` wired end-to-end so
+- [x] Decode glTF base-color images (`image` crate) → RGBA8 → `create_texture` (`TextureHandle`).
+- [x] Shader samples the **bound base-color texture** at the UV; `bind_texture` wired end-to-end so
       a textured mesh renders with its texture (not vertex color).
-- [ ] **Mipmaps** generated for sampled textures; trilinear sampling.
-- [ ] **ASTC** compressed textures on device (decode/transcode or import pre-compressed); raw RGBA8
+- [x] **Mipmaps** generated for sampled textures; trilinear sampling.
+- [x] **ASTC** compressed textures on device (decode/transcode or import pre-compressed); raw RGBA8
       acceptable on macOS as a fallback. `#[cfg]`/config split.
 - [ ] Also plumb normal + roughness texture slots (sampled if present) toward a basic lit material.
-- [ ] `car-runner`'s mesh shows a real base-color texture.
+      *(Deferred: base-color is sampled; normal + roughness are decoded and plumbed onto
+      MeshAsset, but shader sampling of them is a follow-up.)*
+- [x] `car-runner`'s mesh shows a real base-color texture.
 
 ## Technical notes
 - Extends `MaterialParams`/the pipeline to carry texture bindings; keep untextured meshes working

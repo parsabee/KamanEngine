@@ -54,7 +54,9 @@ pub mod spawn;
 pub use cache::{upload_scene, AssetCache, CachedAsset};
 pub use error::ImportError;
 pub use import::{import_gltf, import_slice};
-pub use scene::{render_vertex_layout, MeshAsset, Node, SceneAsset};
+pub use scene::{
+    render_vertex_layout, textured_vertex_layout, BaseColorTexture, MeshAsset, Node, SceneAsset,
+};
 pub use spawn::{render_component_from_mesh, spawn_scene};
 
 #[cfg(test)]

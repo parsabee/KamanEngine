@@ -78,7 +78,7 @@ pub mod raytracer;
 
 pub use backend::MetalRenderer;
 pub use registry::{Registry, RegistryError};
-pub use vertex::{LightUniforms, Uniforms, Vertex};
+pub use vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex};
 
 #[cfg(test)]
 mod feature_gate_tests {

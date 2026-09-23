@@ -16,8 +16,8 @@ use kaman_math::glam::Mat4;
 
 use crate::error::ImportError;
 use crate::scene::{
-    bake_transform, pack_render_vertices, render_vertex_layout, MeshAsset, Node, SceneAsset,
-    DEFAULT_IMPORT_COLOR,
+    bake_transform, pack_render_vertices, pack_textured_vertices, render_vertex_layout,
+    textured_vertex_layout, BaseColorTexture, MeshAsset, Node, SceneAsset, DEFAULT_IMPORT_COLOR,
 };
 
 /// Import a glTF or GLB file at `path` into a [`SceneAsset`].
@@ -30,8 +30,8 @@ use crate::scene::{
 /// Returns [`ImportError`] if the file cannot be read or parsed, or if a mesh
 /// primitive is missing required position data.
 pub fn import_gltf(path: impl AsRef<Path>) -> Result<SceneAsset, ImportError> {
-    let (document, buffers, _images) = gltf::import(path.as_ref())?;
-    build_scene(&document, &buffers)
+    let (document, buffers, images) = gltf::import(path.as_ref())?;
+    build_scene(&document, &buffers, &images)
 }
 
 /// Import a glTF/GLB document from an in-memory byte slice.
@@ -43,14 +43,15 @@ pub fn import_gltf(path: impl AsRef<Path>) -> Result<SceneAsset, ImportError> {
 /// # Errors
 /// Returns [`ImportError`] on a parse failure or missing geometry.
 pub fn import_slice(bytes: &[u8]) -> Result<SceneAsset, ImportError> {
-    let (document, buffers, _images) = gltf::import_slice(bytes)?;
-    build_scene(&document, &buffers)
+    let (document, buffers, images) = gltf::import_slice(bytes)?;
+    build_scene(&document, &buffers, &images)
 }
 
-/// Shared scene builder over a parsed document + its buffer data.
+/// Shared scene builder over a parsed document + its buffer and image data.
 fn build_scene(
     document: &gltf::Document,
     buffers: &[gltf::buffer::Data],
+    images: &[gltf::image::Data],
 ) -> Result<SceneAsset, ImportError> {
     // 1. Import every unique mesh once (deduplicated by glTF mesh index). A glTF
     //    "mesh" may hold several primitives; each becomes its own MeshAsset, and
@@ -63,7 +64,7 @@ fn build_scene(
     for mesh in document.meshes() {
         let start = scene.meshes.len();
         for primitive in mesh.primitives() {
-            let asset = import_primitive(&primitive, buffers)?;
+            let asset = import_primitive(&primitive, buffers, images)?;
             scene.meshes.push(asset);
         }
         mesh_ranges.push(start..scene.meshes.len());
@@ -144,11 +145,18 @@ fn bake_node(
     self_index
 }
 
-/// Read one glTF primitive into a [`MeshAsset`], packing `[pos,normal,color]` and
-/// retaining UVs.
+/// Read one glTF primitive into a [`MeshAsset`].
+///
+/// The primitive's material is inspected for a base-color texture (and, best
+/// effort, a normal and metallic-roughness texture). If a base-color texture is
+/// present the mesh is packed on the `[pos,normal,uv]`
+/// [`textured_vertex_layout`] and the decoded RGBA8 image is attached; otherwise
+/// it stays on the default-color `[pos,normal,color]` layout. UVs are retained on
+/// the asset either way.
 fn import_primitive(
     primitive: &gltf::Primitive,
     buffers: &[gltf::buffer::Data],
+    images: &[gltf::image::Data],
 ) -> Result<MeshAsset, ImportError> {
     let reader = primitive.reader(|buffer| buffers.get(buffer.index()).map(|d| &d.0[..]));
 
@@ -180,14 +188,160 @@ fn import_primitive(
     let mut uvs = uvs;
     uvs.resize(positions.len(), [0.0, 0.0]);
 
-    let vertices = pack_render_vertices(&positions, &normals, DEFAULT_IMPORT_COLOR);
+    // Inspect the primitive's material for texture slots.
+    let material = primitive.material();
+    let pbr = material.pbr_metallic_roughness();
+    let base_color_factor = pbr.base_color_factor();
+
+    let base_color = pbr
+        .base_color_texture()
+        .and_then(|info| decode_texture(&info.texture(), images));
+    let normal_map = material
+        .normal_texture()
+        .and_then(|info| decode_texture(&info.texture(), images));
+    let metallic_roughness = pbr
+        .metallic_roughness_texture()
+        .and_then(|info| decode_texture(&info.texture(), images));
+
+    // A base-color texture selects the `[pos,normal,uv]` textured layout so the
+    // backend's textured pipeline can sample it; otherwise stay on the default
+    // `[pos,normal,color]` path (untextured pixel-hash unaffected).
+    let (vertices, layout) = if base_color.is_some() {
+        (
+            pack_textured_vertices(&positions, &normals, &uvs),
+            textured_vertex_layout(),
+        )
+    } else {
+        (
+            pack_render_vertices(&positions, &normals, DEFAULT_IMPORT_COLOR),
+            render_vertex_layout(),
+        )
+    };
 
     Ok(MeshAsset {
         vertices,
         indices,
-        layout: render_vertex_layout(),
+        layout,
         positions,
         normals,
         uvs,
+        base_color,
+        base_color_factor,
+        normal_map,
+        metallic_roughness,
     })
+}
+
+/// Decode one glTF texture's source image into an RGBA8 [`BaseColorTexture`].
+///
+/// The `gltf` crate already decodes embedded/external images into
+/// [`gltf::image::Data`] (raw pixels + a [`gltf::image::Format`]); this converts
+/// whatever channel layout that is into tightly-packed RGBA8, the shape the
+/// render seam's [`TextureData`](kaman_render_api::TextureData) accepts. Returns
+/// `None` if the image index is out of range or the pixel data is malformed.
+fn decode_texture(
+    texture: &gltf::Texture,
+    images: &[gltf::image::Data],
+) -> Option<BaseColorTexture> {
+    let data = images.get(texture.source().index())?;
+    let rgba8 = to_rgba8(data)?;
+    Some(BaseColorTexture {
+        width: data.width,
+        height: data.height,
+        rgba8,
+    })
+}
+
+/// Convert a decoded glTF image into tightly-packed RGBA8 bytes.
+///
+/// Handles the channel layouts the `gltf`/`image` decoders produce for the
+/// common cases (RGB8/RGBA8, and single/dual-channel greyscale), expanding each
+/// to 4 bytes per pixel with an opaque alpha default. Returns `None` if the pixel
+/// buffer is too small for the declared dimensions.
+fn to_rgba8(data: &gltf::image::Data) -> Option<Vec<u8>> {
+    use gltf::image::Format;
+    let px = (data.width as usize).checked_mul(data.height as usize)?;
+    let src = &data.pixels;
+    let mut out = Vec::with_capacity(px * 4);
+    match data.format {
+        Format::R8G8B8A8 => {
+            if src.len() < px * 4 {
+                return None;
+            }
+            out.extend_from_slice(&src[..px * 4]);
+        }
+        Format::R8G8B8 => {
+            if src.len() < px * 3 {
+                return None;
+            }
+            for c in src[..px * 3].chunks_exact(3) {
+                out.extend_from_slice(&[c[0], c[1], c[2], 255]);
+            }
+        }
+        Format::R8G8 => {
+            if src.len() < px * 2 {
+                return None;
+            }
+            for c in src[..px * 2].chunks_exact(2) {
+                out.extend_from_slice(&[c[0], c[0], c[0], c[1]]);
+            }
+        }
+        Format::R8 => {
+            if src.len() < px {
+                return None;
+            }
+            for &g in &src[..px] {
+                out.extend_from_slice(&[g, g, g, 255]);
+            }
+        }
+        // 16-bit formats are uncommon for base-color glTF textures; downsample
+        // each 16-bit channel to its high byte so we still upload something
+        // sensible rather than dropping the texture.
+        Format::R16 | Format::R16G16 | Format::R16G16B16 | Format::R16G16B16A16 => {
+            let channels = match data.format {
+                Format::R16 => 1,
+                Format::R16G16 => 2,
+                Format::R16G16B16 => 3,
+                _ => 4,
+            };
+            if src.len() < px * channels * 2 {
+                return None;
+            }
+            for pixel in src[..px * channels * 2].chunks_exact(channels * 2) {
+                let hi = |i: usize| pixel[i * 2 + 1];
+                let (r, g, b, a) = match channels {
+                    1 => (hi(0), hi(0), hi(0), 255),
+                    2 => (hi(0), hi(0), hi(0), hi(1)),
+                    3 => (hi(0), hi(1), hi(2), 255),
+                    _ => (hi(0), hi(1), hi(2), hi(3)),
+                };
+                out.extend_from_slice(&[r, g, b, a]);
+            }
+        }
+        // 32-bit float formats: rare; clamp+scale each channel's first byte.
+        Format::R32G32B32FLOAT | Format::R32G32B32A32FLOAT => {
+            let channels = if matches!(data.format, Format::R32G32B32FLOAT) {
+                3
+            } else {
+                4
+            };
+            if src.len() < px * channels * 4 {
+                return None;
+            }
+            for pixel in src[..px * channels * 4].chunks_exact(channels * 4) {
+                let ch = |i: usize| {
+                    let f = f32::from_le_bytes([
+                        pixel[i * 4],
+                        pixel[i * 4 + 1],
+                        pixel[i * 4 + 2],
+                        pixel[i * 4 + 3],
+                    ]);
+                    (f.clamp(0.0, 1.0) * 255.0) as u8
+                };
+                let a = if channels == 4 { ch(3) } else { 255 };
+                out.extend_from_slice(&[ch(0), ch(1), ch(2), a]);
+            }
+        }
+    }
+    Some(out)
 }

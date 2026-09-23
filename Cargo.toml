@@ -50,6 +50,11 @@ glam = "0.29"
 # `import` + `utils` features are enabled so no image/extras baggage is pulled in
 # (textures are KE-0403).
 gltf = { version = "1.4", default-features = false, features = ["import", "utils"] }
+# Image decoding (KE-0403): decode glTF base-color images (PNG/JPEG) to RGBA8 in
+# `kaman-assets`. Pure-Rust codecs (no C toolchain beyond std); default features
+# off so only the two codecs glTF assets commonly embed are pulled in — no metal,
+# no game baggage. `kaman-assets` stays engine-generic and metal-free.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 rapier3d = "0.22"
 hecs = "0.10"
 winit = { version = "0.30", features = ["rwh_06"] }

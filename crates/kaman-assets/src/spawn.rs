@@ -50,26 +50,38 @@ pub fn spawn_scene(world: &mut World, scene: &SceneAsset) -> Vec<Entity> {
 }
 
 /// Rebuild an ECS [`RenderComponent`] (a `[f32; 9]` `[pos,normal,color]` mesh)
-/// from an imported [`MeshAsset`]'s packed bytes.
+/// from an imported [`MeshAsset`]'s parsed attributes.
 ///
-/// The packed render bytes are the exact `[pos,normal,color]` interleave the ECS
-/// mesh path expects, so this unpacks them back into the `[f32; 9]` vertex form
-/// `RenderShape::Mesh` stores. The component's `color` field is taken from the
-/// first vertex's packed color (the default import color).
+/// The ECS mesh path stores `[pos,normal,color]` vertices, so this rebuilds them
+/// from the asset's parsed `positions`/`normals` (not the packed bytes, which
+/// differ between the untextured `[pos,normal,color]` and textured
+/// `[pos,normal,uv]` layouts). A textured mesh's color is taken from its material
+/// base-color factor; an untextured mesh uses the packed default import color.
 #[must_use]
 pub fn render_component_from_mesh(mesh: &MeshAsset) -> RenderComponent {
-    let mut vertices: Vec<[f32; 9]> = Vec::with_capacity(mesh.vertex_count());
-    let floats = bytes_to_f32(&mesh.vertices);
-    for chunk in floats.chunks_exact(RENDER_VERTEX_FLOATS) {
-        let mut v = [0.0f32; RENDER_VERTEX_FLOATS];
-        v.copy_from_slice(chunk);
-        vertices.push(v);
-    }
+    // Color: base-color factor for a textured mesh, else the packed vertex color
+    // (the default import color) recovered from the first `[pos,normal,color]`
+    // record.
+    let color = if mesh.is_textured() {
+        let f = mesh.base_color_factor;
+        [f[0], f[1], f[2]]
+    } else {
+        bytes_to_f32(&mesh.vertices)
+            .chunks_exact(RENDER_VERTEX_FLOATS)
+            .next()
+            .map(|c| [c[6], c[7], c[8]])
+            .unwrap_or([0.75, 0.75, 0.78])
+    };
 
-    let color = vertices
-        .first()
-        .map(|v| [v[6], v[7], v[8]])
-        .unwrap_or([0.75, 0.75, 0.78]);
+    let vertices: Vec<[f32; 9]> = mesh
+        .positions
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let n = mesh.normals.get(i).copied().unwrap_or([0.0, 1.0, 0.0]);
+            [p[0], p[1], p[2], n[0], n[1], n[2], color[0], color[1], color[2]]
+        })
+        .collect();
 
     RenderComponent::new(
         color,

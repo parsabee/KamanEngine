@@ -10,6 +10,7 @@ repository.workspace = true
 
 [dependencies]
 gltf.workspace = true
+image.workspace = true
 kaman-math.workspace = true
 kaman-render-api.workspace = true
 # `kaman-ecs` powers the ECS spawn helper (`spawn` module). The dep direction

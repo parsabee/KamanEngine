@@ -58,6 +58,27 @@ pub struct Uniforms {
 /// the layout contract and its GPU alignment requirement live together.
 pub const UNIFORM_RING_STRIDE: u64 = 256;
 
+/// Per-draw material parameters for the **textured** pipeline (KE-0403).
+///
+/// Matches `MaterialUniforms` in `rasterization.metal` — a single `float4`
+/// base-color factor, **16 bytes**. Written into the uniform ring alongside the
+/// per-draw MVP and bound at fragment `[[buffer(2)]]` so the textured fragment
+/// shader multiplies the sampled base-color texture by the material factor.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct MaterialUniforms {
+    /// Linear RGBA base-color factor, multiplied with the sampled texture.
+    pub base_color_factor: [f32; 4],
+}
+
+impl Default for MaterialUniforms {
+    fn default() -> Self {
+        Self {
+            base_color_factor: [1.0, 1.0, 1.0, 1.0],
+        }
+    }
+}
+
 /// Directional light + Phong parameters shared across all draws in a frame.
 ///
 /// Matches `Light` in `rasterization.metal`, padded to 48 bytes for Metal's
@@ -125,6 +146,12 @@ mod tests {
     #[test]
     fn light_uniforms_is_48_bytes() {
         assert_eq!(size_of::<LightUniforms>(), 48);
+    }
+
+    #[test]
+    fn material_uniforms_is_16_bytes() {
+        // Must match `MaterialUniforms` (a single float4) in rasterization.metal.
+        assert_eq!(size_of::<MaterialUniforms>(), 16);
     }
 
     #[test]

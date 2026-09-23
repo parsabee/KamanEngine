@@ -109,7 +109,7 @@ use kaman_render_api::{
 
 use crate::frame_sync::FrameSemaphore;
 use crate::registry::Registry;
-use crate::vertex::{LightUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
+use crate::vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
 
 /// The clear color of the reference scene (dark blue-grey), matching the
 /// prototype. Load-bearing for the pixel hash.
@@ -147,6 +147,49 @@ fn phong_vertex_layout() -> VertexLayout {
     )
 }
 
+/// The interleaved `[position_xyz, normal_xyz, uv]` layout the **textured**
+/// pipeline binds against (KE-0403): two `Float3`s at 0/12 and a `Float2` at 24,
+/// 32-byte stride. Meshes carrying a base-color texture (`kaman-assets`
+/// `textured_vertex_layout`) are packed onto this and drawn by the textured
+/// pipeline, which samples the bound base-color texture at the UV. This is a
+/// distinct pipeline from the untextured Phong path, so the box pixel-hash is
+/// unaffected.
+fn textured_vertex_layout() -> VertexLayout {
+    use kaman_render_api::VertexAttribute;
+    VertexLayout::new(
+        32,
+        vec![
+            VertexAttribute {
+                location: 0,
+                offset: 0,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 1,
+                offset: 12,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 2,
+                offset: 24,
+                format: VertexFormat::Float32x2,
+            },
+        ],
+    )
+}
+
+/// Whether a [`VertexLayout`] describes the textured `[pos,normal,uv]` path.
+///
+/// The textured layout is distinguished by a two-float (UV) attribute; the
+/// untextured `[pos,normal,color]` layout has only `Float32x3` attributes. Used
+/// to route a pipeline/mesh to the textured vs. untextured pipeline state.
+fn layout_is_textured(layout: &VertexLayout) -> bool {
+    layout
+        .attributes
+        .iter()
+        .any(|a| a.format == VertexFormat::Float32x2)
+}
+
 /// Map a seam-neutral [`VertexFormat`] to its native `MTLVertexFormat`.
 fn metal_vertex_format(format: VertexFormat) -> metal::MTLVertexFormat {
     match format {
@@ -180,6 +223,28 @@ fn build_vertex_descriptor(layout: &VertexLayout) -> &'static metal::VertexDescr
     buffer_layout.set_stride(u64::from(layout.stride));
     buffer_layout.set_step_function(metal::MTLVertexStepFunction::PerVertex);
     descriptor
+}
+
+/// The pixel format base-color textures are uploaded as.
+///
+/// **RGBA8 is the accepted fallback** (KE-0403): we build on the Command Line
+/// Tools with no ASTC transcoder, so uncompressed RGBA8 is what `create_texture`
+/// uploads on macOS. The cfg split is where a compressed (ASTC) format would slot
+/// in for a mobile/device build — the upload path would then supply pre-compressed
+/// blocks and skip runtime mip generation. Kept behind cfg so the desktop build
+/// is unaffected and the device path has a single, obvious hook.
+#[cfg(feature = "astc-textures")]
+fn texture_pixel_format() -> MTLPixelFormat {
+    // Device/mobile path: ASTC 4x4 LDR. Enabled by the `astc-textures` feature,
+    // which a device build turns on once a transcoder feeds pre-compressed blocks
+    // (out of scope on CLT). Left here so the on-device format is a one-line flip.
+    MTLPixelFormat::ASTC_4x4_LDR
+}
+
+/// The pixel format base-color textures are uploaded as (RGBA8 fallback).
+#[cfg(not(feature = "astc-textures"))]
+fn texture_pixel_format() -> MTLPixelFormat {
+    MTLPixelFormat::RGBA8Unorm
 }
 
 /// Number of frames the CPU may have in flight before it must wait on the GPU.
@@ -246,6 +311,13 @@ pub struct MetalRenderer {
     target: RenderTarget,
 
     pipeline_state: metal::RenderPipelineState,
+    // The textured `[pos,normal,uv]` pipeline (KE-0403): samples the bound
+    // base-color texture. A distinct pipeline state from `pipeline_state` so the
+    // untextured box path is byte-for-byte unchanged.
+    textured_pipeline_state: metal::RenderPipelineState,
+    // Trilinear (min/mag linear, mip linear) sampler bound with any base-color
+    // texture on the textured path.
+    sampler_state: metal::SamplerState,
     depth_stencil_state: metal::DepthStencilState,
     light_buffer: metal::Buffer,
 
@@ -302,10 +374,16 @@ pub struct MetalRenderer {
     frame: Option<FrameState>,
 }
 
-/// Backend-private pipeline record. In this Phase-1 port there is a single
-/// built-in Phong pipeline, so pipeline handles are name-only placeholders that
-/// select the shared `pipeline_state`.
-struct PipelineHandleData;
+/// Backend-private pipeline record. KE-0403 adds a second (textured) built-in
+/// pipeline, so a handle records *which* built-in it selects: `textured` routes
+/// draws to the `textured_pipeline_state` (`[pos,normal,uv]`, base-color
+/// sampling), otherwise the untextured Phong `pipeline_state`
+/// (`[pos,normal,color]`). The choice is derived from the descriptor's vertex
+/// layout at `create_pipeline` time.
+struct PipelineHandleData {
+    /// `true` ⇒ the textured pipeline (base-color sampling); `false` ⇒ untextured.
+    textured: bool,
+}
 
 /// Live state for an in-flight frame.
 struct FrameState {
@@ -313,6 +391,10 @@ struct FrameState {
     encoder: metal::RenderCommandEncoder,
     /// A drawable to present at submit (windowed path only).
     drawable: Option<metal::MetalDrawable>,
+    /// Whether the currently-selected pipeline is the textured one (set by
+    /// `set_pipeline`). Drives whether `draw_mesh` binds the material uniform +
+    /// sampler. Defaults to the untextured pipeline (bound in `begin_frame`).
+    textured_pipeline: bool,
 }
 
 impl MetalRenderer {
@@ -430,6 +512,41 @@ impl MetalRenderer {
             .new_render_pipeline_state(&pipeline_descriptor)
             .expect("failed to create render pipeline state");
 
+        // Textured pipeline (KE-0403): a second pipeline state over the
+        // `[pos,normal,uv]` layout with the `textured_*` shader functions, which
+        // sample the bound base-color texture. Built here at load time; distinct
+        // from `pipeline_state` so the untextured path is unchanged.
+        let textured_vertex_function = library
+            .get_function("textured_vertex_main", None)
+            .expect("textured_vertex_main not found");
+        let textured_fragment_function = library
+            .get_function("textured_fragment_main", None)
+            .expect("textured_fragment_main not found");
+        let textured_descriptor = metal::RenderPipelineDescriptor::new();
+        textured_descriptor.set_vertex_function(Some(&textured_vertex_function));
+        textured_descriptor.set_fragment_function(Some(&textured_fragment_function));
+        textured_descriptor
+            .set_vertex_descriptor(Some(build_vertex_descriptor(&textured_vertex_layout())));
+        textured_descriptor
+            .color_attachments()
+            .object_at(0)
+            .unwrap()
+            .set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+        textured_descriptor.set_depth_attachment_pixel_format(MTLPixelFormat::Depth32Float);
+        let textured_pipeline_state = device
+            .new_render_pipeline_state(&textured_descriptor)
+            .expect("failed to create textured render pipeline state");
+
+        // Trilinear sampler for base-color textures: min/mag linear + mip linear,
+        // so the mipmaps generated in `create_texture` are sampled smoothly.
+        let sampler_descriptor = metal::SamplerDescriptor::new();
+        sampler_descriptor.set_min_filter(metal::MTLSamplerMinMagFilter::Linear);
+        sampler_descriptor.set_mag_filter(metal::MTLSamplerMinMagFilter::Linear);
+        sampler_descriptor.set_mip_filter(metal::MTLSamplerMipFilter::Linear);
+        sampler_descriptor.set_address_mode_s(metal::MTLSamplerAddressMode::Repeat);
+        sampler_descriptor.set_address_mode_t(metal::MTLSamplerAddressMode::Repeat);
+        let sampler_state = device.new_sampler(&sampler_descriptor);
+
         let depth_stencil_descriptor = metal::DepthStencilDescriptor::new();
         depth_stencil_descriptor.set_depth_compare_function(metal::MTLCompareFunction::Less);
         depth_stencil_descriptor.set_depth_write_enabled(true);
@@ -453,6 +570,8 @@ impl MetalRenderer {
             command_queue,
             target,
             pipeline_state,
+            textured_pipeline_state,
+            sampler_state,
             depth_stencil_state,
             light_buffer,
             // No camera pushed yet; identity until the first `set_view_projection`.
@@ -652,6 +771,32 @@ impl MetalRenderer {
         offset
     }
 
+    /// Write `material` into the next slot of the uniform ring and return its
+    /// 256-byte-aligned byte offset (KE-0403).
+    ///
+    /// A **textured** draw consumes a second ring slot for its per-draw
+    /// [`MaterialUniforms`] (base-color factor), bound at the textured fragment
+    /// shader's `[[buffer(2)]]`. Giving it its own slot keeps the fragment buffer
+    /// offset 256-byte aligned (Apple GPU requirement) and reuses the same
+    /// allocation-free ring as the MVP — the untextured path consumes exactly one
+    /// slot per draw as before, so the box scene's per-frame allocation count and
+    /// pixel hash are unchanged.
+    fn write_material_to_ring(&mut self, material: &MaterialUniforms) -> u64 {
+        if self.ring_cursor >= self.ring_draws_per_frame {
+            self.grow_ring();
+        }
+        let slot = self.ring_region_base + self.ring_cursor;
+        self.ring_cursor += 1;
+        let offset = slot * UNIFORM_RING_STRIDE;
+        // SAFETY: `offset + size_of::<MaterialUniforms>()` is within the ring
+        // (slot < total slot count) and the ring is CPU-visible; the struct is POD.
+        unsafe {
+            let dst = (self.uniform_ring.contents() as *mut u8).add(offset as usize);
+            std::ptr::write(dst as *mut MaterialUniforms, *material);
+        }
+        offset
+    }
+
     /// Double the per-frame ring capacity and reallocate the backing buffer.
     ///
     /// Called only from [`write_uniform_to_ring`](Self::write_uniform_to_ring)
@@ -746,27 +891,50 @@ impl RenderDevice for MetalRenderer {
     }
 
     fn create_texture(&mut self, data: &TextureData<'_>) -> TextureHandle {
+        // RGBA8 upload with a full mip chain (KE-0403). ASTC/compressed formats
+        // slot in behind a cfg for on-device builds; RGBA8 is the accepted macOS
+        // fallback (we build on the Command Line Tools, no ASTC tooling), so the
+        // uncompressed path is the one wired here.
+        let width = data.width.max(1) as u64;
+        let height = data.height.max(1) as u64;
+        // Full mip chain: floor(log2(max(w,h))) + 1 levels.
+        let mip_levels = (64 - (width.max(height)).leading_zeros()).max(1) as u64;
+
         let desc = metal::TextureDescriptor::new();
-        desc.set_pixel_format(MTLPixelFormat::RGBA8Unorm);
-        desc.set_width(data.width as u64);
-        desc.set_height(data.height as u64);
+        desc.set_pixel_format(texture_pixel_format());
+        desc.set_width(width);
+        desc.set_height(height);
+        desc.set_mipmap_level_count(mip_levels);
+        // ShaderRead for sampling; RenderTarget lets `generate_mipmaps` write the
+        // lower levels (blit-based mip generation requires it on some GPUs).
+        desc.set_usage(metal::MTLTextureUsage::ShaderRead | metal::MTLTextureUsage::RenderTarget);
         let tex = self.device.new_texture(&desc);
+
         if !data.rgba8.is_empty() {
             let region = metal::MTLRegion {
                 origin: metal::MTLOrigin { x: 0, y: 0, z: 0 },
                 size: metal::MTLSize {
-                    width: data.width as u64,
-                    height: data.height as u64,
+                    width,
+                    height,
                     depth: 1,
                 },
             };
-            tex.replace_region(
-                region,
-                0,
-                data.rgba8.as_ptr() as *const _,
-                (data.width * 4) as u64,
-            );
+            // Upload the base level (level 0); the mip chain is filled by a blit
+            // `generate_mipmaps` below.
+            tex.replace_region(region, 0, data.rgba8.as_ptr() as *const _, width * 4);
+
+            // Generate the lower mip levels on the GPU via a blit encoder, then
+            // wait so the texture is fully resident before any draw samples it.
+            if mip_levels > 1 {
+                let command_buffer = self.command_queue.new_command_buffer();
+                let blit = command_buffer.new_blit_command_encoder();
+                blit.generate_mipmaps(&tex);
+                blit.end_encoding();
+                command_buffer.commit();
+                command_buffer.wait_until_completed();
+            }
         }
+
         let id = self.textures.len() as u32;
         self.textures.push(Some(tex));
         TextureHandle(id)
@@ -778,11 +946,16 @@ impl RenderDevice for MetalRenderer {
         }
     }
 
-    fn create_pipeline(&mut self, _desc: &PipelineDescriptor) -> PipelineHandle {
-        // Phase-1 port: a single built-in Phong pipeline. The handle names it;
-        // the actual `RenderPipelineState` is the shared `self.pipeline_state`.
+    fn create_pipeline(&mut self, desc: &PipelineDescriptor) -> PipelineHandle {
+        // Two built-in pipelines (KE-0403): the descriptor's vertex layout selects
+        // which one this handle names. A `[pos,normal,uv]` layout (a Float2 UV
+        // attribute) routes to the textured pipeline (base-color sampling); the
+        // `[pos,normal,color]` layout routes to the untextured Phong pipeline. The
+        // actual `RenderPipelineState` is the shared `pipeline_state` /
+        // `textured_pipeline_state`.
+        let textured = layout_is_textured(&desc.vertex_layout);
         let id = self.pipelines.len() as u32;
-        self.pipelines.push(Some(PipelineHandleData));
+        self.pipelines.push(Some(PipelineHandleData { textured }));
         PipelineHandle(id)
     }
 
@@ -871,6 +1044,9 @@ impl FrameRecorder for MetalRenderer {
             command_buffer,
             encoder,
             drawable,
+            // Untextured Phong pipeline bound above; `set_pipeline` may switch to
+            // the textured one before a textured draw.
+            textured_pipeline: false,
         });
     }
 
@@ -881,23 +1057,48 @@ impl FrameRecorder for MetalRenderer {
         self.view_projection = view_proj;
     }
 
-    fn set_pipeline(&mut self, _handle: PipelineHandle) {
-        // Single built-in pipeline; already bound in `begin_frame`. This exists
-        // to honor the seam protocol (a pipeline must be selected before draws).
+    fn set_pipeline(&mut self, handle: PipelineHandle) {
+        // Select the untextured or textured built-in pipeline for the draws that
+        // follow (KE-0403). The untextured pipeline is bound in `begin_frame`; a
+        // draw that wants texturing selects the textured one here. Unknown handle:
+        // leave the current selection (defined no-op per the seam contract).
+        let textured = match self.pipelines.get(handle.0 as usize) {
+            Some(Some(p)) => p.textured,
+            _ => return,
+        };
+        // Split the borrow: read the pipeline states before touching `self.frame`.
+        let state = if textured {
+            self.textured_pipeline_state.clone()
+        } else {
+            self.pipeline_state.clone()
+        };
+        if let Some(frame) = &mut self.frame {
+            frame.encoder.set_render_pipeline_state(&state);
+            frame.textured_pipeline = textured;
+        }
     }
 
     fn bind_texture(&mut self, handle: TextureHandle) {
-        if let Some(frame) = &self.frame {
-            if let Some(Some(tex)) = self.textures.get(handle.0 as usize) {
-                frame.encoder.set_fragment_texture(0, Some(tex));
-            }
+        // Bind the base-color texture and the trilinear sampler for subsequent
+        // textured draws. Both go to fragment slot 0 (matching the textured
+        // shader's `[[texture(0)]]` + `[[sampler(0)]]`).
+        let Some(frame) = &self.frame else { return };
+        if let Some(Some(tex)) = self.textures.get(handle.0 as usize) {
+            frame.encoder.set_fragment_texture(0, Some(tex));
+            frame
+                .encoder
+                .set_fragment_sampler_state(0, Some(&self.sampler_state));
         }
     }
 
-    fn draw_mesh(&mut self, mesh: MeshHandle, transform: &Transform, _material: &MaterialParams) {
-        if self.frame.is_none() {
+    fn draw_mesh(&mut self, mesh: MeshHandle, transform: &Transform, material: &MaterialParams) {
+        let Some(frame) = self.frame.as_ref() else {
             return;
-        }
+        };
+        // Whether the textured pipeline is currently selected — decides if this
+        // draw also writes+binds the per-draw material uniform (KE-0403).
+        let textured = frame.textured_pipeline;
+
         // Look the persistent vertex buffer up by handle — no allocation here.
         // A stale/freed or unknown handle is a defined no-op (the registry
         // returns an error), never a silent wrong-buffer draw. Clone the small
@@ -925,11 +1126,26 @@ impl FrameRecorder for MetalRenderer {
         };
         let uniform_offset = self.write_uniform_to_ring(&uniforms);
 
+        // Textured draws additionally write the base-color factor into a second
+        // ring slot and bind it at the textured fragment shader's `[[buffer(2)]]`.
+        // Untextured draws skip this and consume exactly one slot, so their
+        // per-frame allocation count and pixel output are unchanged.
+        let material_offset = if textured {
+            Some(self.write_material_to_ring(&MaterialUniforms {
+                base_color_factor: material.base_color,
+            }))
+        } else {
+            None
+        };
+
         let frame = self.frame.as_ref().expect("frame checked Some above");
         let encoder = &frame.encoder;
         encoder.set_vertex_buffer(0, Some(&vertex_buffer), 0);
         encoder.set_vertex_buffer(1, Some(&self.uniform_ring), uniform_offset);
         encoder.set_fragment_buffer(0, Some(&self.light_buffer), 0);
+        if let Some(material_offset) = material_offset {
+            encoder.set_fragment_buffer(2, Some(&self.uniform_ring), material_offset);
+        }
         encoder.draw_primitives(metal::MTLPrimitiveType::Triangle, 0, vertex_count);
     }
 

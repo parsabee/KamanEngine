@@ -49,7 +49,8 @@ use kaman_ecs::{DynamicTag, RenderComponent, StaticTag, TransformComponent};
 use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render_api::{
-    MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle,
+    MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, TextureData,
+    TextureHandle, VertexLayout,
 };
 use kaman_scene::Scene;
 
@@ -179,11 +180,23 @@ struct CarRunner {
     /// Deterministic obstacle-placement PRNG (seeded once; the same seed always
     /// streams the same obstacle world).
     rng: Rng,
-    /// The one shared box mesh, uploaded once in `init` and referenced by every
-    /// box thereafter (KE-0103: upload once, reference by handle).
+    /// The untextured box mesh (default `[pos,normal,color]`), uploaded once in
+    /// `init` and referenced by every color-driven box (road, obstacles).
     box_mesh: Option<MeshHandle>,
-    /// The render pipeline, created once in `init`.
+    /// The **textured** player mesh imported from the committed glTF asset
+    /// (`[pos,normal,uv]`), drawn on the textured pipeline with its base-color
+    /// texture (KE-0403).
+    player_mesh: Option<MeshHandle>,
+    /// The player mesh's base-color texture, uploaded once in `init` (KE-0403).
+    player_texture: Option<TextureHandle>,
+    /// The player's base-color factor from its glTF material (multiplied with the
+    /// sampled texture).
+    player_base_color: [f32; 4],
+    /// The untextured Phong pipeline for the color-driven boxes, created in `init`.
     pipeline: Option<PipelineHandle>,
+    /// The textured pipeline for the player mesh (base-color sampling), created in
+    /// `init` (KE-0403).
+    textured_pipeline: Option<PipelineHandle>,
     /// The chase camera controller that keeps the player framed (KE-0205). It
     /// trails the box from behind and above along the travel axis, with light
     /// smoothing so the follow eases rather than snapping.
@@ -249,7 +262,11 @@ impl CarRunner {
             best: 0.0,
             rng: Rng::new(Self::SEED),
             box_mesh: None,
+            player_mesh: None,
+            player_texture: None,
+            player_base_color: [1.0, 1.0, 1.0, 1.0],
             pipeline: None,
+            textured_pipeline: None,
             chase: ChaseController::new(Self::CHASE_DISTANCE, Self::CHASE_HEIGHT)
                 .with_look_at_height(Self::CHASE_LOOK_AT_HEIGHT)
                 .with_smoothing(Self::CHASE_SMOOTHING),
@@ -412,23 +429,47 @@ impl Game for CarRunner {
         let scene = ctx.scene_mut();
         self.player = Some(Self::spawn_player(scene, start));
 
-        // Load the one shared player mesh from a real committed glTF asset
-        // (KE-0402) instead of a procedural box: import it once, then upload its
-        // packed `[pos,normal,color]` bytes through the seam once (KE-0103) and
-        // reference it by handle for every draw thereafter.
+        // Load the player mesh from the committed **textured** glTF asset
+        // (KE-0403): its `[pos,normal,uv]` geometry + decoded base-color texture
+        // are uploaded once (KE-0103) and drawn on the textured pipeline so the
+        // player renders with a real texture. The color-driven boxes (road,
+        // obstacles) keep the untextured `[pos,normal,color]` Phong path, so both
+        // pipelines are created here.
         let mesh: MeshAsset = load_player_mesh();
-        let layout = mesh.layout.clone();
         let renderer = ctx.renderer();
+
+        // Untextured Phong pipeline + a plain color box mesh for road/obstacles.
         self.pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
             vertex_shader: "vertex_main".into(),
             fragment_shader: "fragment_main".into(),
-            vertex_layout: layout.clone(),
+            vertex_layout: color_box_layout(),
         }));
+        let (box_vertices, box_indices) = color_box_geometry();
         self.box_mesh = Some(renderer.create_mesh(&MeshData {
+            vertices: &box_vertices,
+            indices: &box_indices,
+            layout: color_box_layout(),
+        }));
+
+        // Textured pipeline + the imported player mesh + its base-color texture.
+        self.textured_pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
+            vertex_shader: "textured_vertex_main".into(),
+            fragment_shader: "textured_fragment_main".into(),
+            vertex_layout: mesh.layout.clone(),
+        }));
+        self.player_mesh = Some(renderer.create_mesh(&MeshData {
             vertices: &mesh.vertices,
             indices: &mesh.indices,
-            layout,
+            layout: mesh.layout.clone(),
         }));
+        if let Some(base) = &mesh.base_color {
+            self.player_base_color = mesh.base_color_factor;
+            self.player_texture = Some(renderer.create_texture(&TextureData {
+                width: base.width,
+                height: base.height,
+                rgba8: &base.rgba8,
+            }));
+        }
 
         // Prime the road ahead so the first frame is not empty.
         let focus = self.player_position();
@@ -505,27 +546,54 @@ impl Game for CarRunner {
     }
 
     fn render(&mut self, ctx: &mut EngineCtx) {
-        // Read this frame's transforms + colors, then record draws referencing the
-        // one persistent box mesh (KE-0103: no per-frame mesh upload).
-        let mesh = self.box_mesh.expect("mesh created in init");
-        let draws: Vec<(kaman_math::Transform, [f32; 3])> = ctx
+        // Read this frame's transforms + colors. The player is drawn on the
+        // textured pipeline (its base-color texture); every other box (road,
+        // obstacles) is drawn on the untextured color pipeline (KE-0403). Both
+        // meshes are persistent (KE-0103: no per-frame mesh upload).
+        let player_entity = self.player;
+        let box_mesh = self.box_mesh.expect("box mesh created in init");
+        let draws: Vec<(Entity, kaman_math::Transform, [f32; 3])> = ctx
             .world()
             .query::<(&TransformComponent, &RenderComponent)>()
             .iter()
-            .map(|(_e, (t, r))| (t.transform, r.color))
+            .map(|(e, (t, r))| (e, t.transform, r.color))
             .collect();
 
         let pipeline = self.pipeline.expect("pipeline created in init");
+        let textured_pipeline = self.textured_pipeline.expect("textured pipeline in init");
+        let player_mesh = self.player_mesh.expect("player mesh created in init");
+        let player_texture = self.player_texture;
+        let player_base_color = self.player_base_color;
+
         let renderer = ctx.renderer();
         renderer.begin_frame();
+
+        // Color-driven boxes on the untextured pipeline.
         renderer.set_pipeline(pipeline);
-        for (transform, color) in &draws {
+        for (entity, transform, color) in &draws {
+            if Some(*entity) == player_entity {
+                continue;
+            }
             let material = MaterialParams {
                 base_color: [color[0], color[1], color[2], 1.0],
                 ..MaterialParams::default()
             };
-            renderer.draw_mesh(mesh, transform, &material);
+            renderer.draw_mesh(box_mesh, transform, &material);
         }
+
+        // The player on the textured pipeline with its base-color texture bound.
+        if let (Some(player_entity), Some(texture)) = (player_entity, player_texture) {
+            if let Some((_, transform, _)) = draws.iter().find(|(e, _, _)| *e == player_entity) {
+                renderer.set_pipeline(textured_pipeline);
+                renderer.bind_texture(texture);
+                let material = MaterialParams {
+                    base_color: player_base_color,
+                    ..MaterialParams::default()
+                };
+                renderer.draw_mesh(player_mesh, transform, &material);
+            }
+        }
+
         renderer.submit();
     }
 }
@@ -535,7 +603,53 @@ impl Game for CarRunner {
 /// directory.
 const PLAYER_MESH_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/cube.gltf");
 
-/// Import the shared player mesh from the committed glTF asset (KE-0402).
+/// The untextured `[pos,normal,color]` layout (36-byte stride) the color boxes
+/// (road, obstacles) are drawn with — the same layout the untextured Phong
+/// pipeline binds.
+fn color_box_layout() -> VertexLayout {
+    kaman_assets::render_vertex_layout()
+}
+
+/// A unit cube packed onto the `[pos,normal,color]` layout with a white vertex
+/// color (per-draw `MaterialParams` carries each box's actual color; the packed
+/// color is unused by the shader beyond modulation, so white keeps it neutral).
+///
+/// Used for the color-driven road/obstacle boxes so they stay on the untextured
+/// pipeline while the player uses its imported textured mesh (KE-0403).
+fn color_box_geometry() -> (Vec<u8>, Vec<u32>) {
+    // 8-corner cube with per-vertex normals pointing outward from center; a
+    // simple, deterministic box that renders identically to the prior imported
+    // (untextured) cube for these entities.
+    let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
+        ([0.0, 0.0, 1.0], [[-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]]),
+        ([0.0, 0.0, -1.0], [[0.5, -0.5, -0.5], [-0.5, -0.5, -0.5], [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5]]),
+        ([0.0, 1.0, 0.0], [[-0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5]]),
+        ([0.0, -1.0, 0.0], [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5]]),
+        ([1.0, 0.0, 0.0], [[0.5, -0.5, 0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [0.5, 0.5, 0.5]]),
+        ([-1.0, 0.0, 0.0], [[-0.5, -0.5, -0.5], [-0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [-0.5, 0.5, -0.5]]),
+    ];
+    let color = [1.0f32, 1.0, 1.0];
+    let mut bytes = Vec::new();
+    let mut indices = Vec::new();
+    for (n, verts) in faces {
+        let base = (bytes.len() / 36) as u32;
+        for v in verts {
+            for f in v {
+                bytes.extend_from_slice(&f.to_ne_bytes());
+            }
+            for f in &n {
+                bytes.extend_from_slice(&f.to_ne_bytes());
+            }
+            for f in &color {
+                bytes.extend_from_slice(&f.to_ne_bytes());
+            }
+        }
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+    (bytes, indices)
+}
+
+/// Import the shared player mesh from the committed glTF asset (KE-0402/KE-0403).
 ///
 /// The single primitive is the whole mesh; on the (unexpected) event of a
 /// missing/empty file the game panics loudly at init rather than draw nothing —

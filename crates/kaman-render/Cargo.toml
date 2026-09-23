@@ -15,6 +15,13 @@ repository.workspace = true
 default = []
 raytracer = []
 
+# ASTC compressed base-color textures on device (KE-0403). OFF by default: macOS
+# on the Command Line Tools has no ASTC transcoder, so RGBA8 is the accepted
+# fallback and `create_texture` uploads uncompressed. A device/mobile build turns
+# this on to upload pre-compressed ASTC blocks (`texture_pixel_format` flips to
+# `ASTC_4x4_LDR`). Structured behind this feature so the desktop path is unchanged.
+astc-textures = []
+
 # Precompiled shaders (KE-0107, partial). OFF by default so the engine builds with
 # only the Command Line Tools (shaders compile at runtime via new_library_with_source).
 # When ON, build.rs compiles shaders/*.metal to a .metallib ahead of time and the
