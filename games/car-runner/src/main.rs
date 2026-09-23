@@ -40,17 +40,15 @@
 
 use clap::Parser;
 
-use kaman_assets::{import_gltf, MeshAsset};
 use kaman_camera::ChaseController;
 use kaman_core::input::Key;
 use kaman_core::{EngineCtx, Game};
 use kaman_ecs::hecs::Entity;
-use kaman_ecs::{DynamicTag, RenderComponent, StaticTag, TransformComponent};
+use kaman_ecs::{DynamicTag, PhysicsBodyComponent, RenderComponent, StaticTag, TransformComponent};
 use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render_api::{
-    MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, TextureData,
-    TextureHandle, VertexLayout,
+    MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, VertexLayout,
 };
 use kaman_scene::Scene;
 
@@ -180,23 +178,16 @@ struct CarRunner {
     /// Deterministic obstacle-placement PRNG (seeded once; the same seed always
     /// streams the same obstacle world).
     rng: Rng,
-    /// The untextured box mesh (default `[pos,normal,color]`), uploaded once in
-    /// `init` and referenced by every color-driven box (road, obstacles).
-    box_mesh: Option<MeshHandle>,
-    /// The **textured** player mesh imported from the committed glTF asset
-    /// (`[pos,normal,uv]`), drawn on the textured pipeline with its base-color
-    /// texture (KE-0403).
-    player_mesh: Option<MeshHandle>,
-    /// The player mesh's base-color texture, uploaded once in `init` (KE-0403).
-    player_texture: Option<TextureHandle>,
-    /// The player's base-color factor from its glTF material (multiplied with the
-    /// sampled texture).
-    player_base_color: [f32; 4],
-    /// The untextured Phong pipeline for the color-driven boxes, created in `init`.
+    /// The untextured Phong pipeline (`[pos,normal,color]`), created in `init`.
+    /// All meshes below are drawn on it; per-vertex color carries the look.
     pipeline: Option<PipelineHandle>,
-    /// The textured pipeline for the player mesh (base-color sampling), created in
-    /// `init` (KE-0403).
-    textured_pipeline: Option<PipelineHandle>,
+    /// A flat **black** unit box for road tiles (scaled by each tile's transform),
+    /// uploaded once in `init`.
+    road_mesh: Option<MeshHandle>,
+    /// A **red** car mesh for the player (body + cabin + dark wheels), uploaded once.
+    player_car_mesh: Option<MeshHandle>,
+    /// The same car mesh in **white** for the other cars (obstacles), uploaded once.
+    obstacle_car_mesh: Option<MeshHandle>,
     /// The chase camera controller that keeps the player framed (KE-0205). It
     /// trails the box from behind and above along the travel axis, with light
     /// smoothing so the follow eases rather than snapping.
@@ -210,8 +201,9 @@ impl CarRunner {
     const LANES: usize = 3;
     /// Distance between adjacent lane centers along `X`, in world units.
     const LANE_WIDTH: f32 = 3.0;
-    /// The player box's resting height (its transform's `Y`).
-    const PLAYER_Y: f32 = 0.6;
+    /// The car's resting height (its transform's `Y`), chosen so the wheels sit on
+    /// the road surface. Shared by the player and the obstacle cars so they align.
+    const PLAYER_Y: f32 = 0.1;
     /// Half-extents of the player box (a 1×1×1 cube ⇒ 0.5 each) used for the
     /// game-side overlap test.
     const PLAYER_HALF: Vec3 = Vec3::new(0.5, 0.5, 0.5);
@@ -261,12 +253,10 @@ impl CarRunner {
             distance: 0.0,
             best: 0.0,
             rng: Rng::new(Self::SEED),
-            box_mesh: None,
-            player_mesh: None,
-            player_texture: None,
-            player_base_color: [1.0, 1.0, 1.0, 1.0],
             pipeline: None,
-            textured_pipeline: None,
+            road_mesh: None,
+            player_car_mesh: None,
+            obstacle_car_mesh: None,
             chase: ChaseController::new(Self::CHASE_DISTANCE, Self::CHASE_HEIGHT)
                 .with_look_at_height(Self::CHASE_LOOK_AT_HEIGHT)
                 .with_smoothing(Self::CHASE_SMOOTHING),
@@ -433,43 +423,30 @@ impl Game for CarRunner {
         // (KE-0403): its `[pos,normal,uv]` geometry + decoded base-color texture
         // are uploaded once (KE-0103) and drawn on the textured pipeline so the
         // player renders with a real texture. The color-driven boxes (road,
-        // obstacles) keep the untextured `[pos,normal,color]` Phong path, so both
-        // pipelines are created here.
-        let mesh: MeshAsset = load_player_mesh();
+        // obstacles) all use the untextured `[pos,normal,color]` Phong path; the
+        // look is baked into each mesh's vertex colors.
         let renderer = ctx.renderer();
 
-        // Untextured Phong pipeline + a plain color box mesh for road/obstacles.
         self.pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
             vertex_shader: "vertex_main".into(),
             fragment_shader: "fragment_main".into(),
-            vertex_layout: color_box_layout(),
-        }));
-        let (box_vertices, box_indices) = color_box_geometry();
-        self.box_mesh = Some(renderer.create_mesh(&MeshData {
-            vertices: &box_vertices,
-            indices: &box_indices,
-            layout: color_box_layout(),
+            vertex_layout: color_layout(),
         }));
 
-        // Textured pipeline + the imported player mesh + its base-color texture.
-        self.textured_pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
-            vertex_shader: "textured_vertex_main".into(),
-            fragment_shader: "textured_fragment_main".into(),
-            vertex_layout: mesh.layout.clone(),
-        }));
-        self.player_mesh = Some(renderer.create_mesh(&MeshData {
-            vertices: &mesh.vertices,
-            indices: &mesh.indices,
-            layout: mesh.layout.clone(),
-        }));
-        if let Some(base) = &mesh.base_color {
-            self.player_base_color = mesh.base_color_factor;
-            self.player_texture = Some(renderer.create_texture(&TextureData {
-                width: base.width,
-                height: base.height,
-                rgba8: &base.rgba8,
-            }));
-        }
+        // The player is a RED car; the other cars (obstacles) are the same car in
+        // WHITE; the street is a BLACK flat box (scaled per road tile). Colors are
+        // baked into the vertices (the untextured shader reads per-vertex color),
+        // and each mesh is uploaded once (KE-0103: no per-frame mesh upload).
+        let mut make = |verts: &(Vec<u8>, Vec<u32>)| {
+            renderer.create_mesh(&MeshData {
+                vertices: &verts.0,
+                indices: &verts.1,
+                layout: color_layout(),
+            })
+        };
+        self.player_car_mesh = Some(make(&car_geometry(PLAYER_COLOR)));
+        self.obstacle_car_mesh = Some(make(&car_geometry(OBSTACLE_COLOR)));
+        self.road_mesh = Some(make(&unit_box_geometry(ROAD_COLOR)));
 
         // Prime the road ahead so the first frame is not empty.
         let focus = self.player_position();
@@ -546,123 +523,116 @@ impl Game for CarRunner {
     }
 
     fn render(&mut self, ctx: &mut EngineCtx) {
-        // Read this frame's transforms + colors. The player is drawn on the
-        // textured pipeline (its base-color texture); every other box (road,
-        // obstacles) is drawn on the untextured color pipeline (KE-0403). Both
-        // meshes are persistent (KE-0103: no per-frame mesh upload).
+        // Pick each entity's mesh by role: the player is the red car; obstacles
+        // (the streamed entities that carry a physics body) are the white car; every
+        // other renderable is a black road tile. Color is baked into each mesh, so
+        // one untextured pipeline draws them all. All meshes are persistent (KE-0103).
         let player_entity = self.player;
-        let box_mesh = self.box_mesh.expect("box mesh created in init");
-        let draws: Vec<(Entity, kaman_math::Transform, [f32; 3])> = ctx
+        let player_car = self.player_car_mesh.expect("player mesh created in init");
+        let obstacle_car = self.obstacle_car_mesh.expect("obstacle mesh created in init");
+        let road = self.road_mesh.expect("road mesh created in init");
+
+        let draws: Vec<(kaman_math::Transform, MeshHandle)> = ctx
             .world()
             .query::<(&TransformComponent, &RenderComponent)>()
             .iter()
-            .map(|(e, (t, r))| (e, t.transform, r.color))
+            .map(|(e, (t, _))| {
+                let mesh = if Some(e) == player_entity {
+                    player_car
+                } else if ctx.world().get::<&PhysicsBodyComponent>(e).is_ok() {
+                    obstacle_car
+                } else {
+                    road
+                };
+                (t.transform, mesh)
+            })
             .collect();
 
         let pipeline = self.pipeline.expect("pipeline created in init");
-        let textured_pipeline = self.textured_pipeline.expect("textured pipeline in init");
-        let player_mesh = self.player_mesh.expect("player mesh created in init");
-        let player_texture = self.player_texture;
-        let player_base_color = self.player_base_color;
-
         let renderer = ctx.renderer();
         renderer.begin_frame();
-
-        // Color-driven boxes on the untextured pipeline.
         renderer.set_pipeline(pipeline);
-        for (entity, transform, color) in &draws {
-            if Some(*entity) == player_entity {
-                continue;
-            }
-            let material = MaterialParams {
-                base_color: [color[0], color[1], color[2], 1.0],
-                ..MaterialParams::default()
-            };
-            renderer.draw_mesh(box_mesh, transform, &material);
+        for (transform, mesh) in &draws {
+            renderer.draw_mesh(*mesh, transform, &MaterialParams::default());
         }
-
-        // The player on the textured pipeline with its base-color texture bound.
-        if let (Some(player_entity), Some(texture)) = (player_entity, player_texture) {
-            if let Some((_, transform, _)) = draws.iter().find(|(e, _, _)| *e == player_entity) {
-                renderer.set_pipeline(textured_pipeline);
-                renderer.bind_texture(texture);
-                let material = MaterialParams {
-                    base_color: player_base_color,
-                    ..MaterialParams::default()
-                };
-                renderer.draw_mesh(player_mesh, transform, &material);
-            }
-        }
-
         renderer.submit();
     }
 }
 
-/// Filesystem path to the committed player mesh asset (`assets/cube.gltf`),
-/// resolved relative to this crate so it loads regardless of the working
-/// directory.
-const PLAYER_MESH_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/cube.gltf");
+/// Baked vertex colors: the player car is **red**, the other cars **white**, the
+/// street **black**; wheels are near-black on both cars. The untextured shader
+/// reads per-vertex color, so the look is baked into the meshes.
+const PLAYER_COLOR: [f32; 3] = [0.85, 0.08, 0.08];
+const OBSTACLE_COLOR: [f32; 3] = [0.95, 0.95, 0.95];
+const ROAD_COLOR: [f32; 3] = [0.0, 0.0, 0.0];
+const WHEEL_COLOR: [f32; 3] = [0.04, 0.04, 0.05];
 
-/// The untextured `[pos,normal,color]` layout (36-byte stride) the color boxes
-/// (road, obstacles) are drawn with — the same layout the untextured Phong
-/// pipeline binds.
-fn color_box_layout() -> VertexLayout {
+/// The untextured `[pos,normal,color]` layout (36-byte stride) every mesh uses —
+/// the same layout the untextured Phong pipeline binds.
+fn color_layout() -> VertexLayout {
     kaman_assets::render_vertex_layout()
 }
 
-/// A unit cube packed onto the `[pos,normal,color]` layout with a white vertex
-/// color (per-draw `MaterialParams` carries each box's actual color; the packed
-/// color is unused by the shader beyond modulation, so white keeps it neutral).
-///
-/// Used for the color-driven road/obstacle boxes so they stay on the untextured
-/// pipeline while the player uses its imported textured mesh (KE-0403).
-fn color_box_geometry() -> (Vec<u8>, Vec<u32>) {
-    // 8-corner cube with per-vertex normals pointing outward from center; a
-    // simple, deterministic box that renders identically to the prior imported
-    // (untextured) cube for these entities.
+/// Append an axis-aligned box (6 quad faces, outward normals) centered at `center`
+/// with the given half-extents and a flat per-vertex `color`, onto a
+/// `[pos,normal,color]` byte buffer + index list.
+fn push_box(
+    bytes: &mut Vec<u8>,
+    indices: &mut Vec<u32>,
+    center: [f32; 3],
+    half: [f32; 3],
+    color: [f32; 3],
+) {
+    // (outward normal, 4 CCW corners) per face, in ±1 unit-cube space.
     let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
-        ([0.0, 0.0, 1.0], [[-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]]),
-        ([0.0, 0.0, -1.0], [[0.5, -0.5, -0.5], [-0.5, -0.5, -0.5], [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5]]),
-        ([0.0, 1.0, 0.0], [[-0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5]]),
-        ([0.0, -1.0, 0.0], [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5]]),
-        ([1.0, 0.0, 0.0], [[0.5, -0.5, 0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [0.5, 0.5, 0.5]]),
-        ([-1.0, 0.0, 0.0], [[-0.5, -0.5, -0.5], [-0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [-0.5, 0.5, -0.5]]),
+        ([0.0, 0.0, 1.0], [[-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0], [-1.0, 1.0, 1.0]]),
+        ([0.0, 0.0, -1.0], [[1.0, -1.0, -1.0], [-1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [1.0, 1.0, -1.0]]),
+        ([0.0, 1.0, 0.0], [[-1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, -1.0], [-1.0, 1.0, -1.0]]),
+        ([0.0, -1.0, 0.0], [[-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [-1.0, -1.0, 1.0]]),
+        ([1.0, 0.0, 0.0], [[1.0, -1.0, 1.0], [1.0, -1.0, -1.0], [1.0, 1.0, -1.0], [1.0, 1.0, 1.0]]),
+        ([-1.0, 0.0, 0.0], [[-1.0, -1.0, -1.0], [-1.0, -1.0, 1.0], [-1.0, 1.0, 1.0], [-1.0, 1.0, -1.0]]),
     ];
-    let color = [1.0f32, 1.0, 1.0];
-    let mut bytes = Vec::new();
-    let mut indices = Vec::new();
-    for (n, verts) in faces {
+    for (n, corners) in faces {
         let base = (bytes.len() / 36) as u32;
-        for v in verts {
-            for f in v {
+        for c in corners {
+            let pos = [center[0] + c[0] * half[0], center[1] + c[1] * half[1], center[2] + c[2] * half[2]];
+            for f in pos {
                 bytes.extend_from_slice(&f.to_ne_bytes());
             }
-            for f in &n {
+            for f in n {
                 bytes.extend_from_slice(&f.to_ne_bytes());
             }
-            for f in &color {
+            for f in color {
                 bytes.extend_from_slice(&f.to_ne_bytes());
             }
         }
         indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
+}
+
+/// A unit cube (half-extent 0.5) in one flat `color` — the road tile, scaled per
+/// slot by its transform.
+fn unit_box_geometry(color: [f32; 3]) -> (Vec<u8>, Vec<u32>) {
+    let mut bytes = Vec::new();
+    let mut indices = Vec::new();
+    push_box(&mut bytes, &mut indices, [0.0, 0.0, 0.0], [0.5, 0.5, 0.5], color);
     (bytes, indices)
 }
 
-/// Import the shared player mesh from the committed glTF asset (KE-0402/KE-0403).
-///
-/// The single primitive is the whole mesh; on the (unexpected) event of a
-/// missing/empty file the game panics loudly at init rather than draw nothing —
-/// the asset is committed to the repo, so a failure here is a build/packaging
-/// bug, not a runtime condition.
-fn load_player_mesh() -> MeshAsset {
-    let scene = import_gltf(PLAYER_MESH_PATH)
-        .unwrap_or_else(|e| panic!("failed to import player mesh {PLAYER_MESH_PATH}: {e}"));
-    scene
-        .meshes
-        .into_iter()
-        .next()
-        .expect("player mesh asset has at least one mesh")
+/// A low-poly car facing `-Z` (the travel direction): a low body, a raised cabin
+/// set back, and four near-black wheels. Body + cabin take `color`. Built around
+/// the local origin so the wheels rest just above the road at `PLAYER_Y`.
+fn car_geometry(color: [f32; 3]) -> (Vec<u8>, Vec<u32>) {
+    let mut bytes = Vec::new();
+    let mut indices = Vec::new();
+    push_box(&mut bytes, &mut indices, [0.0, 0.0, 0.0], [0.5, 0.22, 0.9], color); // body
+    push_box(&mut bytes, &mut indices, [0.0, 0.32, 0.12], [0.38, 0.2, 0.5], color); // cabin
+    for &z in &[-0.58f32, 0.58] {
+        for &x in &[-0.5f32, 0.5] {
+            push_box(&mut bytes, &mut indices, [x, -0.22, z], [0.14, 0.16, 0.22], WHEEL_COLOR);
+        }
+    }
+    (bytes, indices)
 }
 
 #[cfg(test)]

@@ -79,7 +79,10 @@ const HEIGHT: u32 = 64;
 // KE-0401: re-blessed. Was 0x292c5df343b5eba8 through KE-0102..0403; the modern-look
 // stack (linear+ACES tonemap+sRGB, gradient sky, distance fog, blob shadow, 4x MSAA)
 // intentionally changes the rendered pixels. Geometry/camera/transform are unchanged.
-const REFERENCE_HASH: u64 = 0x2de86f2816d94904;
+// Re-blessed: fixing the LightUniforms<->MSL Light struct padding mismatch made
+// the look stack (fog/shadow/lighting) actually apply as intended, so the
+// reference box now renders lit-red instead of fully fogged to the horizon color.
+const REFERENCE_HASH: u64 = 0x90d4631260adc5cc;
 
 /// FNV-1a 64-bit hash over a byte buffer. Self-contained (no external crate) so
 /// the golden hash has no dependency surface.

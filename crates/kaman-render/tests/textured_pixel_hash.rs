@@ -61,7 +61,9 @@ const HEIGHT: u32 = 64;
 // KE-0401: re-blessed. Was 0x2bb6c070d635c975 (KE-0403); the modern-look stack
 // (linear+ACES tonemap+sRGB, sky, fog, shadow, 4x MSAA) intentionally changes the
 // pixels. Geometry/camera/transform and the checkerboard texture are unchanged.
-const REFERENCE_HASH: u64 = 0x5a5d92f5482c0939;
+// Re-blessed: the LightUniforms<->MSL Light padding fix makes fog/shadow/lighting
+// apply correctly, changing the textured quad's shaded pixels.
+const REFERENCE_HASH: u64 = 0xdb98efc9ab5028c9;
 
 /// FNV-1a 64-bit over a byte buffer (self-contained, no external crate).
 fn fnv1a_64(bytes: &[u8]) -> u64 {

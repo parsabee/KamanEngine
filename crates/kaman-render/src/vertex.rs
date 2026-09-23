@@ -118,22 +118,28 @@ pub struct LightUniforms {
     pub _padding3: f32,
     /// Linear horizon color; distance fog blends toward this. Offset 64.
     pub sky_horizon_color: [f32; 3],
-    /// Exponential fog density (0 disables fog). Offset 76.
+    /// Padding: an MSL `float3` occupies 16 bytes, so `fog_density` must land at
+    /// offset 80 (not 76) to match the shader's `Light` struct.
+    pub _padding_horizon: f32,
+    /// Exponential fog density (0 disables fog). Offset 80.
     pub fog_density: f32,
-    /// View distance at which fog begins. Offset 80.
+    /// View distance at which fog begins. Offset 84.
     pub fog_start: f32,
-    /// Alignment padding so `shadow_center` (a float3) lands 16-byte aligned.
-    pub _padding4: [f32; 3],
+    /// Alignment padding so `shadow_center` (a float3) lands 16-byte aligned at 96.
+    pub _padding4: [f32; 2],
     /// World-space point the car sits above (blob-shadow center). Offset 96.
     pub shadow_center: [f32; 3],
-    /// Blob shadow radius in world units. Offset 108.
+    /// Padding: `shadow_center` is an MSL `float3` (16 bytes), so `shadow_radius`
+    /// must land at offset 112 to match the shader.
+    pub _padding_shadow: f32,
+    /// Blob shadow radius in world units. Offset 112.
     pub shadow_radius: f32,
-    /// 0..1 darkening under the car. Offset 112.
+    /// 0..1 darkening under the car. Offset 116.
     pub shadow_strength: f32,
-    /// World Y of the ground plane (shadow receiver). Offset 116.
+    /// World Y of the ground plane (shadow receiver). Offset 120.
     pub ground_height: f32,
     /// Alignment padding to a 16-byte multiple (total 128 bytes).
-    pub _padding5: [f32; 2],
+    pub _padding5: f32,
 }
 
 impl Default for LightUniforms {
@@ -152,14 +158,16 @@ impl Default for LightUniforms {
             sky_top_color: [0.09, 0.22, 0.44],
             _padding3: 0.0,
             sky_horizon_color: [0.55, 0.62, 0.72],
-            fog_density: 0.03,
-            fog_start: 8.0,
-            _padding4: [0.0, 0.0, 0.0],
+            _padding_horizon: 0.0,
+            fog_density: 0.07,
+            fog_start: 5.0,
+            _padding4: [0.0, 0.0],
             shadow_center: [0.0, 0.0, 0.0],
+            _padding_shadow: 0.0,
             shadow_radius: 1.2,
             shadow_strength: 0.5,
             ground_height: -0.5,
-            _padding5: [0.0, 0.0],
+            _padding5: 0.0,
         }
     }
 }
