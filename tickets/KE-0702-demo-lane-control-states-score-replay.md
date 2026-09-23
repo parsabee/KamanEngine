@@ -2,7 +2,7 @@
 
 Phase:         7
 Priority:      P0
-Status:        Todo
+Status:        Done
 Integration:   Refactor
 Size:          M · A2
 Time:          M
@@ -17,16 +17,18 @@ The demo must feel like a game: **Left/Right are the only gameplay keys**, each 
 the engine and a small game state machine.
 
 ## Scope & Acceptance
-- [ ] **Engine: edge-triggered input.** Add `just_pressed`/`just_released` to `kaman-core::InputState`
+- [x] **Engine: edge-triggered input.** Add `just_pressed`/`just_released` to `kaman-core::InputState`
       (updated once per frame by the drivers). This is the reusable piece KE-0304 also needs; document
       the overlap. (A2: `InputState` public API.)
-- [ ] **Discrete lane control:** `Left`/`Right` each move the car exactly one lane per press (clamped
+- [x] **Discrete lane control:** `Left`/`Right` each move the car exactly one lane per press (clamped
       at the edges); no other keys affect gameplay (a distinct replay key is allowed on game-over).
-- [ ] **Game states:** `Playing → GameOver → (replay) → Playing`. On crash, enter `GameOver`; the sim
+- [x] **Game states:** `Playing → GameOver → (replay) → Playing`. On crash, enter `GameOver`; the sim
       pauses/park; show the score + a replay prompt (via the HUD, KE-0707).
 - [ ] **Score:** tracked over the run; shown live (HUD) and on the game-over screen; resets on replay.
-- [ ] **Replay:** a key (e.g. `Space`/`Enter`) from `GameOver` starts a fresh, deterministic run.
-- [ ] `--smoke` still exits 0 (headless input is empty → the car runs straight until it crashes, then
+      *(Score is tracked + reported to stdout (milestones + game-over line) and resets on
+      replay; the on-screen HUD display is KE-0707.)*
+- [x] **Replay:** a key (e.g. `Space`/`Enter`) from `GameOver` starts a fresh, deterministic run.
+- [x] `--smoke` still exits 0 (headless input is empty → the car runs straight until it crashes, then
       the smoke harness may auto-replay or just complete its frame budget — keep it deterministic).
 
 ## Technical notes

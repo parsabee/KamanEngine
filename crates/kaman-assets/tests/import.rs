@@ -34,7 +34,17 @@ fn textured_cube_scene() -> SceneAsset {
     // The `gltf` slice importer rejects `data:` **image** URIs
     // (`ExternalReferenceInSliceImport`), so write the fixture to a temp file and
     // import it by path — which resolves embedded images.
-    let dir = std::env::temp_dir().join(format!("kaman-assets-tex-{}", std::process::id()));
+    //
+    // Use a dir unique **per call** (process id + an atomic counter): multiple
+    // tests call this concurrently under `cargo test`, and a process-id-only dir
+    // let one test's `remove_dir_all` race another's read.
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "kaman-assets-tex-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("textured_cube.gltf");
     std::fs::write(&path, TEXTURED_CUBE_GLTF).unwrap();

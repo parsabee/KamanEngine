@@ -87,8 +87,12 @@ pub enum MouseButton {
 /// # State model (invariants)
 ///
 /// - A key/button is "down" from the frame its press is recorded until the frame
-///   its release is recorded — this is *level* state, not per-frame edges. Edge
-///   detection (just-pressed / just-released) is Phase 3 (KE-0304).
+///   its release is recorded (*level* state).
+/// - **Edge detection:** [`is_key_just_pressed`](Self::is_key_just_pressed) is true
+///   only on the fixed-update step where a key transitions up→down. The driver
+///   calls [`advance_frame`](Self::advance_frame) after each `Game::update` to
+///   snapshot the state, so a held key fires "just pressed" exactly once. (The
+///   fuller input abstraction — remapping, touch/tilt — remains KE-0304.)
 /// - [`cursor_position`](Self::cursor_position) is in window logical pixels,
 ///   origin top-left. It is `None` until the first cursor movement is seen (e.g.
 ///   in the pure-headless driver, where no cursor exists).
@@ -107,6 +111,9 @@ pub enum MouseButton {
 #[derive(Debug, Clone, Default)]
 pub struct InputState {
     pressed_keys: HashSet<Key>,
+    /// Keys that were down at the previous `advance_frame` — the baseline for
+    /// just-pressed edge detection.
+    prev_pressed_keys: HashSet<Key>,
     pressed_buttons: HashSet<MouseButton>,
     cursor_position: Option<(f64, f64)>,
 }
@@ -122,6 +129,22 @@ impl InputState {
     #[must_use]
     pub fn is_key_down(&self, key: Key) -> bool {
         self.pressed_keys.contains(&key)
+    }
+
+    /// Whether `key` transitioned up→down since the last fixed update — a
+    /// per-step edge, true exactly once per physical press (a held key does not
+    /// keep returning `true`). Use this for one-shot actions (a discrete step, a
+    /// menu selection) rather than continuous held-key movement.
+    #[must_use]
+    pub fn is_key_just_pressed(&self, key: Key) -> bool {
+        self.pressed_keys.contains(&key) && !self.prev_pressed_keys.contains(&key)
+    }
+
+    /// Whether `key` transitioned down→up since the last fixed update — the release
+    /// edge, true exactly once per release.
+    #[must_use]
+    pub fn is_key_just_released(&self, key: Key) -> bool {
+        self.prev_pressed_keys.contains(&key) && !self.pressed_keys.contains(&key)
     }
 
     /// Whether mouse `button` is currently held down.
@@ -166,6 +189,14 @@ impl InputState {
     pub fn set_cursor_position(&mut self, x: f64, y: f64) {
         self.cursor_position = Some((x, y));
     }
+
+    /// Snapshot the current pressed keys as the baseline for the next step's
+    /// just-pressed edges. The driver calls this after each `Game::update`, so a
+    /// held key reports [`is_key_just_pressed`](Self::is_key_just_pressed) exactly
+    /// once. Called by the engine, not by games.
+    pub fn advance_frame(&mut self) {
+        self.prev_pressed_keys.clone_from(&self.pressed_keys);
+    }
 }
 
 #[cfg(test)]
@@ -204,5 +235,23 @@ mod tests {
         assert_eq!(input.cursor_position(), None);
         input.set_cursor_position(12.0, 34.0);
         assert_eq!(input.cursor_position(), Some((12.0, 34.0)));
+    }
+
+    #[test]
+    fn just_pressed_is_a_single_edge_per_press() {
+        let mut input = InputState::new();
+        // A press is an edge until the next advance_frame snapshots it.
+        input.press_key(Key::Left);
+        assert!(input.is_key_just_pressed(Key::Left));
+        assert!(input.is_key_just_pressed(Key::Left), "still the same step");
+        input.advance_frame();
+        assert!(!input.is_key_just_pressed(Key::Left), "held key: no repeat edge");
+        assert!(input.is_key_down(Key::Left), "but still held down");
+        // Releasing then pressing again is a fresh edge.
+        input.release_key(Key::Left);
+        input.advance_frame();
+        assert!(!input.is_key_just_pressed(Key::Left));
+        input.press_key(Key::Left);
+        assert!(input.is_key_just_pressed(Key::Left), "re-press is a new edge");
     }
 }

@@ -145,7 +145,7 @@ follow to build a game on the engine. Drives engine features by real need.
 | # | Title | Pri | Int | Size | Status | Depends | Serves |
 |---|---|---|---|---|---|---|---|
 | KE-0701 | Rename the game to `playable-demo` | P0 | Refactor | S · A1 | Done | KE-0204 | KR7.3 |
-| KE-0702 | Discrete lane control + game states + score/replay | P0 | Refactor | M · A2 | Todo | KE-0701, KE-0707 | KR7.1 |
+| KE-0702 | Discrete lane control + game states + score/replay | P0 | Refactor | M · A2 | Done | KE-0701, KE-0707 | KR7.1 |
 | KE-0703 | Car model assets (player + traffic) | P0 | New | M · A1 | Todo | KE-0701, KE-0402 | KR7.2 |
 | KE-0704 | Asphalt road texture | P1 | New | S · A0 | Todo | KE-0701, KE-0403 | KR7.2 |
 | KE-0705 | Distant city backdrop | P1 | New | M · A1 | Todo | KE-0701, KE-0401 | KR7.2 |

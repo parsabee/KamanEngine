@@ -144,6 +144,9 @@ pub fn drive_frame<G: Game>(
             );
             game.update(&mut ctx, FIXED_DT);
         }
+        // Snapshot input edges for the next step so a held key fires
+        // `is_key_just_pressed` exactly once (KE-0702).
+        lp.input.advance_frame();
         lp.scene.step_physics();
     }
 

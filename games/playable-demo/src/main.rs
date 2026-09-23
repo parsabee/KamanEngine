@@ -192,6 +192,18 @@ struct CarRunner {
     /// trails the box from behind and above along the travel axis, with light
     /// smoothing so the follow eases rather than snapping.
     chase: ChaseController,
+    /// Whether the run is live or crashed. `Playing` advances the world and reads
+    /// Left/Right; `GameOver` freezes the run and waits for the replay key.
+    state: GameState,
+}
+
+/// The demo's tiny game-state machine: drive until you crash, then replay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GameState {
+    /// Driving: the world scrolls, Left/Right change lanes, collisions end the run.
+    Playing,
+    /// Crashed: the world is frozen and the score reported; a replay key restarts.
+    GameOver,
 }
 
 impl CarRunner {
@@ -260,6 +272,7 @@ impl CarRunner {
             chase: ChaseController::new(Self::CHASE_DISTANCE, Self::CHASE_HEIGHT)
                 .with_look_at_height(Self::CHASE_LOOK_AT_HEIGHT)
                 .with_smoothing(Self::CHASE_SMOOTHING),
+            state: GameState::Playing,
         }
     }
 
@@ -268,16 +281,15 @@ impl CarRunner {
         self.distance.max(0.0) as u64
     }
 
-    /// Apply lane-switch input for this fixed step (kinematic, level-triggered).
+    /// Apply lane-switch input for this fixed step: **discrete, edge-triggered**.
     ///
-    /// Left/A move one lane toward 0, Right/D one lane toward `LANES-1`, clamped at
-    /// the edges. Both directions at once cancel. Level input means holding the key
-    /// glides across lanes; that is fine for a first prototype (edge detection is
-    /// KE-0304).
+    /// `Left`/`Right` are the only gameplay keys; each *press* snaps the car exactly
+    /// one lane toward the edge (clamped), so a held key does not glide across lanes
+    /// (KE-0702, via [`InputState::is_key_just_pressed`]). Both at once cancel.
     fn apply_lane_input(&mut self, ctx: &EngineCtx) {
         let input = ctx.input();
-        let left = input.is_key_down(Key::Left) || input.is_key_down(Key::A);
-        let right = input.is_key_down(Key::Right) || input.is_key_down(Key::D);
+        let left = input.is_key_just_pressed(Key::Left);
+        let right = input.is_key_just_pressed(Key::Right);
         match (left, right) {
             (true, false) => self.lane = self.lane.saturating_sub(1),
             (false, true) => self.lane = (self.lane + 1).min(Self::LANES - 1),
@@ -308,20 +320,26 @@ impl CarRunner {
         ))
     }
 
-    /// Restart the run after a crash (or on demand): report the score, zero it,
-    /// recenter the lane, and clear the obstacles around the player so it doesn't
-    /// instantly re-collide. The world keeps scrolling — `travel` is monotonic, so
-    /// the scene's (private) spawn frontier stays valid and the road ahead is
-    /// unbroken. Fully deterministic: no PRNG reseed, no wall-clock read.
-    fn reset(&mut self, ctx: &mut EngineCtx) {
+    /// End the run: record the best score, report it, and enter `GameOver`.
+    ///
+    /// The world is left frozen (the crashed car stays put) until the player hits
+    /// the replay key; reporting is stdout for now (the on-screen HUD is KE-0707).
+    fn game_over(&mut self) {
         self.best = self.best.max(self.distance);
+        self.state = GameState::GameOver;
         println!(
-            "crash! score {} (distance {:.1}) — best {:.1}. restarting.",
+            "GAME OVER — score {} — best {}. Press Space to replay.",
             self.score(),
-            self.distance,
-            self.best
+            self.best as u64
         );
+    }
 
+    /// Start a fresh run (from `GameOver`): recenter the lane, zero the score,
+    /// clear the obstacles around the player so it doesn't instantly re-collide,
+    /// and go back to `Playing`. The world keeps scrolling — `travel` is monotonic,
+    /// so the scene's (private) spawn frontier stays valid and the road ahead is
+    /// unbroken. Fully deterministic: no PRNG reseed, no wall-clock read.
+    fn start_new_run(&mut self, ctx: &mut EngineCtx) {
         // Clear obstacles within a window around the player so the restart lane is
         // safe. Obstacles are the streamed entities that carry a physics body;
         // despawn removes the ECS entity and its rigid body atomically.
@@ -344,6 +362,8 @@ impl CarRunner {
 
         self.lane = Self::START_LANE;
         self.distance = 0.0;
+        self.state = GameState::Playing;
+        println!("replay — score {}. go!", self.best as u64);
     }
 
     /// Fill one streaming slot with a road tile and, on the obstacle cadence, an
@@ -457,13 +477,18 @@ impl Game for CarRunner {
     }
 
     fn update(&mut self, ctx: &mut EngineCtx, dt: f32) {
-        // Restart on demand (Space): also the "start over" affordance after a
-        // crash, and always deterministic.
-        if ctx.input().is_key_down(Key::Space) {
-            self.reset(ctx);
+        // Game over: the world is frozen; wait for the replay key, keep the camera
+        // framing the crashed car, and do nothing else.
+        if self.state == GameState::GameOver {
+            if ctx.input().is_key_just_pressed(Key::Space) {
+                self.start_new_run(ctx);
+            }
+            let player_pos = self.player_position();
+            self.chase.follow(ctx.camera_mut(), player_pos, Self::FORWARD);
+            return;
         }
 
-        // Kinematic lane movement from input (no solver involvement).
+        // Playing: discrete Left/Right lane changes (kinematic, no solver).
         self.apply_lane_input(ctx);
 
         // Advance forward by a fixed step. `dt` is always `FIXED_DT`, so the
@@ -508,9 +533,9 @@ impl Game for CarRunner {
         ctx.scene_mut()
             .stream(player_pos, |cx| Self::spawn_slot(rng, tile_depth, cx));
 
-        // Collision → reset the run.
+        // Collision → game over (freeze the run; the player replays with Space).
         if self.hit_any_obstacle(ctx) {
-            self.reset(ctx);
+            self.game_over();
             return;
         }
 
@@ -675,19 +700,44 @@ mod tests {
     fn lane_input_clamps_at_both_edges() {
         use kaman_core::headless::Headless;
 
-        // Hold Left from the center for many steps: reach lane 0 and never underflow.
+        // Tap a key (press, step, release, step) so each tap is one edge.
+        let tap = |h: &mut Headless, game: &mut CarRunner, key: Key| {
+            h.input_mut().press_key(key);
+            h.run(game, 1);
+            h.input_mut().release_key(key);
+            h.run(game, 1);
+        };
+
+        // Tap Left three times from the center (lane 1): reach lane 0 and clamp.
         let mut left_game = CarRunner::new();
         let mut hl = Headless::new();
-        hl.input_mut().press_key(Key::Left);
-        hl.run(&mut left_game, 10);
-        assert_eq!(left_game.lane, 0, "clamped at the left edge");
+        for _ in 0..3 {
+            tap(&mut hl, &mut left_game, Key::Left);
+        }
+        assert_eq!(left_game.lane, 0, "one lane per press, clamped at the left edge");
 
-        // Hold Right from the center: reach the last lane and never overflow.
+        // Tap Right three times from the center: reach the last lane and clamp.
         let mut right_game = CarRunner::new();
         let mut hr = Headless::new();
-        hr.input_mut().press_key(Key::D); // the `D` alias also moves right
-        hr.run(&mut right_game, 10);
+        for _ in 0..3 {
+            tap(&mut hr, &mut right_game, Key::Right);
+        }
         assert_eq!(right_game.lane, CarRunner::LANES - 1, "clamped at the right edge");
+    }
+
+    #[test]
+    fn a_held_key_moves_exactly_one_lane() {
+        // Edge-triggered control: holding a key advances exactly one lane, not a
+        // glide across lanes (which is what level-triggered input would do).
+        let mut game = CarRunner::new();
+        game.lane = 0; // start at the left edge
+        let mut h = kaman_core::headless::Headless::new();
+        h.input_mut().press_key(Key::Right);
+        h.run(&mut game, 20); // hold Right for many frames
+        assert_eq!(
+            game.lane, 1,
+            "a held key advances one lane (edge-triggered), not a glide to the far lane"
+        );
     }
 
     #[test]
@@ -745,46 +795,44 @@ mod tests {
         assert!(!game.overlaps(Vec3::new(player.x, player.y, player.z - 5.0)));
     }
 
-    #[test]
-    fn collision_resets_the_run() {
-        // Drive many frames: the deterministic stream guarantees the middle-lane
-        // runner eventually meets an obstacle, which resets distance to ~0.
+    /// Drive the center runner (no input) until the deterministic stream puts an
+    /// obstacle in its path. Returns the game at the moment it enters `GameOver`.
+    fn drive_to_game_over() -> (CarRunner, kaman_core::headless::Headless) {
         let mut game = CarRunner::new();
         let mut h = kaman_core::headless::Headless::new();
-
-        let mut saw_reset = false;
-        let mut prev = 0.0f32;
         for _ in 0..600 {
             h.run(&mut game, 1);
-            // A reset is a large backward jump in distance.
-            if game.distance + 1.0 < prev {
-                saw_reset = true;
-                break;
+            if game.state == GameState::GameOver {
+                return (game, h);
             }
-            prev = game.distance;
         }
-        assert!(saw_reset, "the runner eventually crashes and the run resets");
+        panic!("the center runner never crashed in 600 frames");
     }
 
     #[test]
-    fn restart_zeroes_score_but_keeps_world_scrolling() {
-        // Run a while, move off-center, then press Space (restart). Score resets
-        // to zero and the lane recenters, but the monotonic world position keeps
-        // advancing so the road never breaks.
-        let mut game = CarRunner::new();
-        let mut h = kaman_core::headless::Headless::new();
-        h.input_mut().press_key(Key::Left);
-        h.run(&mut game, 40);
-        let travel_before = game.travel;
-        assert!(game.distance > 0.0);
-        assert_ne!(game.lane, CarRunner::START_LANE, "moved off center");
+    fn collision_ends_the_run_at_game_over() {
+        // A crash enters GameOver; the score is NOT reset (only a replay resets it).
+        let (game, _h) = drive_to_game_over();
+        assert_eq!(game.state, GameState::GameOver);
+        assert!(game.distance > 0.0, "distance is preserved at game over (score to report)");
+    }
 
-        // Release the lane key, press Space, step once to trigger the restart.
-        h.input_mut().release_key(Key::Left);
+    #[test]
+    fn replay_from_game_over_resets_score_keeps_world() {
+        // From GameOver, pressing Space starts a fresh run: score zeroed, lane
+        // recentered — but the monotonic world position keeps advancing so the road
+        // never breaks.
+        let (mut game, mut h) = drive_to_game_over();
+        let travel_before = game.travel;
+        let score_at_crash = game.distance;
+        assert!(score_at_crash > 0.0);
+
+        // Tap Space (edge-triggered) to replay.
         h.input_mut().press_key(Key::Space);
         h.run(&mut game, 1);
 
-        assert!(game.distance < CarRunner::SPEED * 0.05, "score distance reset");
+        assert_eq!(game.state, GameState::Playing, "replay resumes play");
+        assert!(game.distance < score_at_crash, "score reset on replay");
         assert_eq!(game.lane, CarRunner::START_LANE, "lane recentered");
         assert!(game.travel >= travel_before, "world travel stays monotonic");
     }
