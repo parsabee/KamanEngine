@@ -37,7 +37,7 @@
 //! catch-up at [`MAX_STEPS_PER_FRAME`] steps per frame and discarding any
 //! accumulated time beyond that. Simulated time then falls behind wall-clock time
 //! (the game slows down) rather than the loop locking up. The clamp is tested in
-//! [`tests::a_huge_dt_is_clamped_to_the_step_cap`].
+//! `a_huge_dt_is_clamped_to_the_step_cap`.
 
 use std::time::Duration;
 

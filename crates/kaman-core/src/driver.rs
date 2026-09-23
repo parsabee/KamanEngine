@@ -52,7 +52,7 @@ pub struct Loop {
 
 impl Loop {
     /// A fresh loop: empty scene, no input, zeroed accumulator, un-initialized,
-    /// and a default [`Camera`] at [`DEFAULT_ASPECT`](Self::DEFAULT_ASPECT).
+    /// and a default [`Camera`] at `DEFAULT_ASPECT`.
     #[must_use]
     pub fn new() -> Self {
         Self {

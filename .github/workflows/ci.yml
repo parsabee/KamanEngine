@@ -59,6 +59,13 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Docs must generate with no broken/private intra-doc links (rustdoc). Cosmetic
+      # redundant-explicit-link nags are allowed. Keeps `cargo doc` output clean.
+      - name: Rustdoc (deny broken links)
+        env:
+          RUSTDOCFLAGS: "-D rustdoc::broken_intra_doc_links -D rustdoc::private_intra_doc_links -A rustdoc::redundant_explicit_links"
+        run: cargo doc --workspace --no-deps
+
       # Raytracer is a desktop-only, off-by-default feature (KE-0106, KR1.4). Keep the feature
       # path compiling and lint-clean so it does not rot; the default build above proves the
       # rasterization path never pulls it in.

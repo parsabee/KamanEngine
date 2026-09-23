@@ -61,9 +61,22 @@ cargo run -p car-runner -- --smoke   # headless oracle: 120 frames, exits 0
 The workspace is `crates/kaman-*` (engine) plus `games/car-runner` (first title + smoke
 oracle). Layout follows [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §3.
 
-**Toolchain:** `rust-toolchain.toml` pins `1.91.0`. That file is honored by rustup-based
-setups (and CI). This dev machine uses a Homebrew rust with no rustup, so the pin is not
-enforced locally — the Homebrew toolchain is used instead.
+**Toolchain:** `rust-toolchain.toml` pins `1.91.0` (with `rustfmt`, `clippy`, `rust-analyzer`).
+Honored by rustup (the recommended setup) and CI. The MSRV is also enforced by cargo via
+`rust-version`.
+
+## Documentation
+
+API docs are generated with **rustdoc** — every engine crate compiles under
+`#![deny(missing_docs)]`, so the public surface is fully documented inline:
+
+```sh
+cargo doc --workspace --no-deps --open   # build + open the API docs in a browser
+```
+
+`docs/ARCHITECTURE.md` (intentional constraints + the render seam), `docs/ROADMAP.md` (phases +
+OKRs), and `docs/INTEGRATION.md` (test/migration discipline) cover the design; the rustdoc covers
+the code. CI keeps the docs free of broken intra-doc links.
 
 **iOS targets (Phase 3 prerequisite, not installed now):**
 

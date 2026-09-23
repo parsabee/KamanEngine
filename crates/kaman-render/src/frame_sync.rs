@@ -6,9 +6,9 @@
 //!
 //! A small **counting semaphore** used to bound how far the CPU may run ahead of
 //! the GPU. The backend initializes it to [`MAX_FRAMES_IN_FLIGHT`] permits;
-//! `begin_frame` [`acquire`](FrameSemaphore::acquire)s one permit (blocking if
+//! `begin_frame` `acquire`(FrameSemaphore::acquire)s one permit (blocking if
 //! all three frames are already queued) and the `MTLCommandBuffer` completion
-//! handler [`release`](FrameSemaphore::release)s one when its frame finishes on
+//! handler `release`(FrameSemaphore::release)s one when its frame finishes on
 //! the GPU. This is the standard, mobile-safe triple-buffering model.
 //!
 //! [`MAX_FRAMES_IN_FLIGHT`]: crate::backend::MAX_FRAMES_IN_FLIGHT
@@ -18,7 +18,7 @@
 //! A `dispatch_semaphore` would work, but this self-contained
 //! [`Condvar`]-backed counter has a guaranteed API, no extra dependency, blocks
 //! the CPU (**never a busy-wait/spin**), and — crucially — its
-//! [`release`](FrameSemaphore::release) path is **allocation-free**, which is the
+//! `release`(FrameSemaphore::release) path is **allocation-free**, which is the
 //! discipline required of the completion handler that runs on a Metal-owned
 //! thread (KE-0105 acceptance).
 //!
@@ -26,9 +26,9 @@
 //!
 //! The permit count is exactly "GPU frames not yet completed" subtracted from
 //! [`MAX_FRAMES_IN_FLIGHT`]. Because a frame's CPU writes happen *after* its
-//! [`acquire`] returns, and the ring region for frame `F` is reused only by
+//! `acquire` returns, and the ring region for frame `F` is reused only by
 //! frame `F + MAX_FRAMES_IN_FLIGHT`, the CPU can only reach that later frame once
-//! frame `F`'s completion handler has [`release`]d — so **no in-flight ring slot
+//! frame `F`'s completion handler has `release`d — so **no in-flight ring slot
 //! is ever CPU-written while the GPU is still reading it**.
 
 use std::sync::{Condvar, Mutex};
@@ -72,7 +72,7 @@ impl FrameSemaphore {
         *permits -= 1;
     }
 
-    /// Return one permit and wake a blocked [`acquire`](Self::acquire).
+    /// Return one permit and wake a blocked `acquire`(Self::acquire).
     ///
     /// **Allocation-free**: it only locks a mutex, increments a counter, and
     /// notifies the condvar. Invoked from the `MTLCommandBuffer` completion

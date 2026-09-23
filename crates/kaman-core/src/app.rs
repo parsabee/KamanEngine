@@ -22,7 +22,7 @@
 //! construct a backend itself: [`run_with_backend`] takes a **factory** (a
 //! `FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`) that the *game binary*
 //! (which does depend on `kaman-render`) provides. The factory is invoked once
-//! in [`resumed`](EngineApp::resumed), right after the window is created, and
+//! in `resumed`, right after the window is created, and
 //! the returned `Box<dyn Renderer>` drives every frame through the seam. The
 //! headless driver and the plain [`run`] entry keep the GPU-free
 //! [`NullRenderer`](kaman_render_api::NullRenderer).
@@ -32,7 +32,7 @@
 //! The window-creation and event-translation helpers are kept as small free
 //! functions so the KE-0301 `#[cfg(target_os = ...)]` split can wrap them without
 //! disturbing the loop structure. The engine loop itself
-//! ([`EngineApp::drive_frame`]) is platform-neutral.
+//! (`drive_frame`) is platform-neutral.
 
 use std::time::Instant;
 
@@ -51,7 +51,7 @@ use crate::input::{Key, MouseButton};
 
 /// A factory that constructs the render backend for a freshly-created window.
 ///
-/// The engine calls this once, in [`resumed`](EngineApp::resumed), after the
+/// The engine calls this once, in `resumed`, after the
 /// window exists, passing the window plus its pixel size. The game binary (the
 /// only place that depends on `kaman-render`) returns a boxed
 /// [`Renderer`](crate::Renderer) — a type that is both a

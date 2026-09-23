@@ -17,7 +17,7 @@
 //! track, tally, hazard, or gameplay-lattice types; a test scans this crate's
 //! source to keep it that way):
 //!
-//! 1. **Spawn-ahead / despawn-behind streaming** ([`stream`](Scene::stream)). The
+//! 1. **Spawn-ahead / despawn-behind streaming** (`stream`(Scene::stream)). The
 //!    *game* supplies a **focus point** (typically the player's position) and a
 //!    **spawn callback** that says *what* to spawn; the *scene* owns the
 //!    bookkeeping — which slots ahead of the focus are already filled and which
@@ -124,7 +124,7 @@ impl Default for StreamingConfig {
 /// [`world`](Self::world) / [`world_mut`](Self::world_mut) and
 /// [`physics`](Self::physics) / [`physics_mut`](Self::physics_mut), advance
 /// physics with [`step_physics`](Self::step_physics), and drive streaming each
-/// fixed update with [`stream`](Self::stream) and [`maybe_rebase`](Self::maybe_rebase).
+/// fixed update with `stream`(Self::stream) and [`maybe_rebase`](Self::maybe_rebase).
 ///
 /// # Example
 ///
@@ -142,11 +142,11 @@ pub struct Scene {
     world: World,
     physics: PhysicsWorld,
     config: StreamingConfig,
-    /// Entities the scene created via [`stream`]; candidates for despawn-behind.
+    /// Entities the scene created via `stream`; candidates for despawn-behind.
     /// Ownership: the scene tracks these so it can remove them atomically.
     streamed: Vec<Entity>,
     /// The furthest slot index (along the axis) that has already been spawned.
-    /// `None` until the first [`stream`] call seeds the frontier from the focus.
+    /// `None` until the first `stream` call seeds the frontier from the focus.
     spawn_frontier: Option<i64>,
     /// Total offset (along the axis, in slot-distance) that rebases have shifted
     /// the world by, so slot indexing stays consistent across a rebase.
@@ -205,7 +205,7 @@ impl Scene {
 
     /// Number of entities the scene is currently tracking for despawn-behind.
     ///
-    /// This is the count of entities spawned through [`stream`] that have not yet
+    /// This is the count of entities spawned through `stream` that have not yet
     /// fallen behind the despawn threshold. Bounded streaming keeps this flat.
     #[must_use]
     pub fn streamed_count(&self) -> usize {
@@ -445,7 +445,7 @@ impl Default for Scene {
     }
 }
 
-/// The handle a [`stream`](Scene::stream) spawn callback uses to populate one slot.
+/// The handle a `stream`(Scene::stream) spawn callback uses to populate one slot.
 ///
 /// It grants mutable access to the scene's ECS [`World`] and [`PhysicsWorld`] and
 /// carries the world-space [`position`](Self::position) of the slot being filled.

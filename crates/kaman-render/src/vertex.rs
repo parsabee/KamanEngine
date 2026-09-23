@@ -39,13 +39,12 @@ pub struct Vertex {
 ///   is needed by the KE-0401 look stack: fog and the blob shadow are computed
 ///   in world space, so the vertex shader must reconstruct the world position
 ///   and normal from the un-projected model transform.
-/// - Size is **exactly 128 bytes** (asserted by [`uniforms_is_128_bytes`]).
+/// - Size is **exactly 128 bytes** (asserted by `uniforms_is_128_bytes`).
 /// - When sub-allocated from the uniform ring the struct is written at a
 ///   [`UNIFORM_RING_STRIDE`]-byte-aligned offset so it satisfies the Apple GPU
 ///   256-byte `set_vertex_buffer` offset requirement; the struct itself only
 ///   needs its natural 16-byte alignment, the stride padding lives in the ring.
 ///
-/// [`uniforms_is_128_bytes`]: tests::uniforms_is_128_bytes
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Uniforms {
@@ -90,7 +89,7 @@ impl Default for MaterialUniforms {
 ///
 /// Matches `Light` in `rasterization.metal`. Laid out to Metal's `constant`
 /// buffer alignment rules — every `float3` is 16-byte aligned/sized — for a
-/// total of **128 bytes** (asserted by [`light_uniforms_is_128_bytes`]). The
+/// total of **128 bytes** (asserted by `light_uniforms_is_128_bytes`). The
 /// explicit `_pad*` fields reproduce the padding the MSL compiler inserts, so
 /// the Rust bytes land on the exact offsets the shader reads.
 #[repr(C)]

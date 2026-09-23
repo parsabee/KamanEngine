@@ -28,7 +28,7 @@
 //!
 //! # Stale-handle invariant
 //!
-//! Every slot carries a monotonically increasing generation. [`insert`] stamps
+//! Every slot carries a monotonically increasing generation. `insert` stamps
 //! the freshly-created handle with the slot's current generation;
 //! [`remove`](Registry::remove) frees the slot and **bumps** that generation. A
 //! [`get`](Registry::get) whose handle generation does not match the slot's live
