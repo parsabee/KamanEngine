@@ -67,8 +67,11 @@ Honored by rustup (the recommended setup) and CI. The MSRV is also enforced by c
 
 ## Documentation
 
-API docs are generated with **rustdoc** — every engine crate compiles under
-`#![deny(missing_docs)]`, so the public surface is fully documented inline:
+**📖 Live API docs: https://parsabee.github.io/KamanEngine/** — built from rustdoc and published
+to GitHub Pages on every push to `main` (see `.github/workflows/docs.yml`).
+
+Every engine crate compiles under `#![deny(missing_docs)]`, so the public surface is fully
+documented inline. Build the docs locally with:
 
 ```sh
 cargo doc --workspace --no-deps --open   # build + open the API docs in a browser
