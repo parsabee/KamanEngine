@@ -153,13 +153,13 @@ impl Default for LightUniforms {
             diffuse_intensity: 0.8,
             specular_intensity: 0.5,
             shininess: 32.0,
-            // Look defaults: a calm blue gradient sky, gentle distance fog, and a
-            // soft blob shadow centered at the origin on a ground plane at y=-0.5.
+            // Look defaults: a calm blue gradient sky, very light distance fog, and
+            // a soft blob shadow centered at the origin on a ground plane at y=-0.5.
             sky_top_color: [0.09, 0.22, 0.44],
             _padding3: 0.0,
             sky_horizon_color: [0.55, 0.62, 0.72],
             _padding_horizon: 0.0,
-            fog_density: 0.07,
+            fog_density: 0.012,
             fog_start: 5.0,
             _padding4: [0.0, 0.0],
             shadow_center: [0.0, 0.0, 0.0],

@@ -12,6 +12,12 @@ repository.workspace = true
 name = "playable-demo"
 path = "src/main.rs"
 
+# `image` is a **dev-dependency only** (the `gen_asphalt` example uses it to bake
+# the committed asphalt PNG). The runtime never gains an `image` dep — it decodes
+# the embedded PNG through `kaman-assets` at import time.
+[dev-dependencies]
+image.workspace = true
+
 [dependencies]
 clap.workspace = true
 kaman-assets.workspace = true

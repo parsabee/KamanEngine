@@ -22,8 +22,11 @@ produces a `SceneAsset`:
 
 Geometry is packed onto the canonical **`[position_xyz, normal_xyz, color_rgb]`**
 render layout (`render_vertex_layout()`, a 36-byte stride matching the built-in
-Phong pipeline) with a **default vertex color**, so an imported mesh renders
-immediately through the existing untextured pipeline. Each `MeshAsset` carries:
+Phong pipeline), so an imported mesh renders immediately through the existing
+untextured pipeline. The packed **color** comes from the primitive's material
+base-color factor (KE-0703) — so a multi-material mesh (e.g. a car body + dark
+wheels) renders each part's authored color — falling back to a neutral default
+color when the primitive has no explicit material. Each `MeshAsset` carries:
 
 | field       | meaning                                                        |
 |-------------|----------------------------------------------------------------|

@@ -2,7 +2,7 @@
 
 Phase:         7
 Priority:      P1
-Status:        Todo
+Status:        Done
 Integration:   New
 Size:          S · A0
 Time:          S
@@ -15,11 +15,11 @@ The road is a flat black box. Give it a real **asphalt texture** (with lane mark
 the texture pipeline (KE-0403), so the freeway reads as a road.
 
 ## Scope & Acceptance
-- [ ] Commit an asphalt base-color texture (tileable) under `games/playable-demo/assets/`.
-- [ ] Apply it to the road tiles: UV the road geometry and draw on the textured pipeline (KE-0403),
+- [x] Commit an asphalt base-color texture (tileable) under `games/playable-demo/assets/`.
+- [x] Apply it to the road tiles: UV the road geometry and draw on the textured pipeline (KE-0403),
       tiling along the road so it scrolls seamlessly with streaming.
-- [ ] Optional: painted lane lines separating the 3 lanes (baked into the texture or a second decal).
-- [ ] Mipmaps + trilinear (KE-0403) so the receding road doesn't shimmer.
+- [x] Optional: painted lane lines separating the 3 lanes (baked into the texture or a second decal).
+- [x] Mipmaps + trilinear (KE-0403) so the receding road doesn't shimmer.
 
 ## Technical notes
 - Road tiles are streamed and scaled; pick a UV scale that tiles cleanly across the tile length so

@@ -151,8 +151,9 @@ fn bake_node(
 /// effort, a normal and metallic-roughness texture). If a base-color texture is
 /// present the mesh is packed on the `[pos,normal,uv]`
 /// [`textured_vertex_layout`] and the decoded RGBA8 image is attached; otherwise
-/// it stays on the default-color `[pos,normal,color]` layout. UVs are retained on
-/// the asset either way.
+/// it stays on the `[pos,normal,color]` layout, taking its per-vertex color from
+/// the material's base-color factor (or the neutral default when the primitive
+/// has no explicit material). UVs are retained on the asset either way.
 fn import_primitive(
     primitive: &gltf::Primitive,
     buffers: &[gltf::buffer::Data],
@@ -212,8 +213,19 @@ fn import_primitive(
             textured_vertex_layout(),
         )
     } else {
+        // Untextured path: an authored material contributes its base-color factor
+        // as the packed per-vertex color, so a multi-material mesh (e.g. a body +
+        // dark wheels) renders each part's color through the untextured pipeline.
+        // A primitive with no explicit material (`index() == None`, glTF's default
+        // white factor) keeps the neutral default color, so the untextured
+        // fixtures' pixel-hash is unchanged.
+        let color = if material.index().is_some() {
+            [base_color_factor[0], base_color_factor[1], base_color_factor[2]]
+        } else {
+            DEFAULT_IMPORT_COLOR
+        };
         (
-            pack_render_vertices(&positions, &normals, DEFAULT_IMPORT_COLOR),
+            pack_render_vertices(&positions, &normals, color),
             render_vertex_layout(),
         )
     };

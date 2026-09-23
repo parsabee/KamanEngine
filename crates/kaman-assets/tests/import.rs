@@ -26,6 +26,11 @@ const CUBE_GLTF: &[u8] = include_bytes!("fixtures/cube.gltf");
 /// and an embedded base-color checkerboard PNG.
 const TEXTURED_CUBE_GLTF: &[u8] = include_bytes!("fixtures/textured_cube.gltf");
 
+/// A one-triangle fixture whose material carries a distinctive (non-white,
+/// non-default) `baseColorFactor` and no texture (KE-0703). Exercises the
+/// untextured path taking its packed vertex color from the material factor.
+const MATERIAL_COLOR_GLTF: &[u8] = include_bytes!("fixtures/material_color.gltf");
+
 fn cube_scene() -> SceneAsset {
     import_slice(CUBE_GLTF).expect("cube fixture parses")
 }
@@ -144,6 +149,33 @@ fn packed_bytes_match_parsed_attributes_with_default_color() {
             DEFAULT_IMPORT_COLOR,
             "default color {i}"
         );
+    }
+}
+
+#[test]
+fn untextured_material_base_color_factor_becomes_vertex_color() {
+    // KE-0703: an untextured primitive with an explicit material packs that
+    // material's base-color factor (RGB) as its per-vertex color, so a
+    // multi-material mesh (e.g. a body + dark wheels) renders each part's color
+    // through the untextured `[pos,normal,color]` pipeline.
+    let scene = import_slice(MATERIAL_COLOR_GLTF).expect("material-color fixture parses");
+    let mesh = &scene.meshes[0];
+
+    // Not textured — stays on the color layout.
+    assert!(!mesh.is_textured());
+    assert_eq!(mesh.layout, render_vertex_layout());
+    // The material declared this factor.
+    assert_eq!(mesh.base_color_factor, [0.2, 0.4, 0.6, 1.0]);
+
+    // Every packed vertex carries the factor's RGB as its color, not the default.
+    let floats: Vec<f32> = mesh
+        .vertices
+        .chunks_exact(4)
+        .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+        .collect();
+    for (i, chunk) in floats.chunks_exact(9).enumerate() {
+        assert_eq!([chunk[6], chunk[7], chunk[8]], [0.2, 0.4, 0.6], "material color {i}");
+        assert_ne!([chunk[6], chunk[7], chunk[8]], DEFAULT_IMPORT_COLOR, "not default {i}");
     }
 }
 

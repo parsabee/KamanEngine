@@ -84,7 +84,7 @@ impl AssetCache {
     ///
     /// # Errors
     /// Returns [`ImportError`] if a first-time parse of `path` fails.
-    pub fn load<D: RenderDevice>(
+    pub fn load<D: RenderDevice + ?Sized>(
         &mut self,
         device: &mut D,
         path: impl AsRef<Path>,
@@ -138,7 +138,13 @@ impl AssetCache {
 }
 
 /// Upload every mesh of `scene` into `device`, returning one handle per mesh.
-pub fn upload_scene<D: RenderDevice>(device: &mut D, scene: &SceneAsset) -> Vec<MeshHandle> {
+///
+/// `D` is `?Sized` so a trait-object device (e.g. `&mut dyn Renderer` from the
+/// engine's render seam) can drive the upload directly.
+pub fn upload_scene<D: RenderDevice + ?Sized>(
+    device: &mut D,
+    scene: &SceneAsset,
+) -> Vec<MeshHandle> {
     scene
         .meshes
         .iter()

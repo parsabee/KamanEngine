@@ -40,20 +40,44 @@
 
 use clap::Parser;
 
+use kaman_assets::AssetCache;
 use kaman_camera::ChaseController;
 use kaman_core::input::Key;
-use kaman_core::{EngineCtx, Game};
+use kaman_core::{EngineCtx, Game, Renderer};
 use kaman_ecs::hecs::Entity;
 use kaman_ecs::{DynamicTag, PhysicsBodyComponent, RenderComponent, StaticTag, TransformComponent};
-use kaman_math::glam::Vec3;
+use kaman_math::glam::{Quat, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::{
-    MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, VertexLayout,
+    MaterialParams, MeshHandle, PipelineDescriptor, PipelineHandle, TextureData, TextureHandle,
+    VertexLayout,
 };
 use kaman_scene::Scene;
 
 /// Number of frames the smoke oracle simulates before exiting.
 const SMOKE_FRAMES: u32 = 120;
+
+/// One drawable piece of an imported car: its `(fitted transform, mesh handle,
+/// base-color texture)`. A textured part (`Some`) draws on the textured pipeline
+/// with its texture bound; an untextured part (`None`) draws on the Phong pipeline
+/// with the material base-color the importer packed as its vertex color.
+type CarPart = (Transform, MeshHandle, Option<TextureHandle>);
+
+/// Which car model a placed car entity draws: the player's, or one of the traffic
+/// variants (index into [`CarRunner::traffic_cars`]).
+#[derive(Debug, Clone, Copy)]
+enum CarModel {
+    /// The player's car.
+    Player,
+    /// A traffic car, by variant index.
+    Traffic(usize),
+}
+
+/// A game-side ECS component tagging an obstacle with which traffic car variant it
+/// draws (index into [`TRAFFIC_CAR_ASSETS`]). Assigned once at spawn from the
+/// streaming slot so an obstacle keeps the same car for its whole life.
+#[derive(Debug, Clone, Copy)]
+struct TrafficVariant(usize);
 
 /// Command-line arguments for `playable-demo`.
 #[derive(Parser, Debug)]
@@ -179,15 +203,26 @@ struct CarRunner {
     /// streams the same obstacle world).
     rng: Rng,
     /// The untextured Phong pipeline (`[pos,normal,color]`), created in `init`.
-    /// All meshes below are drawn on it; per-vertex color carries the look.
+    /// The cars are drawn on it; per-vertex color carries their look.
     pipeline: Option<PipelineHandle>,
-    /// A flat **black** unit box for road tiles (scaled by each tile's transform),
-    /// uploaded once in `init`.
+    /// The **textured** pipeline (`[pos,normal,uv]`), created in `init`. The road
+    /// tiles are drawn on it, sampling the asphalt base-color texture.
+    textured_pipeline: Option<PipelineHandle>,
+    /// The road-tile mesh — a flat quad carrying the tiling UVs, imported once from
+    /// `assets/road.gltf` (KE-0704) and scaled by each tile's transform.
     road_mesh: Option<MeshHandle>,
-    /// A **red** car mesh for the player (body + cabin + dark wheels), uploaded once.
-    player_car_mesh: Option<MeshHandle>,
-    /// The same car mesh in **white** for the other cars (obstacles), uploaded once.
-    obstacle_car_mesh: Option<MeshHandle>,
+    /// The asphalt base-color texture uploaded once in `init` (KE-0704); bound
+    /// before the road-tile draws so the textured pipeline samples it.
+    asphalt: Option<TextureHandle>,
+    /// The **player** car model, imported once from the CC0 `assets/sports_car.glb`
+    /// (KE-0703): one [`CarPart`] per drawable mesh-node, fit to the road. Uploaded
+    /// once (KE-0103) and reused every frame.
+    player_car: Vec<CarPart>,
+    /// The **traffic** car models — the CC0 `assets/{car,car2,police_car}.glb`
+    /// ([`TRAFFIC_CAR_ASSETS`]). Each obstacle draws one of these, chosen
+    /// deterministically per streaming slot ([`variant_for_slot`]). All uploaded
+    /// once (KE-0103) and shared across every obstacle on screen.
+    traffic_cars: Vec<Vec<CarPart>>,
     /// The chase camera controller that keeps the player framed (KE-0205). It
     /// trails the box from behind and above along the travel axis, with light
     /// smoothing so the follow eases rather than snapping.
@@ -266,9 +301,11 @@ impl CarRunner {
             best: 0.0,
             rng: Rng::new(Self::SEED),
             pipeline: None,
+            textured_pipeline: None,
             road_mesh: None,
-            player_car_mesh: None,
-            obstacle_car_mesh: None,
+            asphalt: None,
+            player_car: Vec::new(),
+            traffic_cars: Vec::new(),
             chase: ChaseController::new(Self::CHASE_DISTANCE, Self::CHASE_HEIGHT)
                 .with_look_at_height(Self::CHASE_LOOK_AT_HEIGHT)
                 .with_smoothing(Self::CHASE_SMOOTHING),
@@ -399,10 +436,16 @@ impl CarRunner {
             let handle = cx.physics.create_static_body(Transform::from_position(pos));
             cx.physics.add_box_collider(handle, Self::OBSTACLE_HALF);
 
+            // Pick a traffic car variant for this obstacle deterministically from
+            // its slot — independent of the lane PRNG, so the obstacle world (and
+            // the smoke run) is unchanged by adding variety.
+            let variant = variant_for_slot(cx.slot, TRAFFIC_CAR_ASSETS.len());
+
             let obstacle = cx.world.spawn((
                 TransformComponent::from_position(pos),
                 kaman_ecs::PhysicsBodyComponent::new(handle),
                 RenderComponent::cube([0.95, 0.8, 0.1]),
+                TrafficVariant(variant),
                 StaticTag,
             ));
             cx.spawned(obstacle);
@@ -439,34 +482,48 @@ impl Game for CarRunner {
         let scene = ctx.scene_mut();
         self.player = Some(Self::spawn_player(scene, start));
 
-        // Load the player mesh from the committed **textured** glTF asset
-        // (KE-0403): its `[pos,normal,uv]` geometry + decoded base-color texture
-        // are uploaded once (KE-0103) and drawn on the textured pipeline so the
-        // player renders with a real texture. The color-driven boxes (road,
-        // obstacles) all use the untextured `[pos,normal,color]` Phong path; the
-        // look is baked into each mesh's vertex colors.
+        // The cars are **imported** through `kaman-assets` (KE-0402/KE-0703) from
+        // committed CC0 `.glb` models (Quaternius, public domain): the player drives
+        // `assets/sports_car.glb`; the traffic cars are `assets/{car,car2,police_car}.glb`.
+        // `load_car` fits each model to the road (uniform scale + orientation +
+        // resting height) and uploads its meshes once (KE-0103) plus any base-color
+        // textures. A car part with a texture draws on the **textured** pipeline
+        // (KE-0403); an untextured part draws on the Phong pipeline with its packed
+        // material color. The road tile is likewise a textured quad from
+        // `assets/road.gltf` (KE-0704), drawn on the textured pipeline with the
+        // asphalt texture.
         let renderer = ctx.renderer();
 
+        // Untextured Phong pipeline (kept for any untextured car part / future use).
         self.pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
             vertex_shader: "vertex_main".into(),
             fragment_shader: "fragment_main".into(),
             vertex_layout: color_layout(),
         }));
 
-        // The player is a RED car; the other cars (obstacles) are the same car in
-        // WHITE; the street is a BLACK flat box (scaled per road tile). Colors are
-        // baked into the vertices (the untextured shader reads per-vertex color),
-        // and each mesh is uploaded once (KE-0103: no per-frame mesh upload).
-        let mut make = |verts: &(Vec<u8>, Vec<u32>)| {
-            renderer.create_mesh(&MeshData {
-                vertices: &verts.0,
-                indices: &verts.1,
-                layout: color_layout(),
-            })
-        };
-        self.player_car_mesh = Some(make(&car_geometry(PLAYER_COLOR)));
-        self.obstacle_car_mesh = Some(make(&car_geometry(OBSTACLE_COLOR)));
-        self.road_mesh = Some(make(&unit_box_geometry(ROAD_COLOR)));
+        // Textured pipeline (`[pos,normal,uv]`) for the asphalt road + the car
+        // (KE-0403).
+        self.textured_pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
+            vertex_shader: "textured_vertex_main".into(),
+            fragment_shader: "textured_fragment_main".into(),
+            vertex_layout: textured_layout(),
+        }));
+
+        let mut cache = AssetCache::new();
+
+        // Import the road tile once: the imported quad carries the tiling UVs and
+        // is packed on the textured layout (its material has a base-color texture),
+        // so `AssetCache::load` uploads it as a textured mesh. Its decoded asphalt
+        // base-color PNG becomes the bound texture.
+        let (road_mesh, asphalt) = load_road(&mut cache, renderer, ROAD_ASSET);
+        self.road_mesh = Some(road_mesh);
+        self.asphalt = Some(asphalt);
+
+        self.player_car = load_car(&mut cache, renderer, PLAYER_CAR_ASSET);
+        self.traffic_cars = TRAFFIC_CAR_ASSETS
+            .iter()
+            .map(|path| load_car(&mut cache, renderer, path))
+            .collect();
 
         // Prime the road ahead so the first frame is not empty.
         let focus = self.player_position();
@@ -548,49 +605,271 @@ impl Game for CarRunner {
     }
 
     fn render(&mut self, ctx: &mut EngineCtx) {
-        // Pick each entity's mesh by role: the player is the red car; obstacles
+        // Draws are grouped by pipeline. Road tiles (every renderable that is
+        // neither the player nor an obstacle) go on the **textured** pipeline with
+        // the asphalt texture bound; the cars go on the untextured Phong pipeline.
+        //
+        // Pick each entity's mesh(es) by role: the player is the red car; obstacles
         // (the streamed entities that carry a physics body) are the white car; every
-        // other renderable is a black road tile. Color is baked into each mesh, so
-        // one untextured pipeline draws them all. All meshes are persistent (KE-0103).
+        // other renderable is a road tile. The cars are imported glTF made of
+        // several primitives, so a car entity expands into one draw per part, each
+        // at the entity's transform composed with the part's baked node transform.
+        // The road tile is a single textured quad, scaled per tile by its transform.
+        // All meshes/textures are persistent (KE-0103).
         let player_entity = self.player;
-        let player_car = self.player_car_mesh.expect("player mesh created in init");
-        let obstacle_car = self.obstacle_car_mesh.expect("obstacle mesh created in init");
         let road = self.road_mesh.expect("road mesh created in init");
 
-        let draws: Vec<(kaman_math::Transform, MeshHandle)> = ctx
+        // Road-tile transforms (textured pass): every renderable with no car role.
+        let road_draws: Vec<Transform> = ctx
             .world()
             .query::<(&TransformComponent, &RenderComponent)>()
             .iter()
-            .map(|(e, (t, _))| {
-                let mesh = if Some(e) == player_entity {
-                    player_car
+            .filter(|(e, _)| {
+                Some(*e) != player_entity && ctx.world().get::<&PhysicsBodyComponent>(*e).is_err()
+            })
+            .map(|(_, (t, _))| t.transform)
+            .collect();
+
+        // Car placements: each car entity's transform + which model it draws (the
+        // player's car, or one of the traffic variants tagged on the obstacle).
+        let car_draws: Vec<(Transform, CarModel)> = ctx
+            .world()
+            .query::<(&TransformComponent, &RenderComponent)>()
+            .iter()
+            .filter_map(|(e, (t, _))| {
+                if Some(e) == player_entity {
+                    Some((t.transform, CarModel::Player))
                 } else if ctx.world().get::<&PhysicsBodyComponent>(e).is_ok() {
-                    obstacle_car
+                    let variant = ctx
+                        .world()
+                        .get::<&TrafficVariant>(e)
+                        .map(|v| v.0)
+                        .unwrap_or(0);
+                    Some((t.transform, CarModel::Traffic(variant)))
                 } else {
-                    road
-                };
-                (t.transform, mesh)
+                    None
+                }
             })
             .collect();
 
+        let textured_pipeline = self.textured_pipeline.expect("textured pipeline in init");
         let pipeline = self.pipeline.expect("pipeline created in init");
+        let asphalt = self.asphalt.expect("asphalt texture created in init");
         let renderer = ctx.renderer();
         renderer.begin_frame();
+
+        // Textured pass: the asphalt road, then every textured car part (each binds
+        // its own base-color texture).
+        renderer.set_pipeline(textured_pipeline);
+        renderer.bind_texture(asphalt);
+        for transform in &road_draws {
+            renderer.draw_mesh(road, transform, &MaterialParams::default());
+        }
+        for (entity_transform, model) in &car_draws {
+            for (local, mesh, texture) in self.car_model(*model) {
+                if let Some(texture) = texture {
+                    renderer.bind_texture(*texture);
+                    renderer.draw_mesh(*mesh, &compose(*entity_transform, local), &MaterialParams::default());
+                }
+            }
+        }
+
+        // Untextured pass: any car part with no base-color texture (drawn on the
+        // Phong pipeline with its packed material color).
         renderer.set_pipeline(pipeline);
-        for (transform, mesh) in &draws {
-            renderer.draw_mesh(*mesh, transform, &MaterialParams::default());
+        for (entity_transform, model) in &car_draws {
+            for (local, mesh, texture) in self.car_model(*model) {
+                if texture.is_none() {
+                    renderer.draw_mesh(*mesh, &compose(*entity_transform, local), &MaterialParams::default());
+                }
+            }
         }
         renderer.submit();
     }
 }
 
-/// Baked vertex colors: the player car is **red**, the other cars **white**, the
-/// street **black**; wheels are near-black on both cars. The untextured shader
-/// reads per-vertex color, so the look is baked into the meshes.
-const PLAYER_COLOR: [f32; 3] = [0.85, 0.08, 0.08];
-const OBSTACLE_COLOR: [f32; 3] = [0.95, 0.95, 0.95];
-const ROAD_COLOR: [f32; 3] = [0.0, 0.0, 0.0];
-const WHEEL_COLOR: [f32; 3] = [0.04, 0.04, 0.05];
+impl CarRunner {
+    /// The parts of the car model a placement draws: the player's, or a traffic
+    /// variant (clamped to the loaded set).
+    fn car_model(&self, model: CarModel) -> &[CarPart] {
+        match model {
+            CarModel::Player => &self.player_car,
+            CarModel::Traffic(i) => self
+                .traffic_cars
+                .get(i)
+                .or_else(|| self.traffic_cars.first())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+        }
+    }
+}
+
+/// The committed **player** car model, imported at startup (KE-0703): the CC0
+/// Quaternius Sports Car (`.glb`, public domain). Resolved against this crate's
+/// dir so the path holds regardless of the process working directory.
+const PLAYER_CAR_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sports_car.glb");
+
+/// The committed **traffic** car models (CC0 Quaternius, public domain). Each
+/// obstacle draws one of these, chosen per streaming slot by [`variant_for_slot`].
+const TRAFFIC_CAR_ASSETS: [&str; 3] = [
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/car.glb"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/car2.glb"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/police_car.glb"),
+];
+
+/// Pick a traffic car variant (index into [`TRAFFIC_CAR_ASSETS`]) for a streaming
+/// `slot`. A SplitMix64-style hash of the slot, so it is deterministic and
+/// **independent of the lane PRNG** — adding variety does not perturb the obstacle
+/// world. Returns `0` if there are no traffic models.
+fn variant_for_slot(slot: i64, n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    let mut z = (slot as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z ^= z >> 27;
+    (z % n as u64) as usize
+}
+
+/// Target car length in world units (the model is fit so its longer horizontal
+/// extent matches this). Sized to sit within a lane with margin.
+const CAR_LEN: f32 = 2.85;
+/// World-space `Y` the fitted car's underside rests at, so it sits on the road
+/// (the road surface top is at `y = -0.3`; the car entity is placed at
+/// `PLAYER_Y = 0.1`, so the model bottom lands on the road at `0.1 + CAR_BOTTOM`).
+const CAR_BOTTOM: f32 = -0.4;
+/// Yaw (about `+Y`) applied when fitting the model so it faces the travel
+/// direction (`-Z`). Tuned to the ToyCar model's authored orientation.
+const CAR_YAW: f32 = std::f32::consts::PI;
+
+/// The committed asphalt road-tile glTF (KE-0704), imported at startup: a flat
+/// textured quad carrying the tiling UVs plus an embedded asphalt base-color PNG.
+const ROAD_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/road.gltf");
+
+/// Import the car model through the asset cache and return its drawable parts: one
+/// `(fitted transform, mesh handle, base-color texture)` per mesh-node. The file
+/// is parsed + its meshes uploaded exactly once (KE-0103); each mesh's decoded
+/// base-color image is uploaded here via `create_texture` (the cache uploads
+/// meshes, not textures). The model is fit to the road with [`fit_transform`], and
+/// each part's stored transform is `fit ∘ node.transform` so the render pass only
+/// composes it with the car entity's placement.
+fn load_car(
+    cache: &mut AssetCache,
+    renderer: &mut dyn Renderer,
+    path: &str,
+) -> Vec<(Transform, MeshHandle, Option<TextureHandle>)> {
+    let asset = cache
+        .load(renderer, path)
+        .unwrap_or_else(|e| panic!("import car asset {path}: {e}"));
+
+    let fit = fit_transform(&asset.scene);
+
+    asset
+        .scene
+        .mesh_nodes()
+        .map(|(_, node)| {
+            let mesh_idx = node.mesh.expect("mesh_nodes yields only mesh-bearing nodes");
+            let local = compose(fit, &node.transform);
+            let handle = asset.mesh_handles[mesh_idx];
+            // Upload this mesh's base-color image, if it has one, so the textured
+            // pipeline can sample it. A mesh with no texture stays `None` and is
+            // drawn on the untextured pipeline.
+            let texture = asset.scene.meshes[mesh_idx].base_color.as_ref().map(|tex| {
+                renderer.create_texture(&TextureData {
+                    width: tex.width,
+                    height: tex.height,
+                    rgba8: &tex.rgba8,
+                })
+            });
+            (local, handle, texture)
+        })
+        .collect()
+}
+
+/// Compute the transform that fits an imported car model to the road: a uniform
+/// scale so its longer horizontal extent is [`CAR_LEN`], a [`CAR_YAW`] rotation so
+/// it faces the travel direction, and a translation centering it in `X`/`Z` with
+/// its underside at [`CAR_BOTTOM`]. Robust to any model's authored scale /
+/// orientation, since it works from the baked world-space bounds of the geometry.
+fn fit_transform(scene: &kaman_assets::SceneAsset) -> Transform {
+    // World-space AABB over every mesh-node's baked vertices.
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    for (_, node) in scene.mesh_nodes() {
+        let mesh = &scene.meshes[node.mesh.expect("mesh node has a mesh")];
+        for p in &mesh.positions {
+            let w = node.transform.transform_point(Vec3::from_array(*p));
+            min = min.min(w);
+            max = max.max(w);
+        }
+    }
+
+    let size = max - min;
+    let horizontal = size.x.max(size.z).max(f32::EPSILON);
+    let scale = CAR_LEN / horizontal;
+    let rotation = Quat::from_rotation_y(CAR_YAW);
+
+    // Pivot: footprint center in X/Z, underside in Y. Scaling + rotating about the
+    // pivot keeps the car centered and level; then lift the underside to CAR_BOTTOM.
+    let pivot = Vec3::new((min.x + max.x) * 0.5, min.y, (min.z + max.z) * 0.5);
+    let translation = -(rotation * (pivot * scale)) + Vec3::new(0.0, CAR_BOTTOM, 0.0);
+
+    Transform {
+        position: translation,
+        rotation,
+        scale: Vec3::splat(scale),
+    }
+}
+
+/// Import the asphalt road-tile glTF (KE-0704) and return `(road mesh handle,
+/// asphalt texture handle)`.
+///
+/// The file is a single flat quad whose material carries an embedded base-color
+/// PNG, so the importer packs the quad on the `[pos,normal,uv]` textured layout
+/// and `AssetCache::load` uploads it as a textured mesh (one handle). The decoded
+/// base-color RGBA8 is handed straight to `create_texture`. Parsed + uploaded once
+/// (KE-0103); the mesh's node transform is identity (the road quad is a unit tile
+/// scaled by each streamed tile's transform), so only its handle is needed.
+fn load_road(
+    cache: &mut AssetCache,
+    renderer: &mut dyn Renderer,
+    path: &str,
+) -> (MeshHandle, TextureHandle) {
+    let asset = cache
+        .load(renderer, path)
+        .unwrap_or_else(|e| panic!("import road asset {path}: {e}"));
+
+    // The road glTF is a single mesh; grab its uploaded handle and its base-color.
+    let mesh = *asset
+        .mesh_handles
+        .first()
+        .expect("road asset has one uploaded mesh");
+    let base_color = asset.scene.meshes[0]
+        .base_color
+        .as_ref()
+        .expect("road mesh carries a base-color (asphalt) texture");
+    let texture = renderer.create_texture(&TextureData {
+        width: base_color.width,
+        height: base_color.height,
+        rgba8: &base_color.rgba8,
+    });
+    (mesh, texture)
+}
+
+/// Compose a `parent` world transform with a `child` (local) transform, so an
+/// imported mesh part draws at its entity's placement times its baked node
+/// transform. Done via matrices so scale/rotation/translation all combine
+/// correctly (the demo's car nodes are authored at the origin, but this stays
+/// correct for any baked hierarchy).
+fn compose(parent: Transform, child: &Transform) -> Transform {
+    let m = parent.to_matrix() * child.to_matrix();
+    let (scale, rotation, position) = m.to_scale_rotation_translation();
+    Transform {
+        position,
+        rotation,
+        scale,
+    }
+}
 
 /// The untextured `[pos,normal,color]` layout (36-byte stride) every mesh uses —
 /// the same layout the untextured Phong pipeline binds.
@@ -598,66 +877,10 @@ fn color_layout() -> VertexLayout {
     kaman_assets::render_vertex_layout()
 }
 
-/// Append an axis-aligned box (6 quad faces, outward normals) centered at `center`
-/// with the given half-extents and a flat per-vertex `color`, onto a
-/// `[pos,normal,color]` byte buffer + index list.
-fn push_box(
-    bytes: &mut Vec<u8>,
-    indices: &mut Vec<u32>,
-    center: [f32; 3],
-    half: [f32; 3],
-    color: [f32; 3],
-) {
-    // (outward normal, 4 CCW corners) per face, in ±1 unit-cube space.
-    let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
-        ([0.0, 0.0, 1.0], [[-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0], [-1.0, 1.0, 1.0]]),
-        ([0.0, 0.0, -1.0], [[1.0, -1.0, -1.0], [-1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [1.0, 1.0, -1.0]]),
-        ([0.0, 1.0, 0.0], [[-1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, -1.0], [-1.0, 1.0, -1.0]]),
-        ([0.0, -1.0, 0.0], [[-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [-1.0, -1.0, 1.0]]),
-        ([1.0, 0.0, 0.0], [[1.0, -1.0, 1.0], [1.0, -1.0, -1.0], [1.0, 1.0, -1.0], [1.0, 1.0, 1.0]]),
-        ([-1.0, 0.0, 0.0], [[-1.0, -1.0, -1.0], [-1.0, -1.0, 1.0], [-1.0, 1.0, 1.0], [-1.0, 1.0, -1.0]]),
-    ];
-    for (n, corners) in faces {
-        let base = (bytes.len() / 36) as u32;
-        for c in corners {
-            let pos = [center[0] + c[0] * half[0], center[1] + c[1] * half[1], center[2] + c[2] * half[2]];
-            for f in pos {
-                bytes.extend_from_slice(&f.to_ne_bytes());
-            }
-            for f in n {
-                bytes.extend_from_slice(&f.to_ne_bytes());
-            }
-            for f in color {
-                bytes.extend_from_slice(&f.to_ne_bytes());
-            }
-        }
-        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
-    }
-}
-
-/// A unit cube (half-extent 0.5) in one flat `color` — the road tile, scaled per
-/// slot by its transform.
-fn unit_box_geometry(color: [f32; 3]) -> (Vec<u8>, Vec<u32>) {
-    let mut bytes = Vec::new();
-    let mut indices = Vec::new();
-    push_box(&mut bytes, &mut indices, [0.0, 0.0, 0.0], [0.5, 0.5, 0.5], color);
-    (bytes, indices)
-}
-
-/// A low-poly car facing `-Z` (the travel direction): a low body, a raised cabin
-/// set back, and four near-black wheels. Body + cabin take `color`. Built around
-/// the local origin so the wheels rest just above the road at `PLAYER_Y`.
-fn car_geometry(color: [f32; 3]) -> (Vec<u8>, Vec<u32>) {
-    let mut bytes = Vec::new();
-    let mut indices = Vec::new();
-    push_box(&mut bytes, &mut indices, [0.0, 0.0, 0.0], [0.5, 0.22, 0.9], color); // body
-    push_box(&mut bytes, &mut indices, [0.0, 0.32, 0.12], [0.38, 0.2, 0.5], color); // cabin
-    for &z in &[-0.58f32, 0.58] {
-        for &x in &[-0.5f32, 0.5] {
-            push_box(&mut bytes, &mut indices, [x, -0.22, z], [0.14, 0.16, 0.22], WHEEL_COLOR);
-        }
-    }
-    (bytes, indices)
+/// The textured `[pos,normal,uv]` layout (32-byte stride) the road tiles use — the
+/// same layout the textured pipeline binds and the importer packs the road quad on.
+fn textured_layout() -> VertexLayout {
+    kaman_assets::textured_vertex_layout()
 }
 
 #[cfg(test)]
