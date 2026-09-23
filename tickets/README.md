@@ -12,7 +12,7 @@ the index and fleshed out when that phase begins (per the phase loop).
 
 ```
 # KE-0PNN — Title
-Phase:         0..6
+Phase:         0..7   (the single KE-0PNN phase digit)
 Priority:      P0 | P1 | P2 | P3
 Status:        Todo | In-Progress | In-Review | Blocked | Done
 Integration:   Reuse-as-is | Refactor | New
@@ -138,3 +138,22 @@ audio-session/safe-area specifics finish alongside Phase 3.
 | KE-0601 | Signing / bundling / TestFlight | P2 | New | S · A0 |
 | KE-0602 | Device profiling: GPU capture + thermal/memory | P2 | Refactor | S · A0 |
 | KE-0603 | App Store validation + crash-free soak | P2 | New | S · A0 |
+
+### Phase 7 — Playable Demo  *(active — highest priority; pulled forward ahead of Phases 3–6)*
+A complete, good-looking, playable macOS vertical slice that is the **reference example** users
+follow to build a game on the engine. Drives engine features by real need.
+| # | Title | Pri | Int | Size | Status | Depends | Serves |
+|---|---|---|---|---|---|---|---|
+| KE-0701 | Rename the game to `playable-demo` | P0 | Refactor | S · A1 | Todo | KE-0204 | KR7.3 |
+| KE-0702 | Discrete lane control + game states + score/replay | P0 | Refactor | M · A2 | Todo | KE-0701, KE-0707 | KR7.1 |
+| KE-0703 | Car model assets (player + traffic) | P0 | New | M · A1 | Todo | KE-0701, KE-0402 | KR7.2 |
+| KE-0704 | Asphalt road texture | P1 | New | S · A0 | Todo | KE-0701, KE-0403 | KR7.2 |
+| KE-0705 | Distant city backdrop | P1 | New | M · A1 | Todo | KE-0701, KE-0401 | KR7.2 |
+| KE-0706 | Roadside buildings (prefabs) + elevated freeway | P1 | New | L · A1 | Todo | KE-0701, KE-0703, KE-0203 | KR7.2 |
+| KE-0707 | Demo HUD: score + game-over / replay | P0 | New | M · A1 | Todo | KE-0701, KE-0404 | KR7.1 |
+| KE-0708 | Document the demo as a reference example | P0 | New | M · A0 | Todo | KE-0702–0707 | KR7.3 |
+
+**Phase 7 needs, from earlier phases:** glTF import (KE-0402 ✅), textures (KE-0403 ✅), and the HUD
+text feature (KE-0404, Phase 4 — implement as part of this push, it blocks KE-0707).
+**Order:** KE-0701 first → KE-0703/0704/0705 (content, parallelizable) + KE-0404→KE-0707 (HUD) →
+KE-0706 (buildings) → KE-0702 (gameplay/states, needs the HUD) → KE-0708 (docs, last).

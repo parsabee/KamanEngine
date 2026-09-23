@@ -84,6 +84,21 @@ seam, with provably identical output.
 - **KR6.2** Device GPU capture + thermal/memory within budget on the min-spec device.
 - **KR6.3** Passes App Store automated validation; crash-free across 100 test sessions.
 
+## Phase 7 — Playable Demo  *(pulled forward — highest priority)*
+
+**Objective:** A complete, good-looking, playable vertical slice on macOS — the **reference example**
+a developer follows to build a game on KamanEngine. Prioritized ahead of Phases 3–6: it drives
+engine features by real need and proves the public API is pleasant to build on. More is added as the
+engine grows.
+
+- **KR7.1** Playable slice: a 3-lane elevated **freeway**; **Left/Right** are the only gameplay keys
+  and snap the car one lane (edge-triggered); score tracked; crash → **game over** reporting the
+  score with a **replay** option.
+- **KR7.2** Real content: authored complex **car models** (player + traffic), an **asphalt** road
+  texture, a distant **city backdrop**, and roadside **buildings** randomly placed from 5–6 prefabs.
+- **KR7.3** The game is renamed **"Playable Demo"** and is **documented as a reference example** —
+  clean, engine-public-API-only, with an architecture + how-to guide a user can follow.
+
 ---
 
 ## Critical path

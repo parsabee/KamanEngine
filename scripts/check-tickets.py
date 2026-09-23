@@ -31,15 +31,19 @@ VALID_INTEGRATION = {"Reuse-as-is", "Refactor", "New"}
 SIZE_RE = re.compile(r"^(XS|S|M|L|XL)\s*·\s*A[0-3]$")
 ID_RE = re.compile(r"KE-(\d{4})")
 
-PHASE_NAMES = {
-    0: "Foundation & Migration Harness",
-    1: "Renderer Foundation",
-    2: "Gameplay Core",
-    3: "iOS Bring-up",
-    4: "Look & Feel + Content",
-    5: "KamanScript",
-    6: "Release",
-}
+def load_phase_names() -> dict[str, str]:
+    """Phase number -> name, parsed from the board headers in tickets/README.md.
+
+    Kept data-driven (no hardcoded phase list) so new phases just work: a board
+    header like `### Phase 7 — Playable Demo *(...)*` defines phase 7's name.
+    """
+    names: dict[str, str] = {}
+    board = TICKETS_DIR / "README.md"
+    if board.exists():
+        for m in re.finditer(r"^###\s+Phase\s+(\d+)\s+[—-]\s+(.+?)(?:\s*\*|\s*$)",
+                              board.read_text(encoding="utf-8"), re.M):
+            names[m.group(1)] = m.group(2).strip()
+    return names
 
 
 def field(text: str, name: str) -> str | None:
@@ -78,8 +82,8 @@ def lint(path: Path) -> tuple[dict, list[str]]:
     num = ID_RE.search(data.get("id", ""))
     id_phase = int(num.group(1)[1]) if num else None
     if "Phase" in data:
-        if not re.fullmatch(r"[0-6]", data["Phase"]):
-            errors.append(f"Phase must be 0..6, got {data['Phase']!r}")
+        if not re.fullmatch(r"\d", data["Phase"]):
+            errors.append(f"Phase must be a single digit 0..9 (the KE-0PNN id digit), got {data['Phase']!r}")
         elif id_phase is not None and int(data["Phase"]) != id_phase:
             errors.append(f"Phase {data['Phase']} != id phase digit {id_phase} (from {data['id']})")
     if "Priority" in data and data["Priority"] not in VALID_PRIORITY:
@@ -125,18 +129,18 @@ def main() -> int:
         elif not quiet:
             print(f"✓ {path.name}")
 
-    # Per-phase progress report.
+    # Per-phase progress report — over whatever phases the tickets actually use.
+    phase_names = load_phase_names()
     print("\n" + "=" * 68)
     print(f"{'Phase':<32}{'Done':>6}{'Total':>7}{'%':>6}  Remaining")
     print("-" * 68)
-    for phase in range(7):
-        group = [t for t in tickets if t.get("Phase") == str(phase)]
-        if not group:
-            continue
+    phases = sorted({t["Phase"] for t in tickets if t.get("Phase")}, key=int)
+    for phase in phases:
+        group = [t for t in tickets if t.get("Phase") == phase]
         done = [t for t in group if t.get("Status") == "Done"]
         remaining = [t for t in group if t.get("Status") != "Done"]
         pct = round(100 * len(done) / len(group))
-        label = f"{phase} {PHASE_NAMES.get(phase, '')}"[:31]
+        label = f"{phase} {phase_names.get(phase, '')}".rstrip()[:31]
         rem = ", ".join(f"{t['id']}({t.get('Status','?')})" for t in remaining) or "—"
         print(f"{label:<32}{len(done):>6}{len(group):>7}{pct:>5}%  {rem}")
 
