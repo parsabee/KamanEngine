@@ -115,7 +115,7 @@ targets (`./scripts/preflight.sh --ios`). Tickets below are intentionally rough 
 ### Phase 4 — Look & Feel + Content *(written in full)*
 | # | Title | Pri | Int | Size | Status | Depends | Serves |
 |---|---|---|---|---|---|---|---|
-| KE-0401 | Modern-look rendering stack | P1 | Refactor | L · A1 | Todo | KE-0102, KE-0205 | KR4.1 |
+| KE-0401 | Modern-look rendering stack | P1 | Refactor | L · A1 | Done | KE-0102, KE-0205 | KR4.1 |
 | KE-0402 | Static glTF import (`kaman-assets`) + flexible vertex layout | P1 | New | L · A2 | Done | KE-0006, KE-0102, KE-0103 | KR4.2 |
 | KE-0403 | Textures + ASTC + mipmaps (base-color sampling) | P1 | New | M · A2 | Done | KE-0402 | KR4.2 |
 | KE-0404 | 2D HUD / SDF text overlay | P1 | New | M · A1 | Todo | KE-0102 | KR4.3 |

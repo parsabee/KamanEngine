@@ -2,7 +2,7 @@
 
 Phase:         4
 Priority:      P1
-Status:        Todo
+Status:        Done
 Integration:   Refactor
 Size:          L · A1
 Time:          L
@@ -16,15 +16,17 @@ mobile-safe look: correct color management plus a small set of high-impact effec
 enough for a TBDR GPU. This is what turns "recognizable" into "looks like a real game."
 
 ## Scope & Acceptance
-- [ ] **sRGB + tonemap:** render in linear space, output through an sRGB-correct swapchain format,
+- [x] **sRGB + tonemap:** render in linear space, output through an sRGB-correct swapchain format,
       apply a tonemap (e.g. ACES/Reinhard) so colors are correct and not washed out.
-- [ ] **Sky + fog:** a gradient sky background and distance fog blending the far plane into the sky
+- [x] **Sky + fog:** a gradient sky background and distance fog blending the far plane into the sky
       (hides the streaming spawn edge — pairs with KE-0203).
-- [ ] **MSAA:** multisampled color/depth, resolved in-tile; structured so KE-0305 can make it
+- [x] **MSAA:** multisampled color/depth, resolved in-tile; structured so KE-0305 can make it
       memoryless on iOS. `#[cfg]`/config so macOS keeps working.
-- [ ] **One shadow:** a single directional shadow (shadow map or a cheap blob) grounding the car.
+- [x] **One shadow:** a single directional shadow (shadow map or a cheap blob) grounding the car.
 - [ ] **Bloom:** a light bloom pass on bright pixels.
-- [ ] Pixel-hash: the reference scene changes intentionally here — re-bless with written justification.
+      *(Deferred: sRGB+tonemap, sky+fog, MSAA, and the blob shadow landed; bloom (extra
+      half-res targets + bright-pass/blur/composite) is a follow-up.)*
+- [x] Pixel-hash: the reference scene changes intentionally here — re-bless with written justification.
 
 ## Technical notes
 - Keep every pass mobile-safe: prefer tile/memoryless attachments, avoid full-res offscreen where a

@@ -33,8 +33,8 @@
 //! no `new_buffer*` on the hot path. Invariants:
 //!
 //! - **Stride/alignment:** each slot is [`UNIFORM_RING_STRIDE`] (256) bytes so
-//!   every per-draw offset is a multiple of 256; a 64-byte [`Uniforms`] fits
-//!   with padding.
+//!   every per-draw offset is a multiple of 256; a 128-byte [`Uniforms`] (MVP +
+//!   model matrix, KE-0401) fits with padding.
 //! - **Capacity:** the ring holds `ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT`
 //!   slots; [`MAX_FRAMES_IN_FLIGHT`] is `3`. A frame that exceeds its per-frame
 //!   capacity grows the ring (doubling, an allocation-time event), never a
@@ -111,9 +111,45 @@ use crate::frame_sync::FrameSemaphore;
 use crate::registry::Registry;
 use crate::vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
 
-/// The clear color of the reference scene (dark blue-grey), matching the
-/// prototype. Load-bearing for the pixel hash.
+/// The clear color of the reference scene (dark blue-grey). Now only the color
+/// the MSAA target is cleared to *before* the gradient sky overwrites it, so it
+/// is no longer directly visible; the sky pass paints every pixel of the
+/// background (KE-0401). Retained for the depth/edge case where the sky triangle
+/// does not cover a fragment.
 const CLEAR_COLOR: (f64, f64, f64, f64) = (0.1, 0.1, 0.15, 1.0);
+
+/// MSAA sample count for the scene color/depth attachments (KE-0401).
+///
+/// 4x on both desktop and device — a good quality/cost trade on TBDR GPUs, where
+/// the multisampled attachments live in tile memory and are resolved in-tile
+/// (store action `MultisampleResolve`), never spilled to system memory. The
+/// count is a single source of truth: the scene pipelines, the sky pipeline, and
+/// the MSAA color/depth textures all read it, so raising/lowering it stays
+/// consistent.
+const MSAA_SAMPLE_COUNT: u64 = 4;
+
+/// Whether the MSAA color/depth attachments should use **memoryless** storage.
+///
+/// On iOS (TBDR) the multisampled color and depth only ever live in tile memory
+/// — they are cleared, drawn, and resolved without ever being read back — so
+/// they can be `Memoryless`, costing **zero** system-memory bandwidth (KE-0305
+/// finishes this). On macOS they must be `Private` (memoryless is not a valid
+/// storage mode for a resolvable attachment there). This is the single cfg hook
+/// KE-0305 flips; the rest of the MSAA wiring is platform-neutral.
+#[cfg(target_os = "ios")]
+const MSAA_MEMORYLESS: bool = true;
+/// Whether the MSAA color/depth attachments should use memoryless storage (macOS: no).
+#[cfg(not(target_os = "ios"))]
+const MSAA_MEMORYLESS: bool = false;
+
+/// Storage mode for the MSAA color/depth attachments, honoring [`MSAA_MEMORYLESS`].
+fn msaa_storage_mode() -> metal::MTLStorageMode {
+    if MSAA_MEMORYLESS {
+        metal::MTLStorageMode::Memoryless
+    } else {
+        metal::MTLStorageMode::Private
+    }
+}
 
 /// The canonical `[position_xyz, normal_xyz, color_rgb]` vertex layout the
 /// built-in Phong pipeline binds against (36-byte stride, attributes at
@@ -319,6 +355,14 @@ pub struct MetalRenderer {
     // texture on the textured path.
     sampler_state: metal::SamplerState,
     depth_stencil_state: metal::DepthStencilState,
+    // Depth-disabled state for the fullscreen gradient sky pass (KE-0401): the
+    // sky is drawn first with no depth test and no depth write, so it fills the
+    // background without occluding geometry drawn afterward.
+    sky_depth_stencil_state: metal::DepthStencilState,
+    // Fullscreen gradient-sky pipeline (KE-0401): `sky_vertex_main` /
+    // `sky_fragment_main`, sample-count matched to the MSAA scene attachments,
+    // no vertex buffer (it derives a fullscreen triangle from `vertex_id`).
+    sky_pipeline_state: metal::RenderPipelineState,
     light_buffer: metal::Buffer,
 
     // The world → clip view-projection, pushed through the seam via
@@ -355,9 +399,19 @@ pub struct MetalRenderer {
     frame_semaphore: Arc<FrameSemaphore>,
     frame_index: u64,
 
-    // Cached depth texture (preserved from the prototype's one optimization).
+    // Cached MSAA (multisampled) depth texture — the depth attachment is now
+    // multisampled to match the MSAA color (KE-0401). Reallocated only on resize,
+    // like the prototype's single-sample depth cache it replaces.
     depth_texture: Option<metal::Texture>,
     depth_texture_size: (u64, u64),
+
+    // Cached MSAA color texture (KE-0401). The scene renders into this
+    // `MSAA_SAMPLE_COUNT`-sample color attachment and resolves into the
+    // single-sample target (drawable / offscreen texture) in-tile via the
+    // `MultisampleResolve` store action. Reallocated only on resize, so the
+    // per-frame path stays allocation-free (KR1.2).
+    msaa_color_texture: Option<metal::Texture>,
+    msaa_color_size: (u64, u64),
 
     // Mesh resources live in a generational registry keyed by `MeshHandle`
     // (index + generation); a freed handle is a defined error, never a silent
@@ -507,6 +561,10 @@ impl MetalRenderer {
             .unwrap()
             .set_pixel_format(MTLPixelFormat::BGRA8Unorm);
         pipeline_descriptor.set_depth_attachment_pixel_format(MTLPixelFormat::Depth32Float);
+        // MSAA (KE-0401): the scene pipelines render into a multisampled color +
+        // depth attachment resolved in-tile. The pipeline's sample count must
+        // match the attachments' or pipeline creation fails.
+        pipeline_descriptor.set_sample_count(MSAA_SAMPLE_COUNT);
 
         let pipeline_state = device
             .new_render_pipeline_state(&pipeline_descriptor)
@@ -533,9 +591,35 @@ impl MetalRenderer {
             .unwrap()
             .set_pixel_format(MTLPixelFormat::BGRA8Unorm);
         textured_descriptor.set_depth_attachment_pixel_format(MTLPixelFormat::Depth32Float);
+        textured_descriptor.set_sample_count(MSAA_SAMPLE_COUNT);
         let textured_pipeline_state = device
             .new_render_pipeline_state(&textured_descriptor)
             .expect("failed to create textured render pipeline state");
+
+        // Gradient-sky pipeline (KE-0401): a fullscreen triangle painted before
+        // the geometry, sample-count matched to the MSAA scene attachments. No
+        // vertex descriptor — `sky_vertex_main` derives its positions from
+        // `vertex_id`. Depth is attached (format must match the pass) but the sky
+        // uses a no-write/no-test depth state so it never occludes geometry.
+        let sky_vertex_function = library
+            .get_function("sky_vertex_main", None)
+            .expect("sky_vertex_main not found");
+        let sky_fragment_function = library
+            .get_function("sky_fragment_main", None)
+            .expect("sky_fragment_main not found");
+        let sky_descriptor = metal::RenderPipelineDescriptor::new();
+        sky_descriptor.set_vertex_function(Some(&sky_vertex_function));
+        sky_descriptor.set_fragment_function(Some(&sky_fragment_function));
+        sky_descriptor
+            .color_attachments()
+            .object_at(0)
+            .unwrap()
+            .set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+        sky_descriptor.set_depth_attachment_pixel_format(MTLPixelFormat::Depth32Float);
+        sky_descriptor.set_sample_count(MSAA_SAMPLE_COUNT);
+        let sky_pipeline_state = device
+            .new_render_pipeline_state(&sky_descriptor)
+            .expect("failed to create sky render pipeline state");
 
         // Trilinear sampler for base-color textures: min/mag linear + mip linear,
         // so the mipmaps generated in `create_texture` are sampled smoothly.
@@ -551,6 +635,14 @@ impl MetalRenderer {
         depth_stencil_descriptor.set_depth_compare_function(metal::MTLCompareFunction::Less);
         depth_stencil_descriptor.set_depth_write_enabled(true);
         let depth_stencil_state = device.new_depth_stencil_state(&depth_stencil_descriptor);
+
+        // Sky depth state: always pass, never write (KE-0401). The sky fills the
+        // background first; disabling depth write means geometry drawn afterward
+        // still depth-tests normally against a cleared depth buffer.
+        let sky_depth_descriptor = metal::DepthStencilDescriptor::new();
+        sky_depth_descriptor.set_depth_compare_function(metal::MTLCompareFunction::Always);
+        sky_depth_descriptor.set_depth_write_enabled(false);
+        let sky_depth_stencil_state = device.new_depth_stencil_state(&sky_depth_descriptor);
 
         let light = LightUniforms::default();
         let light_buffer = device.new_buffer_with_data(
@@ -573,6 +665,8 @@ impl MetalRenderer {
             textured_pipeline_state,
             sampler_state,
             depth_stencil_state,
+            sky_depth_stencil_state,
+            sky_pipeline_state,
             light_buffer,
             // No camera pushed yet; identity until the first `set_view_projection`.
             view_projection: Mat4::IDENTITY,
@@ -585,6 +679,8 @@ impl MetalRenderer {
             frame_index: 0,
             depth_texture: None,
             depth_texture_size: (0, 0),
+            msaa_color_texture: None,
+            msaa_color_size: (0, 0),
             meshes: Registry::new(),
             pipelines: Vec::new(),
             textures: Vec::new(),
@@ -628,10 +724,13 @@ impl MetalRenderer {
         Some(data)
     }
 
-    /// Build (or reuse) the depth texture for the current attachment size.
+    /// Build (or reuse) the **multisampled** depth texture for the current size.
     ///
-    /// Preserves the prototype's single caching optimization: the depth texture
-    /// is only reallocated when the target size changes.
+    /// KE-0401: the depth attachment is now `MSAA_SAMPLE_COUNT`-sample to match
+    /// the MSAA color, and uses [`msaa_storage_mode`] (memoryless on iOS, private
+    /// on macOS). Preserves the prototype's caching optimization — reallocated
+    /// only when the target size changes — so the per-frame path allocates
+    /// nothing (KR1.2).
     fn depth_texture_for(&mut self, width: u64, height: u64) -> metal::Texture {
         if let Some(tex) = &self.depth_texture {
             if self.depth_texture_size == (width, height) {
@@ -639,14 +738,41 @@ impl MetalRenderer {
             }
         }
         let desc = metal::TextureDescriptor::new();
+        desc.set_texture_type(metal::MTLTextureType::D2Multisample);
+        desc.set_sample_count(MSAA_SAMPLE_COUNT);
         desc.set_pixel_format(MTLPixelFormat::Depth32Float);
         desc.set_width(width);
         desc.set_height(height);
         desc.set_usage(metal::MTLTextureUsage::RenderTarget);
-        desc.set_storage_mode(metal::MTLStorageMode::Private);
+        desc.set_storage_mode(msaa_storage_mode());
         let tex = self.device.new_texture(&desc);
         self.depth_texture = Some(tex.clone());
         self.depth_texture_size = (width, height);
+        tex
+    }
+
+    /// Build (or reuse) the **multisampled color** texture for the current size
+    /// (KE-0401). The scene renders into this `MSAA_SAMPLE_COUNT`-sample color
+    /// attachment and resolves in-tile into the single-sample target. Uses
+    /// [`msaa_storage_mode`] (memoryless on iOS) and, like the depth cache, is
+    /// reallocated only on resize so the per-frame path is allocation-free.
+    fn msaa_color_for(&mut self, width: u64, height: u64) -> metal::Texture {
+        if let Some(tex) = &self.msaa_color_texture {
+            if self.msaa_color_size == (width, height) {
+                return tex.clone();
+            }
+        }
+        let desc = metal::TextureDescriptor::new();
+        desc.set_texture_type(metal::MTLTextureType::D2Multisample);
+        desc.set_sample_count(MSAA_SAMPLE_COUNT);
+        desc.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+        desc.set_width(width);
+        desc.set_height(height);
+        desc.set_usage(metal::MTLTextureUsage::RenderTarget);
+        desc.set_storage_mode(msaa_storage_mode());
+        let tex = self.device.new_texture(&desc);
+        self.msaa_color_texture = Some(tex.clone());
+        self.msaa_color_size = (width, height);
         tex
     }
 
@@ -1004,11 +1130,19 @@ impl FrameRecorder for MetalRenderer {
         let command_buffer = self.command_queue.new_command_buffer().to_owned();
         let render_pass_descriptor = metal::RenderPassDescriptor::new();
 
+        // MSAA (KE-0401): render into a multisampled color attachment and resolve
+        // in-tile into `color_texture` (the drawable / offscreen texture). The
+        // `MultisampleResolve` store action performs the resolve on the GPU tile,
+        // so the multisampled buffer never spills to system memory — and on iOS
+        // it can be memoryless (KE-0305). The offscreen pixel-hash path therefore
+        // still ends up with a readable, single-sample resolved texture.
+        let msaa_color = self.msaa_color_for(width, height);
         let color_attachment = render_pass_descriptor
             .color_attachments()
             .object_at(0)
             .unwrap();
-        color_attachment.set_texture(Some(&color_texture));
+        color_attachment.set_texture(Some(&msaa_color));
+        color_attachment.set_resolve_texture(Some(&color_texture));
         color_attachment.set_load_action(metal::MTLLoadAction::Clear);
         color_attachment.set_clear_color(metal::MTLClearColor::new(
             CLEAR_COLOR.0,
@@ -1016,7 +1150,8 @@ impl FrameRecorder for MetalRenderer {
             CLEAR_COLOR.2,
             CLEAR_COLOR.3,
         ));
-        color_attachment.set_store_action(metal::MTLStoreAction::Store);
+        // Resolve the multisampled color into the single-sample target in-tile.
+        color_attachment.set_store_action(metal::MTLStoreAction::MultisampleResolve);
 
         let depth_texture = self.depth_texture_for(width, height);
         let depth_attachment = render_pass_descriptor.depth_attachment().unwrap();
@@ -1028,6 +1163,19 @@ impl FrameRecorder for MetalRenderer {
         let encoder = command_buffer
             .new_render_command_encoder(render_pass_descriptor)
             .to_owned();
+
+        // Gradient sky first (KE-0401): a fullscreen triangle with depth test/
+        // write disabled paints the background before any geometry, replacing the
+        // flat clear. Geometry drawn afterward depth-tests against the cleared
+        // depth buffer normally. Bind the light buffer (fragment(0)) for the sky
+        // colors, which live in the same `LightUniforms`.
+        encoder.set_render_pipeline_state(&self.sky_pipeline_state);
+        encoder.set_depth_stencil_state(&self.sky_depth_stencil_state);
+        encoder.set_fragment_buffer(0, Some(&self.light_buffer), 0);
+        encoder.draw_primitives(metal::MTLPrimitiveType::Triangle, 0, 3);
+
+        // Switch to the untextured Phong pipeline + normal depth test for the
+        // geometry that the frame's draws will record.
         encoder.set_render_pipeline_state(&self.pipeline_state);
         encoder.set_depth_stencil_state(&self.depth_stencil_state);
 
@@ -1123,6 +1271,9 @@ impl FrameRecorder for MetalRenderer {
         let mvp = self.view_projection * model;
         let uniforms = Uniforms {
             model_view_projection: mvp.to_cols_array_2d(),
+            // World matrix for the KE-0401 look stack: the shader reconstructs
+            // world position + normal for distance fog and the blob shadow.
+            model: model.to_cols_array_2d(),
         };
         let uniform_offset = self.write_uniform_to_ring(&uniforms);
 

@@ -63,6 +63,22 @@ tree. Imported geometry packs onto `[pos,normal,color]` with a default vertex co
 through the existing pipeline immediately; parsed UVs are retained on `MeshAsset::uvs` for the KE-0403
 textured pipeline. `car-runner` now loads its player mesh from a committed `assets/cube.gltf`.
 
+**Modern-look rendering stack (KE-0401).** Below the seam, `kaman-render` applies a small,
+mobile/TBDR-safe look stack — nothing above the seam learns about it. In pass order per frame:
+(1) **sRGB + tonemap** — lighting is computed in linear space and presented through an explicit
+ACES filmic tonemap + sRGB encode in the fragment shaders (`present_color`), so colors are correct
+and not washed out even though both render targets are `*Unorm`; (2) a **gradient sky** fullscreen
+triangle replaces the flat clear, drawn depth-test/write-disabled; (3) **distance fog** blends far
+geometry into the sky horizon color, hiding the streaming spawn edge (pairs with KE-0203);
+(4) a cheap **directional blob shadow** projected onto the ground plane grounds the car (no shadow
+map). **MSAA** (4x) wraps all of it: the scene renders into a multisampled color + depth attachment
+and resolves **in-tile** into the single-sample target via the `MultisampleResolve` store action, so
+the multisampled buffers never spill to system memory. The MSAA color/depth attachments are
+**memoryless-ready**: their storage mode is a single cfg hook (`MSAA_MEMORYLESS`, iOS ⇒
+`Memoryless`), which **KE-0305** flips for iOS; macOS uses `Private`. The offscreen pixel-hash path
+still produces a readable, resolved single-sample texture. **Bloom is deferred** (see the KE-0401
+report). Because the look changed intentionally, both pixel-hash references were re-blessed.
+
 ## 3. Workspace layout
 
 ```

@@ -59,10 +59,27 @@ const HEIGHT: u32 = 64;
 /// `set_position((0,0,3))` / `set_target((0,0,0))` and identical defaults (45°
 /// FOV, `0.1..100.0` clip, `+Y` up) yields the **identical** view-projection
 /// matrix. The geometry (`reference_cube`) and its transform are untouched, so the
-/// rendered pixels — and thus the FNV-1a hash — are byte-for-byte the same. The
-/// value below is therefore confirmed (re-verified through the new seam path),
-/// not changed.
-const REFERENCE_HASH: u64 = 0x292c5df343b5eba8;
+/// rendered pixels — and thus the FNV-1a hash — are byte-for-byte the same.
+///
+/// # KE-0401 re-bless (value CHANGES — intentional look change)
+///
+/// KE-0401 intentionally changes the *look* while leaving the geometry, camera,
+/// and transform byte-for-byte identical: the background is now a gradient sky
+/// (not the flat clear), lighting is presented through an ACES tonemap + sRGB
+/// encode, distance fog blends toward the sky horizon, a directional blob shadow
+/// grounds geometry, and the scene is 4x MSAA resolved in-tile. Every one of
+/// these changes the rendered pixel values, so this hash MUST be re-blessed. Run:
+///
+/// ```text
+/// BLESS=1 cargo test -p kaman-render --test pixel_hash -- --nocapture
+/// ```
+///
+/// and paste the printed value below. The re-bless is justified because the
+/// pixel change is the *point* of the ticket (look), not a geometry regression.
+// KE-0401: re-blessed. Was 0x292c5df343b5eba8 through KE-0102..0403; the modern-look
+// stack (linear+ACES tonemap+sRGB, gradient sky, distance fog, blob shadow, 4x MSAA)
+// intentionally changes the rendered pixels. Geometry/camera/transform are unchanged.
+const REFERENCE_HASH: u64 = 0x2de86f2816d94904;
 
 /// FNV-1a 64-bit hash over a byte buffer. Self-contained (no external crate) so
 /// the golden hash has no dependency surface.

@@ -46,7 +46,22 @@ const HEIGHT: u32 = 64;
 ///
 /// Blessed from this renderer's first correct textured frame. Re-bless only via
 /// the documented `BLESS=1` path with a justification note.
-const REFERENCE_HASH: u64 = 0x2bb6c070d635c975;
+///
+/// # KE-0401 re-bless (value CHANGES — intentional look change)
+///
+/// The textured pipeline now runs the same KE-0401 present stack (ACES tonemap +
+/// sRGB encode), distance fog, blob shadow, and 4x MSAA resolve as the untextured
+/// path. The mesh, texture (checkerboard), camera, and transform are unchanged,
+/// so this is a pure look change — the non-uniformity assertion below still holds
+/// — but the pixel bytes shift, so the hash MUST be re-blessed:
+///
+/// ```text
+/// BLESS=1 cargo test -p kaman-render --test textured_pixel_hash -- --nocapture
+/// ```
+// KE-0401: re-blessed. Was 0x2bb6c070d635c975 (KE-0403); the modern-look stack
+// (linear+ACES tonemap+sRGB, sky, fog, shadow, 4x MSAA) intentionally changes the
+// pixels. Geometry/camera/transform and the checkerboard texture are unchanged.
+const REFERENCE_HASH: u64 = 0x5a5d92f5482c0939;
 
 /// FNV-1a 64-bit over a byte buffer (self-contained, no external crate).
 fn fnv1a_64(bytes: &[u8]) -> u64 {
