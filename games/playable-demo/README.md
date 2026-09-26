@@ -150,8 +150,22 @@ Regenerate `assets/skyline.gltf` with:
 cargo run -p playable-demo --example gen_skyline
 ```
 
-> Fog/blend polish (how strongly the distance fog washes the skyline) is a planned
-> follow-up, to be tuned with the fog work.
+### Ground-hugging horizon fog
+
+The engine's distance fog is **height-attenuated** (KE-0706), which lets it do two
+jobs that would otherwise conflict:
+
+- **Hide the streaming spawn edge.** Content streams in at `spawn_ahead = 60` units
+  (≈72 from the trailing camera). The fog ramps from `fog_start = 35` at
+  `fog_density = 0.10`, so anything at the spawn distance is fully blended into the
+  horizon color — geometry fades up as it approaches instead of popping in.
+- **Leave the skyline readable.** `apply_fog` scales that fog by
+  `exp(-max(worldY - fogHeight, 0) / fogFalloff)` (`fog_height = 2.0`,
+  `fog_falloff = 5.0`), so the fog is full strength at roadway level and thins with
+  altitude. The skyline's base merges into the fog bank while its tops stay crisp.
+
+The `fog_height` / `fog_falloff` uniforms occupy what was padding in
+`LightUniforms`, so the block is still 128 bytes and the Rust/MSL layouts match.
 
 ### Elevated freeway: roadside buildings, guardrails, terrain
 

@@ -99,6 +99,18 @@ fn skyline_png(src_path: &Path) -> (Vec<u8>, u32, u32) {
 /// frame becomes the waterfront row, which reads as haze behind the terrain.
 const V_SHIFT: f32 = -0.05;
 
+/// World height that **one full image height** occupies on the backdrop. The demo's
+/// `BACKDROP_H` may be taller than this to extend the frame *downward*; the extra
+/// frame then reveals more of the image's bottom (and finally clamps to the
+/// waterfront row) instead of stretching or shifting the picture.
+const IMAGE_WORLD_H: f32 = 17.0;
+/// The demo's `BACKDROP_H` — **keep these in sync**. Growing it (with the demo
+/// lowering `BACKDROP_Y` by half the growth, so the top edge stays put) extends the
+/// frame downward at a constant picture scale.
+const FRAME_WORLD_H: f32 = 24.0;
+/// How many image-heights the frame covers, so the picture keeps its 1:1 scale.
+const V_SPAN: f32 = FRAME_WORLD_H / IMAGE_WORLD_H;
+
 /// Number of vertical strips the curved backdrop is built from (more = smoother
 /// curve).
 const SEGMENTS: u32 = 24;
@@ -123,7 +135,11 @@ fn billboard_arc() -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<u16>) {
     let mut uvs = Vec::new();
     let mut indices = Vec::new();
 
-    let (top_v, bot_v) = (-V_SHIFT, 1.0 - V_SHIFT);
+    // V runs 0 (image top) → 1 (image bottom). The top edge is offset by -V_SHIFT;
+    // the bottom edge sits one V_SPAN below it, so the picture keeps a constant
+    // scale and a taller frame simply reveals more of the image's bottom (clamping
+    // to the waterfront row once V passes 1).
+    let (top_v, bot_v) = (-V_SHIFT, -V_SHIFT + V_SPAN);
 
     // One vertical strip (top + bottom vertex) per column.
     for i in 0..=SEGMENTS {

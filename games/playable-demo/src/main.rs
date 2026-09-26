@@ -993,9 +993,9 @@ const TERRAIN_Z_FAR: f32 = -80.0;
 /// Half-width of the flat valley floor the road and buildings sit on — the terrain
 /// stays level at [`GROUND_Y`] out to here, so buildings rest flush, then rises.
 const TERRAIN_FLAT_HALF: f32 = 13.0;
-/// World `Y` the flanking hills crest at. Above the apparent horizon so the hills
-/// eclipse the sky behind the buildings.
-const HILL_CREST: f32 = 9.0;
+/// World `Y` the flanking hills crest at. Comfortably above the apparent horizon so
+/// the hills fully eclipse the sky behind the buildings.
+const HILL_CREST: f32 = 13.0;
 /// Number of columns across the terrain sheet (smoothness of the hill profile).
 const TERRAIN_COLUMNS: u32 = 96;
 
@@ -1078,14 +1078,16 @@ const BACKDROP_DIST: f32 = 45.0;
 /// Backdrop billboard width in world units — wide enough to span the view frustum
 /// at [`BACKDROP_DIST`].
 const BACKDROP_W: f32 = 150.0;
-/// Backdrop billboard height in world units. Kept short enough that the full
-/// skyline (building tops included) fits within the frame rather than running off
-/// the top.
-const BACKDROP_H: f32 = 17.0;
-/// World `Y` of the backdrop's center. Lowered so the billboard's bottom edge
-/// (`base = Y - H/2`) reaches below the horizon and covers the mid-ground, rather
-/// than leaving sky seeping between the skyline and the terrain/buildings.
-const BACKDROP_Y: f32 = 5.0;
+/// Backdrop billboard height in world units. One full image height renders as 17
+/// units; the extra height extends the frame **downward** (the generator's
+/// `V_SPAN` matches, so the picture keeps its scale and position and the extra
+/// frame just shows more of the image's bottom). Keep in sync with the
+/// `FRAME_WORLD_H` constant in `examples/gen_skyline.rs`.
+const BACKDROP_H: f32 = 24.0;
+/// World `Y` of the backdrop's center. Chosen so the frame's **top edge stays at
+/// `13.5`** while `BACKDROP_H` grows downward (`Y = 13.5 - H/2`), extending the
+/// frame's bottom to cover the mid-ground without moving the skyline picture.
+const BACKDROP_Y: f32 = 1.5;
 
 /// Import a model through the asset cache and return its drawable parts: one
 /// `(fitted transform, mesh handle, base-color texture)` per mesh-node. The file is

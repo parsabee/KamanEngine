@@ -23,9 +23,9 @@ buildings, so the horizon isn't empty sky.
       bow toward the camera (`BEND_DEPTH`) so the skyline wraps around the road.
 - [x] It sits behind the distance fog (KE-0401) so the transition to the sky is smooth, and does not
       z-fight or pop as the world streams/rebases. → drawn farthest (gameplay depth-tests over it) and
-      anchored to the player each frame, so a stream/rebase never shifts it. NOTE: fog/blend polish
-      (how strongly the fog washes the skyline vs its contrast) is **deferred** — revisit with the fog
-      work; for now the backdrop is placed closer + contrast-boosted so it reads clearly.
+      anchored to the player each frame, so a stream/rebase never shifts it. The fog/blend polish
+      originally deferred here is **done under KE-0706**: the fog is height-attenuated so it hugs the
+      ground (hiding the spawn edge) while the skyline rises clear out of the fog bank.
 - [x] Committed backdrop asset (skyline texture or silhouette mesh) under the demo's `assets/`.
       → CC0 source `assets/skyline_src.jpg` (NYC skyline, public domain) + the generated
       `assets/skyline.gltf` (cropped skyline band baked onto the curved billboard).

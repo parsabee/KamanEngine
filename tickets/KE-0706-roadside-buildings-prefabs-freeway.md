@@ -39,6 +39,17 @@ off the ground — so you're driving above the city.
       → prefab choice, side jitter and traffic variant all come from `hash_u64` over the streaming
       slot — deterministic and **independent of the lane PRNG**, so the obstacle world (and the smoke
       run's score of 23) is unchanged.
+- [x] **Deep horizon fog that hides the streaming spawn edge**, without washing out the distant
+      skyline backdrop (closes the fog follow-up deferred from KE-0705).
+      → the fog is now **height-attenuated**: `apply_fog` takes the fragment's world `Y` and scales
+      the distance fog by `exp(-max(worldY - fogHeight, 0) / fogFalloff)`, so it hugs the ground.
+      New `fog_height` / `fog_falloff` uniforms fit the existing `_padding4` slot, so `LightUniforms`
+      stays **128 bytes** and the Rust/MSL layouts still match. Tuned to `fog_start = 35`,
+      `fog_density = 0.10`, `fog_height = 2.0`, `fog_falloff = 5.0`: content at the `spawn_ahead = 60`
+      edge is fully blended into the horizon (no pop-in) while the skyline rises out of the fog bank.
+      Terrain `HILL_CREST` raised to 13 and the backdrop frame extended downward (picture unmoved) so
+      no sky seeps through. Below-seam change; **pixel-hash goldens unchanged** (the reference scenes
+      sit inside `fog_start`), so no re-bless was needed.
 
 ## Technical notes
 - Buildings are streamed content like obstacles but **non-colliding** decoration (don't give them the

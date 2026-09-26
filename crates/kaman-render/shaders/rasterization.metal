@@ -73,6 +73,8 @@ struct Light {
     float3 skyHorizonColor;            // Linear horizon color (fog blends toward this)
     float  fogDensity;                 // Exponential fog density (0 disables fog)
     float  fogStart;                   // View distance at which fog begins
+    float  fogHeight;                  // World Y at/below which fog is full strength
+    float  fogFalloff;                 // e-fold the fog thins over above fogHeight (0 = no falloff)
     float3 shadowCenter;               // World-space point the car sits above (blob center)
     float  shadowRadius;               // Blob shadow radius in world units
     float  shadowStrength;             // 0..1 darkening under the car
@@ -114,14 +116,22 @@ inline float3 present_color(float3 linearHdr) {
 // ============================================================================
 
 /// Exponential-squared distance fog blending `color` toward the horizon/sky
-/// color. Returns linear color (present happens afterward). Hides the streaming
-/// spawn edge by fading far geometry into the sky.
-inline float3 apply_fog(float3 color, float viewDist, constant Light& light) {
+/// color, **attenuated by world height**. Returns linear color (present happens
+/// afterward). Hides the streaming spawn edge by fading far geometry into the sky,
+/// while the height falloff keeps the fog hugging the ground so tall geometry (the
+/// skyline backdrop, high buildings) stays readable above it.
+inline float3 apply_fog(float3 color, float viewDist, float worldY, constant Light& light) {
     if (light.fogDensity <= 0.0) {
         return color;
     }
     float d = max(viewDist - light.fogStart, 0.0) * light.fogDensity;
     float fog = 1.0 - exp(-d * d);
+
+    // Height falloff: full strength at/below fogHeight, thinning upward.
+    if (light.fogFalloff > 0.0) {
+        fog *= exp(-max(worldY - light.fogHeight, 0.0) / light.fogFalloff);
+    }
+
     fog = clamp(fog, 0.0, 1.0);
     return mix(color, light.skyHorizonColor, fog);
 }
@@ -184,7 +194,7 @@ inline float3 lit_linear(float3 albedo, float3 worldNormal, float3 worldPos,
 
     float shadow = ground_shadow(worldPos, light);
     float3 lit = (ambient + (diffuse + specular) * shadow) * albedo;
-    return apply_fog(lit, viewDepth, light);
+    return apply_fog(lit, viewDepth, worldPos.y, light);
 }
 
 /// Calculate per-pixel lighting using Blinn-Phong shading model (untextured).

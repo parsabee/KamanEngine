@@ -126,7 +126,15 @@ pub struct LightUniforms {
     /// View distance at which fog begins. Offset 84.
     pub fog_start: f32,
     /// Alignment padding so `shadow_center` (a float3) lands 16-byte aligned at 96.
-    pub _padding4: [f32; 2],
+    /// World `Y` at or below which the distance fog is at **full** strength.
+    /// Above it the fog thins out over [`fog_falloff`](Self::fog_falloff), so the
+    /// fog hugs the ground/horizon (hiding the streaming spawn edge) without
+    /// washing out tall geometry like the skyline backdrop. Offset 88.
+    pub fog_height: f32,
+    /// How fast the fog thins above [`fog_height`](Self::fog_height), in world
+    /// units (an e-fold). `0` disables the height falloff (fog is uniform with
+    /// height, the pre-KE-0706 behaviour). Offset 92.
+    pub fog_falloff: f32,
     /// World-space point the car sits above (blob-shadow center). Offset 96.
     pub shadow_center: [f32; 3],
     /// Padding: `shadow_center` is an MSL `float3` (16 bytes), so `shadow_radius`
@@ -153,15 +161,22 @@ impl Default for LightUniforms {
             diffuse_intensity: 0.8,
             specular_intensity: 0.5,
             shininess: 32.0,
-            // Look defaults: a calm blue gradient sky, very light distance fog, and
-            // a soft blob shadow centered at the origin on a ground plane at y=-0.5.
+            // Look defaults: a calm blue gradient sky, a soft blob shadow centered at
+            // the origin on a ground plane at y=-0.5, and **deep horizon fog**: the
+            // scene stays completely clear out to `fog_start`, then the density ramps
+            // hard so everything near the streaming spawn edge is fully blended into
+            // the horizon — which hides content popping in at the spawn distance
+            // while leaving the mid-ground (and the skyline backdrop) crisp.
             sky_top_color: [0.09, 0.22, 0.44],
             _padding3: 0.0,
             sky_horizon_color: [0.55, 0.62, 0.72],
             _padding_horizon: 0.0,
-            fog_density: 0.012,
-            fog_start: 5.0,
-            _padding4: [0.0, 0.0],
+            fog_density: 0.10,
+            fog_start: 35.0,
+            // Fog hugs the ground: full strength at/below the roadway, thinning
+            // upward so the skyline backdrop and tall buildings stay readable.
+            fog_height: 2.0,
+            fog_falloff: 5.0,
             shadow_center: [0.0, 0.0, 0.0],
             _padding_shadow: 0.0,
             shadow_radius: 1.2,
