@@ -10,6 +10,11 @@ repository.workspace = true
 
 [dependencies]
 kaman-math.workspace = true
+# The audio layer (KE-0405). `kaman-audio` is a leaf that owns the `kira`/`cpal`
+# dependency, and `kaman-core` is its only engine-side consumer: the loop owns one
+# `Audio` and hands it to the game through `EngineCtx`. No other engine crate —
+# and nothing below the render seam — gains an audio dependency.
+kaman-audio.workspace = true
 kaman-ecs.workspace = true
 kaman-camera.workspace = true
 kaman-scene.workspace = true

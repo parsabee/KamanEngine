@@ -10,13 +10,18 @@
 //! output so the buffer/frames-in-flight refactors (KE-0103/0104/0105) can prove
 //! they preserved behavior.
 //!
-//! Two independent references are pinned, each with its own baseline constant:
+//! Three independent references are pinned, each with its own baseline constant:
 //!
 //! 1. **The 3D reference scene** ([`REFERENCE_HASH`]) — a lit, rotated box through
 //!    the Phong pipeline and the KE-0401 look stack.
 //! 2. **The 2D reference overlay** ([`OVERLAY_REFERENCE_HASH`], KE-0404) — the HUD
 //!    overlay pass: a solid quad, a textured quad, an SDF quad, and a pair of
 //!    overlapping partial-alpha quads whose record order the blend must respect.
+//! 3. **The sun disc** ([`SUN_REFERENCE_HASH`], KE-0406) — an empty frame (so it is
+//!    purely the sky pass) with the sun placed in view, guarding the disc, its glow
+//!    falloff, and the azimuth convention. The other two point *away* from the sun
+//!    on purpose, which is what makes reference 2 a useful canary but also left the
+//!    disc with no coverage until this one existed.
 //!
 //! They are separate renders (separate offscreen backends) so a change to one
 //! cannot shift the other's pixels, and a failure names which pass regressed.
@@ -94,7 +99,29 @@ const HEIGHT: u32 = 64;
 // Re-blessed: fixing the LightUniforms<->MSL Light struct padding mismatch made
 // the look stack (fog/shadow/lighting) actually apply as intended, so the
 // reference box now renders lit-red instead of fully fogged to the horizon color.
-const REFERENCE_HASH: u64 = 0x90d4631260adc5cc;
+//
+// KE-0406: re-bless REQUIRED (intended look change). Three deliberate changes move
+// this scene's pixels, none of them geometry:
+//   1. Ambient is rebalanced as sky fill (0.6 -> 0.2) against an unchanged diffuse
+//      0.8, so the box's unlit faces darken and it reads sunlit instead of overcast.
+//   2. Specular is view-dependent: `viewDir` now comes from the camera position
+//      pushed through the seam instead of a hardcoded (0,0,1), and a highlight is
+//      suppressed on faces the sun does not reach.
+//   3. The default sun is expressed as elevation 60 / azimuth 120 via `SunSky`,
+//      which reproduces the old (-0.5,-1.0,-0.3) direction to within ~0.01 after
+//      normalisation — a sub-degree shift, but a pixel-level one.
+// The sky gradient colours are unchanged, and the sun disc is nowhere near this
+// frame (the default sun is ~75 degrees off the view axis, far outside the 18-degree
+// glow), so the background is expected to be identical. Geometry, camera position,
+// target and transform are all untouched.
+//
+// Blessed 2026-09-26: 0x90d4631260adc5cc -> 0xc3bc162d10925b22. The same blessing
+// run reprinted OVERLAY_REFERENCE_HASH unchanged, and the frame was checked to be
+// genuinely lit rather than flat (mean luminance 157, sd 66 over 34..216, 144
+// distinct values, the red box covering 1421 of 4096 pixels) — the failure mode
+// the KE-0401 note above describes is a low-variance frame fogged to the horizon
+// colour, which this is not.
+const REFERENCE_HASH: u64 = 0xc3bc162d10925b22;
 
 /// Committed baseline hash of the **reference overlay**'s pixels (FNV-1a 64-bit).
 ///
@@ -119,7 +146,51 @@ const REFERENCE_HASH: u64 = 0x90d4631260adc5cc;
 ///
 /// From here it is a normal golden baseline: hold it stable, and re-bless only via
 /// the documented path with a justification note in the commit message.
+///
+/// # KE-0406 (value must NOT change)
+///
+/// KE-0406 changes lighting and adds a sun disc to the sky, and this reference
+/// renders the sky behind its quads — so it is the canary for a look change leaking
+/// into screen space. It must come back **unchanged**, and the change was built so
+/// that it provably does:
+///
+/// - The ambient rebalance and the view-dependent specular only affect *shaded
+///   geometry*, and this reference deliberately draws none.
+/// - The sky gradient formula and the default zenith/horizon colours are untouched.
+/// - This reference pushes no camera, so the view-projection is the identity, whose
+///   inverse unprojects every pixel to the same view ray `(0, 0, 1)`. The default
+///   sun sits ~75° off it, well outside the 18° glow extent, so the sun term is
+///   exactly zero at every pixel — a multiply by zero, not a small value.
+///
+/// If this hash moves, one of those three claims is false: look for lighting state
+/// bleeding into the overlay pass rather than re-blessing it.
 const OVERLAY_REFERENCE_HASH: u64 = 0x2b3859048070b2b6;
+
+/// Committed baseline hash of the **sun-disc reference**'s pixels (FNV-1a 64-bit).
+///
+/// Guards the KE-0406 sun disc and its glow, which nothing else covers: both other
+/// references deliberately point away from the sun, and the `playable-demo` camera
+/// cannot frame it. See [`render_reference_sun`] for why an empty frame is the
+/// right isolation here.
+///
+/// # KE-0406 first blessing
+///
+/// Blessed 2026-09-26. Unlike the other two, this frame is *mostly* sun glow, so a
+/// regression that silently dropped the disc would still leave a smooth gradient
+/// behind and could hash stably forever. Two things were therefore checked before
+/// accepting the value, and both are recorded here because neither is obvious from
+/// the constant alone:
+///
+/// - **The disc is really on screen.** The brightest pixel saturates at 255 at
+///   `(x=31, y=20)` of 64x64 — horizontally centred and above centre, exactly where
+///   a sun due north at 8 degrees lands for a level camera looking north. It sits
+///   1.21x its own row's mean; the ratio is modest because the disc spans only
+///   ~2.7 pixels at this resolution and the glow already lifts the whole row, which
+///   is why the disable check below matters more than the ratio.
+/// - **The hash actually depends on the disc.** Setting `SUN_DISC_GAIN` to `0` in
+///   the shader moved this hash to `0x79a74f9a300fd87d`; restoring it brought
+///   `0x93bf3a3f86062cbd` back. The guard is live, not decorative.
+const SUN_REFERENCE_HASH: u64 = 0x93bf3a3f86062cbd;
 
 /// FNV-1a 64-bit hash over a byte buffer. Self-contained (no external crate) so
 /// the golden hash has no dependency surface.
@@ -274,8 +345,16 @@ fn render_reference() -> Option<Vec<u8>> {
         Quat::from_rotation_y(0.5) * Quat::from_rotation_x(0.3),
     );
 
-    renderer.begin_frame();
+    // Push the camera *before* opening the frame, the order the engine loop uses:
+    // the sky pass runs at `begin_frame`, so the frame's camera must be in effect
+    // by then for it to place the sun (KE-0406). The camera itself — position,
+    // target and every default — is unchanged; only the call order is.
     renderer.set_view_projection(camera.view_projection_matrix());
+    // The eye position for view-dependent specular (KE-0406); the same camera,
+    // just fully described.
+    renderer.set_camera_position(camera.position());
+
+    renderer.begin_frame();
     renderer.set_pipeline(pipeline);
     renderer.draw_mesh(mesh, &transform, &MaterialParams::default());
     renderer.submit();
@@ -449,4 +528,77 @@ fn reference_overlay_matches_committed_hash() {
     };
 
     bless_or_assert(&pixels, OVERLAY_REFERENCE_HASH, "OVERLAY_REFERENCE_HASH");
+}
+
+// ============================================================================
+// Reference 3: the sun disc (KE-0406)
+// ============================================================================
+//
+// Neither reference above frames the sun: both use a camera whose view axis is
+// ~75 degrees off the default sun, well outside the 18-degree glow, so the disc
+// and glow contribute *exactly* zero to their pixels. That is deliberate for
+// them — it is what makes `OVERLAY_REFERENCE_HASH` a usable canary — but it left
+// the disc itself with no golden coverage at all, and the `playable-demo` camera
+// cannot show it either (it pitches 20.6 degrees down, so its top of frame sits
+// 1.9 degrees above the horizon). This third reference exists solely to put the
+// sun on screen, so the disc, the glow falloff and the azimuth convention are
+// pinned by pixels and not only by unit tests on the direction math.
+
+/// Sun/sky for the sun-disc reference.
+///
+/// The sun is placed **due north at 8 degrees** and viewed by a level camera
+/// looking north, which puts the disc slightly above frame centre with the glow
+/// falling off into the gradient all around it. Azimuth `0` is the convention's
+/// north (`-Z`), so this frame also witnesses that convention: were the bearing
+/// ever redefined, the sun would leave the frame and this hash would move.
+///
+/// The colours match the `playable-demo`'s summer-afternoon sun, so this
+/// reference guards the look the game actually asks for.
+fn reference_sun_sky() -> kaman_render_api::SunSky {
+    kaman_render_api::SunSky {
+        sun_elevation_deg: 8.0,
+        sun_azimuth_deg: 0.0,
+        sun_color: [1.0, 0.96, 0.88],
+        sun_intensity: 1.15,
+        sky_fill: 0.22,
+        sky_zenith_color: [0.11, 0.27, 0.56],
+        sky_horizon_color: [0.62, 0.67, 0.74],
+    }
+}
+
+/// Render the sun-disc reference offscreen and return its pixel bytes, or `None`
+/// if no Metal device is available.
+///
+/// Draws **no geometry**: the sky is a fullscreen pass inside `begin_frame`, so an
+/// empty frame is exactly the sky and nothing else. That isolates the disc from
+/// any lighting or mesh change — only the sky shader and the sun direction can
+/// move these pixels. The camera is pushed *before* `begin_frame` because the sky
+/// pass runs there and unprojects the frame's camera to get its view rays.
+fn render_reference_sun() -> Option<Vec<u8>> {
+    let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
+
+    // Level camera at the origin looking north (`-Z`), so the horizon crosses the
+    // middle of the frame and the sky fills the upper half.
+    let mut camera = Camera::new(WIDTH as f32 / HEIGHT as f32);
+    camera.set_position(Vec3::ZERO);
+    camera.set_target(Vec3::new(0.0, 0.0, -1.0));
+
+    renderer.set_sun_sky(&reference_sun_sky());
+    renderer.set_view_projection(camera.view_projection_matrix());
+    renderer.set_camera_position(camera.position());
+
+    renderer.begin_frame();
+    renderer.submit();
+
+    renderer.read_pixels()
+}
+
+#[test]
+fn reference_sun_matches_committed_hash() {
+    let Some(pixels) = render_reference_sun() else {
+        skip_no_gpu("reference-sun");
+        return;
+    };
+
+    bless_or_assert(&pixels, SUN_REFERENCE_HASH, "SUN_REFERENCE_HASH");
 }

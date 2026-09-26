@@ -63,7 +63,17 @@ const HEIGHT: u32 = 64;
 // pixels. Geometry/camera/transform and the checkerboard texture are unchanged.
 // Re-blessed: the LightUniforms<->MSL Light padding fix makes fog/shadow/lighting
 // apply correctly, changing the textured quad's shaded pixels.
-const REFERENCE_HASH: u64 = 0xdb98efc9ab5028c9;
+//
+// KE-0406: re-bless REQUIRED (intended look change). The textured pipeline shares
+// `lit_linear` with the untextured one, so it moves with the 3D reference for the
+// same reasons: ambient rebalanced as sky fill (0.6 -> 0.2), specular now derived
+// from the camera position pushed through the seam instead of a constant (0,0,1),
+// and the default sun re-expressed as elevation 60 / azimuth 120 (the same
+// direction to ~0.01). Geometry, camera, transform and the checkerboard texture are
+// unchanged; the sun disc is far outside this frame.
+//
+// Blessed 2026-09-26: 0xdb98efc9ab5028c9 -> 0x4aa6c2b1732c4ac7.
+const REFERENCE_HASH: u64 = 0x4aa6c2b1732c4ac7;
 
 /// FNV-1a 64-bit over a byte buffer (self-contained, no external crate).
 fn fnv1a_64(bytes: &[u8]) -> u64 {
@@ -164,8 +174,13 @@ fn render_textured() -> Option<Vec<u8>> {
         rgba8: &pixels,
     });
 
-    renderer.begin_frame();
+    // Camera pushed before the frame opens, matching the engine loop: the sky pass
+    // runs inside `begin_frame` and needs the frame's camera to place the sun
+    // (KE-0406). The camera's position/target/defaults are unchanged.
     renderer.set_view_projection(camera.view_projection_matrix());
+    renderer.set_camera_position(camera.position());
+
+    renderer.begin_frame();
     renderer.set_pipeline(pipeline);
     renderer.bind_texture(texture);
     renderer.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());

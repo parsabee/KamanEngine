@@ -118,8 +118,10 @@ targets (`./scripts/preflight.sh --ios`). Tickets below are intentionally rough 
 | KE-0401 | Modern-look rendering stack | P1 | Refactor | L · A1 | Done | KE-0102, KE-0205 | KR4.1 |
 | KE-0402 | Static glTF import (`kaman-assets`) + flexible vertex layout | P1 | New | L · A2 | Done | KE-0006, KE-0102, KE-0103 | KR4.2 |
 | KE-0403 | Textures + ASTC + mipmaps (base-color sampling) | P1 | New | M · A2 | Done | KE-0402 | KR4.2 |
-| KE-0404 | 2D HUD / SDF text overlay | P1 | New | M · A1 | Todo | KE-0102 | KR4.3 |
-| KE-0405 | Audio (kira) | P1 | New | M · A0 | Todo | KE-0101 | KR4.3 |
+| KE-0404 | 2D HUD / SDF text overlay | P1 | New | M · A1 | Done | KE-0102 | KR4.3 |
+| KE-0405 | Audio (kira) | P1 | New | M · A0 | Done | KE-0101 | KR4.3 |
+| KE-0406 | Drivable sun + sky sun disc (lighting through the seam) | P1 | Refactor | M · A2 | Done | KE-0401, KE-0102 | KR4.1 |
+| KE-0407 | Real shadows: fitted shadow-map pass | P1 | New | L · A2 | Todo | KE-0406 | KR4.1 |
 
 Mostly macOS/CLT-friendly (the runner uses real meshes/textures/HUD/audio on macOS); ASTC + iOS
 audio-session/safe-area specifics finish alongside Phase 3.
@@ -139,19 +141,19 @@ audio-session/safe-area specifics finish alongside Phase 3.
 | KE-0602 | Device profiling: GPU capture + thermal/memory | P2 | Refactor | S · A0 |
 | KE-0603 | App Store validation + crash-free soak | P2 | New | S · A0 |
 
-### Phase 7 — Playable Demo  *(active — highest priority; pulled forward ahead of Phases 3–6)*
+### Phase 7 — Playable Demo  *(complete — 8/8; pulled forward ahead of Phases 3–6)*
 A complete, good-looking, playable macOS vertical slice that is the **reference example** users
 follow to build a game on the engine. Drives engine features by real need.
 | # | Title | Pri | Int | Size | Status | Depends | Serves |
 |---|---|---|---|---|---|---|---|
 | KE-0701 | Rename the game to `playable-demo` | P0 | Refactor | S · A1 | Done | KE-0204 | KR7.3 |
 | KE-0702 | Discrete lane control + game states + score/replay | P0 | Refactor | M · A2 | Done | KE-0701, KE-0707 | KR7.1 |
-| KE-0703 | Car model assets (player + traffic) | P0 | New | M · A1 | Todo | KE-0701, KE-0402 | KR7.2 |
-| KE-0704 | Asphalt road texture | P1 | New | S · A0 | Todo | KE-0701, KE-0403 | KR7.2 |
-| KE-0705 | Distant city backdrop | P1 | New | M · A1 | Todo | KE-0701, KE-0401 | KR7.2 |
-| KE-0706 | Roadside buildings (prefabs) + elevated freeway | P1 | New | L · A1 | Todo | KE-0701, KE-0703, KE-0203 | KR7.2 |
-| KE-0707 | Demo HUD: score + game-over / replay | P0 | New | M · A1 | Todo | KE-0701, KE-0404 | KR7.1 |
-| KE-0708 | Document the demo as a reference example | P0 | New | M · A0 | Todo | KE-0702–0707 | KR7.3 |
+| KE-0703 | Car model assets (player + traffic) | P0 | New | M · A1 | Done | KE-0701, KE-0402 | KR7.2 |
+| KE-0704 | Asphalt road texture | P1 | New | S · A0 | Done | KE-0701, KE-0403 | KR7.2 |
+| KE-0705 | Distant city backdrop *(superseded — backdrop removed 2026-09-26)* | P1 | New | M · A1 | Done | KE-0701, KE-0401 | KR7.2 |
+| KE-0706 | Roadside buildings (prefabs) + elevated freeway | P1 | New | L · A1 | Done | KE-0701, KE-0703, KE-0203 | KR7.2 |
+| KE-0707 | Demo HUD: score + game-over / replay | P0 | New | M · A1 | Done | KE-0701, KE-0404 | KR7.1 |
+| KE-0708 | Document the demo as a reference example | P0 | New | M · A0 | Done | KE-0702–0707 | KR7.3 |
 
 **Phase 7 needs, from earlier phases:** glTF import (KE-0402 ✅), textures (KE-0403 ✅), and the HUD
 text feature (KE-0404, Phase 4 — implement as part of this push, it blocks KE-0707).

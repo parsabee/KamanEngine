@@ -85,6 +85,23 @@ the multisampled buffers never spill to system memory. The MSAA color/depth atta
 still produces a readable, resolved single-sample texture. **Bloom is deferred** (see the KE-0401
 report). Because the look changed intentionally, both pixel-hash references were re-blessed.
 
+**Drivable sun + sky (KE-0406).** KE-0401's look stack was hardcoded: the light was written into a
+Metal buffer once at renderer construction and never updated, so nothing above the seam could set
+the sun. The seam now carries an engine-generic `SunSky` — sun **elevation and azimuth in degrees**,
+colour, intensity, an ambient **sky-fill** level, and the sky gradient's zenith/horizon colours —
+pushed with `FrameRecorder::set_sun_sky` and uploaded **per frame** (into a ring with one slot per
+in-flight frame, so the per-frame path stays allocation-free). Azimuth is a compass bearing with
+`-Z` as north and `+X` as east; the convention is documented and unit-tested in `kaman-render-api`
+rather than left implicit. The light *direction* is derived once from the angles and is the single
+source of truth for both the shading and the new **sun disc + glow** in the sky pass, so turning the
+sun moves them together. The camera's **world position** crosses the seam too
+(`set_camera_position`), making specular view-dependent instead of using a constant view vector, and
+the ambient term is rebalanced as sky fill (0.6 → 0.2 against diffuse 0.8, which previously left
+unlit faces at 43% of lit and read overcast). **Time of day is not an engine concept**: the
+playable demo's "summer 4pm" sun is a set of named constants in the *demo's* config, pushed through
+the seam. The two 3D pixel-hash baselines were re-blessed; the screen-space overlay baseline is
+unchanged, which is the proof the change stayed in the 3D passes.
+
 ## 3. Workspace layout
 
 ```
@@ -100,6 +117,7 @@ kaman-engine/
 │   ├── kaman-render        # raw-Metal impl of kaman-render-api      (refactor)
 │   ├── kaman-core          # app/lifecycle + platform (#[cfg])       (refactor)
 │   ├── kaman-assets        # glTF + textures                         (new)
+│   ├── kaman-audio         # kira wrapper: sounds/one-shots/loops    (new)
 │   └── kaman-script        # KamanScript lexer/parser/interpreter    (new)
 ├── games/
 │   └── playable-demo          # first title; only uses engine public API
@@ -110,7 +128,8 @@ kaman-engine/
 Dependency direction is acyclic: `kaman-math` is a leaf; `kaman-core` and `games/*` sit at
 the top. Game concepts (car, road, score) never enter engine crates — the boundary is a
 `Game` trait + `EngineCtx` seam (Phase 1), and self-scanning guard tests in `kaman-core`,
-`kaman-scene`, `kaman-assets` and `kaman-ecs` fail if a game-named symbol appears in them.
+`kaman-scene`, `kaman-assets`, `kaman-audio` and `kaman-ecs` fail if a game-named symbol appears in
+them.
 
 For how `games/playable-demo` sits on that boundary in practice — the only consumer of the public
 API today — see [PLAYABLE_DEMO.md](PLAYABLE_DEMO.md); for standing up a new game on it, see
@@ -125,7 +144,7 @@ API today — see [PLAYABLE_DEMO.md](PLAYABLE_DEMO.md); for standing up a new ga
 | Math | `glam` | leaf crate |
 | ECS | `hecs` | already integrated in the prototype |
 | Physics | `rapier3d` **now**, custom arcade/spatial-query **later** | v1 keeps rapier + adds a removal API; arcade feel migrates to a custom query layer post-v1 |
-| Audio | `kira` | Phase 4 |
+| Audio | `kira` | behind `kaman-audio`; see §4b |
 | Assets | `gltf` + `image` | static meshes only for v1 |
 | Scripting | KamanScript (custom) | frozen 20-construct spec → tree-walk interpreter → bytecode VM later; `mlua` is the fallback behind an `Interpreter` trait |
 
@@ -149,6 +168,34 @@ the sim rather than wedging the loop. The headless driver (synthetic clock, one
 step/frame — deterministic tests + `--smoke`) and the winit windowed driver (real
 monotonic clock, variable steps) share **one** loop implementation
 (`driver::drive_frame`); only the clock source differs.
+
+### 4b. Audio (KE-0405)
+
+`kaman-audio` wraps `kira` in five operations — `load` a file into an opaque `SoundHandle`,
+`play_once`, `play_looping`, `stop_looping`, `set_master_volume` — with levels in decibels
+(`Volume`). It is a **leaf**: its only dependency is `kira`, so `cpal`/CoreAudio reach the process
+through this crate and its single engine-side consumer, `kaman-core`. Nothing below the render seam,
+and no other engine crate, gains an audio dependency. `kira`'s feature set is trimmed the same way
+`gltf`/`image` are (`default-features = false`, only `cpal`, `cpal-realtime`, `wav`, `pcm` — the
+demo's assets are 16-bit PCM WAV and this engine is Apple-only, so mp3/ogg/vorbis/flac/aac and
+`cpal-realtime-dbus` are dead weight).
+
+Sounds are decoded **once, at load**, keyed by path (the KE-0103 handle discipline again), so no
+play call touches the filesystem and nothing on the per-frame path allocates. Playback is driven by
+game *events*, never polled from `update`. There is exactly **one loop channel**: re-asking for the
+sound already looping starts nothing, which makes a doubled music bed structurally impossible from
+above the seam rather than a rule each game has to remember.
+
+**It never needs an audio device and never fails.** Creating a `kira` mixer fails with no audio
+output (CI, a remote shell, `--smoke`); rather than push an `if audio_available` branch into every
+game, the layer degrades to a **silent mode** that still accepts loads and plays and still hands back
+valid handles — and that mode is constructible directly (`Audio::silent`), which is what `Loop::new`
+holds. So the headless driver and `--smoke` open no device at all, and only the windowed entry binds
+the mixer to the default output. Because the silent mode still *records* every request
+(`is_silent`, `looping`, `loop_starts`, `one_shots_played`, `one_shots_of`, `decode_count`), audio
+behaviour is asserted in plain unit tests with no hardware and nothing to listen to — the same
+approach as `NullRenderer` for draws. Which sound is "the music" and which is an effect is game
+policy: the engine takes a handle and a level.
 
 ## 5. Physics decision (v1)
 

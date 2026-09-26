@@ -45,6 +45,26 @@
 //!   semaphore) so the CPU never overwrites a region the GPU is still reading.
 //!   The cursor resets each `begin_frame`.
 //!
+//! # Per-frame light upload (KE-0406)
+//!
+//! The frame's shared fragment uniforms — the sun, the look params, and the
+//! camera block — are a [`LightUniforms`] uploaded **once per frame** into a
+//! second, dedicated ring (`light_ring`), partitioned exactly like the uniform
+//! ring: one [`UNIFORM_RING_STRIDE`]-byte slot per in-flight frame, selected by
+//! `frame_index % MAX_FRAMES_IN_FLIGHT`, so the frames-in-flight semaphore proves
+//! the CPU never rewrites a slot the GPU is still reading (see
+//! [`write_light_to_ring`](MetalRenderer)). It is written in `begin_frame`, before
+//! the sky pass, and the resulting offset is bound at fragment `[[buffer(0)]]` for
+//! the sky *and* every draw in the frame — one sun per frame, shared by the sky
+//! disc and the shading.
+//!
+//! It is a separate buffer from `uniform_ring` deliberately: the uniform ring may
+//! *reallocate* mid-frame when a frame exceeds its capacity, which would leave the
+//! frame-long light binding pointing at a stale offset in a dead buffer.
+//!
+//! Before KE-0406 the light was a single buffer written once at construction, so
+//! nothing above the seam could set the sun at all.
+//!
 //! # Frames-in-flight pacing (KE-0105)
 //!
 //! The backend triple-buffers with a counting [`FrameSemaphore`] initialized to
@@ -100,12 +120,12 @@ use objc::runtime::YES;
 use objc::{msg_send, sel, sel_impl};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use kaman_math::glam::Mat4;
+use kaman_math::glam::{Mat4, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::{
     FrameRecorder, MaterialParams, MeshData, MeshHandle, OverlayFill, OverlayQuad,
-    PipelineDescriptor, PipelineHandle, RenderDevice, TextureData, TextureHandle, VertexFormat,
-    VertexLayout,
+    PipelineDescriptor, PipelineHandle, RenderDevice, SunSky, TextureData, TextureHandle,
+    VertexFormat, VertexLayout,
 };
 
 use crate::frame_sync::FrameSemaphore;
@@ -397,7 +417,21 @@ pub struct MetalRenderer {
     overlay_textures: Vec<Option<TextureHandle>>,
     overlay_buffer: Option<metal::Buffer>,
     overlay_buffer_capacity: usize,
-    light_buffer: metal::Buffer,
+
+    // The frame's shared fragment uniforms (sun + look + camera), kept CPU-side
+    // and uploaded **once per frame** into `light_ring` (KE-0406). Sticky: the
+    // sun/sky half is replaced by `set_sun_sky`, the camera half is refreshed from
+    // `view_projection` / `camera_position` as each frame opens.
+    light: LightUniforms,
+    // Per-frame ring for `light`, partitioned exactly like `uniform_ring`: one
+    // `UNIFORM_RING_STRIDE`-byte slot per in-flight frame, selected by
+    // `frame_index % MAX_FRAMES_IN_FLIGHT`. See `write_light_to_ring` for why that
+    // is enough to never stomp a slot the GPU is still reading. A separate buffer
+    // from `uniform_ring` on purpose: the light is written once at `begin_frame`
+    // and bound for the whole frame, whereas `uniform_ring` may *reallocate*
+    // mid-frame when it grows, which would leave a frame-long binding dangling at
+    // a stale offset in a dead buffer.
+    light_ring: metal::Buffer,
 
     // The world → clip view-projection, pushed through the seam via
     // `set_view_projection` (KE-0205). The backend owns no camera; the
@@ -406,6 +440,12 @@ pub struct MetalRenderer {
     // **sticky** — retained across frames until replaced (the engine pushes it
     // once per frame before the game records) — and defaults to identity.
     view_projection: Mat4,
+    // The camera's world position, pushed through the seam alongside the matrix
+    // (KE-0406) so view-dependent specular knows where the eye is. Sticky, and
+    // the origin until the first push. Deliberately *not* derived from
+    // `view_projection`: the caller already has it, and inverting a projection to
+    // get it back is both wasteful and numerically fragile.
+    camera_position: Vec3,
 
     // Persistent per-draw uniform ring (KE-0104). One `MTLBuffer` allocated at
     // build time and re-written every frame at rotating, 256-byte-aligned
@@ -483,6 +523,10 @@ struct FrameState {
     /// `set_pipeline`). Drives whether `draw_mesh` binds the material uniform +
     /// sampler. Defaults to the untextured pipeline (bound in `begin_frame`).
     textured_pipeline: bool,
+    /// Byte offset into `light_ring` of *this* frame's light upload (KE-0406).
+    /// Captured when the frame opens so the sky pass and every later `draw_mesh`
+    /// bind the identical bytes — the sun cannot change mid-frame.
+    light_offset: u64,
 }
 
 impl MetalRenderer {
@@ -742,10 +786,14 @@ impl MetalRenderer {
         sky_depth_descriptor.set_depth_write_enabled(false);
         let sky_depth_stencil_state = device.new_depth_stencil_state(&sky_depth_descriptor);
 
+        // The light is uploaded per frame (KE-0406), so this buffer is a ring of
+        // one slot per in-flight frame rather than a single blob written once at
+        // construction. Same 256-byte stride as the uniform ring, which both keeps
+        // every `set_fragment_buffer` offset 256-byte aligned (Apple GPU
+        // requirement) and leaves room for the struct to grow.
         let light = LightUniforms::default();
-        let light_buffer = device.new_buffer_with_data(
-            &light as *const LightUniforms as *const _,
-            mem::size_of::<LightUniforms>() as u64,
+        let light_ring = device.new_buffer(
+            MAX_FRAMES_IN_FLIGHT * UNIFORM_RING_STRIDE,
             MTLResourceOptions::CPUCacheModeDefaultCache,
         );
 
@@ -771,9 +819,12 @@ impl MetalRenderer {
             overlay_textures: Vec::new(),
             overlay_buffer: None,
             overlay_buffer_capacity: 0,
-            light_buffer,
-            // No camera pushed yet; identity until the first `set_view_projection`.
+            light,
+            light_ring,
+            // No camera pushed yet; identity until the first `set_view_projection`,
+            // and the origin until the first `set_camera_position`.
             view_projection: Mat4::IDENTITY,
+            camera_position: Vec3::ZERO,
             uniform_ring,
             ring_draws_per_frame,
             ring_cursor: 0,
@@ -788,7 +839,7 @@ impl MetalRenderer {
             meshes: Registry::new(),
             pipelines: Vec::new(),
             textures: Vec::new(),
-            // Two construction-time allocations: the `light_buffer` and the
+            // Two construction-time allocations: the `light_ring` and the
             // persistent `uniform_ring`. Both are load-time, off the hot path.
             alloc_count: AtomicU64::new(2),
             frame: None,
@@ -1119,6 +1170,43 @@ impl MetalRenderer {
         offset
     }
 
+    /// Fold this frame's camera into the light block, write it into the light
+    /// ring, and return the **256-byte-aligned byte offset** to bind at (KE-0406).
+    ///
+    /// Called once per frame from [`begin_frame`](FrameRecorder::begin_frame); the
+    /// returned offset is bound for the sky pass and every draw in the frame, so
+    /// one frame shades with exactly one sun.
+    ///
+    /// # Why this cannot race a frame the GPU is still reading
+    ///
+    /// The ring has one slot per in-flight frame and this picks
+    /// `frame_index % MAX_FRAMES_IN_FLIGHT` — the same partitioning, and the same
+    /// argument, as the per-draw uniform ring (KE-0105). Frame `F` writes slot
+    /// `F mod 3`, which is next written by frame `F + 3`; the CPU cannot *begin*
+    /// frame `F + 3` until frame `F`'s command-buffer completion handler has
+    /// released a semaphore permit, and this write happens after `begin_frame`
+    /// acquired one. So the slot is provably retired before it is rewritten.
+    ///
+    /// Writing straight into the ring (rather than allocating a buffer per frame)
+    /// also keeps the per-frame path allocation-free (KR1.2): the buffer is created
+    /// once at construction and never grows — a `LightUniforms` is asserted to fit
+    /// one slot by `light_uniforms_fits_one_uniform_ring_slot`.
+    fn write_light_to_ring(&mut self) -> u64 {
+        // The camera half of the block is refreshed here, from the sticky seam
+        // values, so it always matches the matrix this frame's draws project with.
+        self.light.apply_camera(self.camera_position, self.view_projection);
+
+        let offset = (self.frame_index % MAX_FRAMES_IN_FLIGHT) * UNIFORM_RING_STRIDE;
+        // SAFETY: the ring is `MAX_FRAMES_IN_FLIGHT * UNIFORM_RING_STRIDE` bytes and
+        // a `LightUniforms` fits one stride (asserted in `vertex.rs`), so the write
+        // is in bounds; the buffer is CPU-visible and `LightUniforms` is POD.
+        unsafe {
+            let dst = (self.light_ring.contents() as *mut u8).add(offset as usize);
+            std::ptr::write(dst as *mut LightUniforms, self.light);
+        }
+        offset
+    }
+
     /// Double the per-frame ring capacity and reallocate the backing buffer.
     ///
     /// Called only from [`write_uniform_to_ring`](Self::write_uniform_to_ring)
@@ -1195,6 +1283,24 @@ impl MetalRenderer {
     #[must_use]
     pub fn frame_index_for_test(&self) -> u64 {
         self.frame_index
+    }
+
+    /// The light block as it stands CPU-side (KE-0406). Test aid: lets a test
+    /// assert a [`SunSky`] pushed through the seam actually became the bytes the
+    /// shader will read — including that the light direction is the one
+    /// [`SunSky::direction`] derives — without a GPU readback.
+    #[must_use]
+    pub fn light_for_test(&self) -> LightUniforms {
+        self.light
+    }
+
+    /// Byte offset in the light ring that the *next* frame's light upload will bind
+    /// at (KE-0406). Test aid: proves the light rotates through one slot per
+    /// in-flight frame, `0, 256, 512, 0, …`, instead of being overwritten in place
+    /// while the GPU may still be reading it.
+    #[must_use]
+    pub fn light_offset_for_test(&self) -> u64 {
+        (self.frame_index % MAX_FRAMES_IN_FLIGHT) * UNIFORM_RING_STRIDE
     }
 }
 
@@ -1376,14 +1482,21 @@ impl FrameRecorder for MetalRenderer {
             .new_render_command_encoder(render_pass_descriptor)
             .to_owned();
 
+        // Upload this frame's light (KE-0406) before anything shades: the sky pass
+        // below needs the sun's direction to place its disc, and the geometry needs
+        // the identical bytes, so the frame's whole shading state is written once
+        // here and bound at the same offset everywhere.
+        let light_offset = self.write_light_to_ring();
+
         // Gradient sky first (KE-0401): a fullscreen triangle with depth test/
         // write disabled paints the background before any geometry, replacing the
         // flat clear. Geometry drawn afterward depth-tests against the cleared
-        // depth buffer normally. Bind the light buffer (fragment(0)) for the sky
-        // colors, which live in the same `LightUniforms`.
+        // depth buffer normally. Bind the light (fragment(0)) for the sky colors,
+        // the sun disc and the camera's inverse view-projection, which all live in
+        // the same `LightUniforms`.
         encoder.set_render_pipeline_state(&self.sky_pipeline_state);
         encoder.set_depth_stencil_state(&self.sky_depth_stencil_state);
-        encoder.set_fragment_buffer(0, Some(&self.light_buffer), 0);
+        encoder.set_fragment_buffer(0, Some(&self.light_ring), light_offset);
         encoder.draw_primitives(metal::MTLPrimitiveType::Triangle, 0, 3);
 
         // Switch to the untextured Phong pipeline + normal depth test for the
@@ -1407,6 +1520,7 @@ impl FrameRecorder for MetalRenderer {
             // Untextured Phong pipeline bound above; `set_pipeline` may switch to
             // the textured one before a textured draw.
             textured_pipeline: false,
+            light_offset,
         });
     }
 
@@ -1415,6 +1529,23 @@ impl FrameRecorder for MetalRenderer {
         // each instance's model transform to form the MVP (KE-0205). Per the seam
         // contract this is pushed once per frame before the first `draw_mesh`.
         self.view_projection = view_proj;
+    }
+
+    fn set_camera_position(&mut self, position: Vec3) {
+        // The eye position for view-dependent shading (KE-0406). Sticky, like the
+        // matrix it accompanies; both are folded into the frame's light block when
+        // the frame opens (`write_light_to_ring`), so a push that lands *after*
+        // `begin_frame` applies from the next frame — which is why the engine loop
+        // pushes the camera before the game records.
+        self.camera_position = position;
+    }
+
+    fn set_sun_sky(&mut self, sun: &SunSky) {
+        // Replace only the sun/sky half of the light block (the look params — fog,
+        // blob shadow, specular response — have no seam representation yet and are
+        // preserved). Sticky: a game with a fixed sun pushes once at load, and this
+        // value is re-uploaded for every subsequent frame.
+        self.light.apply_sun_sky(sun);
     }
 
     fn set_pipeline(&mut self, handle: PipelineHandle) {
@@ -1505,7 +1636,9 @@ impl FrameRecorder for MetalRenderer {
         let encoder = &frame.encoder;
         encoder.set_vertex_buffer(0, Some(&vertex_buffer), 0);
         encoder.set_vertex_buffer(1, Some(&self.uniform_ring), uniform_offset);
-        encoder.set_fragment_buffer(0, Some(&self.light_buffer), 0);
+        // The light this frame uploaded when it opened (KE-0406) — the same bytes
+        // the sky pass drew its sun from, so lighting and sun disc always agree.
+        encoder.set_fragment_buffer(0, Some(&self.light_ring), frame.light_offset);
         if let Some(material_offset) = material_offset {
             encoder.set_fragment_buffer(2, Some(&self.uniform_ring), material_offset);
         }

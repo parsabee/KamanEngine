@@ -31,6 +31,7 @@ graph TD
         PHYS["kaman-physics (rapier3d)"]
         CAM["kaman-camera"]
         ASSETS["kaman-assets (glTF)"]
+        AUDIO["kaman-audio (kira)"]
         PERF["kaman-perf"]
         MATH["kaman-math (glam)"]
     end
@@ -78,6 +79,7 @@ graph LR
     renderapi["kaman-render-api"]
     scene["kaman-scene"]
     assets["kaman-assets"]
+    audio["kaman-audio"]
     render["kaman-render"]
     core["kaman-core"]
     game["games/playable-demo"]
@@ -90,7 +92,7 @@ graph LR
     scene --> math & ecs & physics
     assets --> math & ecs & renderapi
     render --> math & camera & renderapi & metal
-    core --> math & ecs & camera & scene & renderapi & perf
+    core --> math & ecs & camera & scene & renderapi & perf & audio
     game --> core & scene & ecs & camera & assets & math & renderapi & render
 
     classDef ext fill:#fee,stroke:#c33;
@@ -387,6 +389,7 @@ attachments **memoryless** on iOS. Bloom is deferred.
 | No game types in engine crates | all `kaman-*` | self-scanning `no_game_specific_symbols` tests |
 | Rendered output unchanged across a refactor | `kaman-render` | offscreen **pixel-hash** tests (re-bless w/ justification) |
 | Zero per-frame GPU allocations | `kaman-render` | `allocation_count()` asserted `== 0` on the frame path |
+| Audio never requires a device | `kaman-audio` | `Loop` starts `Audio::silent()`; headless/`--smoke` never open one, and every audio test asserts against silent mode |
 | Stale physics handle is safe | `kaman-physics` | use-after-free tests (queries → `None`, never a bad deref) |
 | Physics body removed atomically with its entity | `kaman-scene` | despawn removes body **before** ECS entity + test |
 | Simulation is framerate-independent | `kaman-core` | fixed `FIXED_DT`; 60 vs 120 Hz step-count tests |

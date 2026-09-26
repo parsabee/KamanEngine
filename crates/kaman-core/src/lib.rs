@@ -21,22 +21,23 @@
 //!   with a fixed call order; all game-specific code lives behind it.
 //! - [`EngineCtx`] — the narrow handle passed into each hook. It exposes only
 //!   engine services (the ECS [`World`](kaman_ecs::hecs::World), the render seam,
-//!   an [`InputState`], and a [`PerfSnapshot`](kaman_perf::PerfSnapshot)) through
-//!   short-lived accessors, so a game can neither reach engine internals nor
-//!   alias engine state.
+//!   an [`InputState`], the [`Audio`] layer, and a
+//!   [`PerfSnapshot`](kaman_perf::PerfSnapshot)) through short-lived accessors, so
+//!   a game can neither reach engine internals nor alias engine state.
 //!
 //! # Two drivers, one loop
 //!
 //! The same game hooks run under two entry points, both sharing the fixed-timestep
 //! [`Accumulator`] (only the clock source differs):
 //!
-//! - [`headless`] — no window, no GPU, against a
-//!   [`NullRenderer`](kaman_render_api::NullRenderer), driven by a synthetic
-//!   clock. This is what the `--smoke` oracle and tests use; it runs on headless
-//!   CI.
+//! - [`headless`] — no window, no GPU, **no audio device**: against a
+//!   [`NullRenderer`](kaman_render_api::NullRenderer) and a silent [`Audio`]
+//!   layer, driven by a synthetic clock. This is what the `--smoke` oracle and
+//!   tests use; it runs on headless CI.
 //! - [`run`] — a `winit` window on macOS driving the identical hook sequence off
 //!   a real monotonic clock, with per-frame drawing behind an isolated function
-//!   that KE-0102 fills with the Metal backend.
+//!   that KE-0102 fills with the Metal backend, and the audio layer bound to the
+//!   system's default output.
 //!
 //! # Fixed timestep (KE-0201)
 //!
@@ -81,6 +82,10 @@ pub use app::{run, run_with_backend, BackendFactory};
 pub use context::{EngineCtx, Renderer};
 pub use game::Game;
 pub use input::{InputState, Key, MouseButton};
+// Re-exported for the same reason `Scene` is: these are the types a game names
+// when it uses `EngineCtx::audio`, so it should not have to add a second
+// dependency to spell them (KE-0405).
+pub use kaman_audio::{Audio, SoundHandle, Volume};
 pub use kaman_scene::{Scene, SpawnCtx, StreamingConfig};
 pub use timestep::{Accumulator, FIXED_DT, MAX_STEPS_PER_FRAME};
 

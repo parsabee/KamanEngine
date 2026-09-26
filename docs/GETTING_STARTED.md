@@ -58,7 +58,7 @@ once; `update` runs 0..N times per frame with `dt` always equal to
 frame after that frame's updates. Advance state in `update`, record draws in `render`, and don't
 cross the two — that split is what makes the simulation framerate-independent.
 
-Everything the engine offers arrives through the [`EngineCtx`](../crates/kaman-core/src/context.rs#L77)
+Everything the engine offers arrives through the [`EngineCtx`](../crates/kaman-core/src/context.rs#L81)
 argument: the `Scene` (ECS world + physics + streaming), the ECS world, the render seam, the
 `Camera`, an input snapshot, frame timing. There is nothing else to reach for, and no way to reach
 past it.
@@ -184,9 +184,9 @@ fit transforms that place a model on the ground) and
 ## 4. Record a draw
 
 The render seam is two traits, handed to you as one `&mut dyn Renderer` from `ctx.renderer()`:
-[`RenderDevice`](../crates/kaman-render-api/src/device.rs#L87) for resources (and
+[`RenderDevice`](../crates/kaman-render-api/src/device.rs#L77) for resources (and
 `surface_size` / `safe_area_insets`) and
-[`FrameRecorder`](../crates/kaman-render-api/src/recorder.rs#L59) for the frame. The frame
+[`FrameRecorder`](../crates/kaman-render-api/src/recorder.rs#L63) for the frame. The frame
 protocol is `begin_frame` → `set_pipeline` / `bind_texture` / `draw_mesh` /
 `draw_overlay_quad` → `submit`, exactly once per `render` call.
 
@@ -248,7 +248,7 @@ argument parsing and asserts the stdout contract line in a unit test.
 
 ## 6. Test it without a GPU
 
-This is the part worth adopting early. [`Headless`](../crates/kaman-core/src/headless.rs#L86)
+This is the part worth adopting early. [`Headless`](../crates/kaman-core/src/headless.rs#L92)
 owns the engine state a `Game` runs against — scene, input, perf, accumulator, and a
 `NullRenderer` — and steps frames on a synthetic clock. So gameplay is an ordinary unit test:
 

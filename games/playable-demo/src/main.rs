@@ -36,7 +36,8 @@
 //! # Module map
 //!
 //! - [`config`] — every tuning constant, grouped by area (lanes/speed/camera,
-//!   car fit, asset paths, buildings, guardrail, terrain, backdrop).
+//!   car fit, asset paths, buildings, guardrail, terrain, backdrop, HUD,
+//!   sun/sky, audio mix).
 //! - [`rng`] — the seeded lane-obstacle PRNG and the independent per-slot
 //!   scenery hash.
 //! - [`assets`] — glTF import through `kaman-assets`, fit transforms, and the

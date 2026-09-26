@@ -10,6 +10,7 @@
 //! read from the engine — these are purely game-side numbers the demo's own
 //! code (`game.rs`, `assets.rs`, `scenery.rs`, `render.rs`) consumes.
 
+use kaman_core::Volume;
 use kaman_math::glam::Vec3;
 
 // ---------------------------------------------------------------------------
@@ -126,6 +127,17 @@ pub(crate) const ROAD_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets
 /// with an embedded skyline base-color PNG cropped from a CC0 photo.
 pub(crate) const SKYLINE_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/skyline.gltf");
 
+/// The committed driving-music track (KE-0405): a ~27 s 16-bit stereo PCM WAV,
+/// looped seamlessly for the whole session once a run starts. Resolved against this
+/// crate's dir, like every other asset path here, so it holds regardless of the
+/// process working directory.
+pub(crate) const MUSIC_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/runner_loop.wav");
+
+/// The committed impact one-shot (KE-0405): a ~2.3 s 16-bit mono PCM WAV, played
+/// once at the moment a run ends.
+pub(crate) const IMPACT_ASSET: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/car_crash_impact_only.wav");
+
 // ---------------------------------------------------------------------------
 // Buildings
 // ---------------------------------------------------------------------------
@@ -227,3 +239,104 @@ pub(crate) const HUD_DIM_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.55];
 pub(crate) const HUD_FADE_SECONDS: f32 = 0.75;
 /// Opaque black, used for the title screen and the fade that dissolves it.
 pub(crate) const HUD_BLACK_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+
+// ---------------------------------------------------------------------------
+// Sun and sky (KE-0406)
+// ---------------------------------------------------------------------------
+//
+// A **summer afternoon, about 4pm**. This is the demo's *choice*: the engine only
+// accepts physical parameters (`kaman_render_api::SunSky` — an elevation/azimuth
+// pair, colours, intensities), so "what time is it in this game" is game policy and
+// lives here. The demo pushes it once in `init`; the seam value is sticky and the
+// backend re-uploads it every frame.
+//
+// Azimuth follows the seam's convention: a compass bearing with `-Z` as north and
+// `+X` as east — which happens to make it readable for this demo, since the car
+// drives north along [`FORWARD`] (`-Z`).
+
+/// Sun height above the horizon, in degrees.
+///
+/// At 4pm in high summer the sun is well past its peak but nowhere near setting —
+/// still high enough to light the road deck and the tops of the buildings, low
+/// enough that the car and the guardrails throw their shading sideways. Below ~25°
+/// it starts reading as golden hour (which this is not); above ~40° it flattens
+/// back toward noon.
+pub(crate) const SUN_ELEVATION_DEG: f32 = 32.0;
+
+/// Sun bearing, in degrees: 284° is a touch north of due west (270°), which is
+/// where a summer sun sits mid-afternoon at temperate latitudes.
+///
+/// The car drives north, so this puts the sun off its **left** flank and slightly
+/// ahead: the road surface catches it, the left sides of the buildings are lit and
+/// their right sides fall into sky fill, which is what makes the street read as
+/// three-dimensional. Note the sun disc itself is not in frame — the chase camera
+/// pitches down to frame the road, so the visible sky stops a couple of degrees
+/// above the horizon, far below a 32° sun.
+pub(crate) const SUN_AZIMUTH_DEG: f32 = 284.0;
+
+/// Linear RGB of the sunlight: a **gentle** warm white.
+///
+/// 4pm summer light is still close to white — the strong orange cast belongs to the
+/// last half hour before sunset. So this only trims the blue channel (and a sliver
+/// of green), enough to read as afternoon against the blue sky fill without turning
+/// the asphalt sepia.
+pub(crate) const SUN_COLOR: [f32; 3] = [1.0, 0.96, 0.88];
+
+/// Direct sun strength. Slightly over `1.0` so the road and the car's upper
+/// surfaces sit near the top of the tonemap's shoulder and the scene reads *bright*,
+/// not merely lit.
+pub(crate) const SUN_INTENSITY: f32 = 1.15;
+
+/// Ambient **sky fill**. Against [`SUN_INTENSITY`] this leaves a face the sun
+/// misses at ~19% of a fully lit one — a deep but not black shadow side, which is
+/// what open sunlight actually looks like. The pre-KE-0406 0.6-vs-0.8 balance left
+/// it at 43%, and the whole scene read overcast.
+pub(crate) const SKY_FILL: f32 = 0.22;
+
+/// Linear RGB of the sky at the zenith: a deep summer blue, a little richer than
+/// the engine default now that the sun is doing more of the work.
+pub(crate) const SKY_ZENITH_COLOR: [f32; 3] = [0.11, 0.27, 0.56];
+
+/// Linear RGB of the sky at the horizon — a bright, faintly warm afternoon haze.
+///
+/// This one is load-bearing beyond the sky: the distance fog blends *toward* it
+/// (KE-0401/KE-0706), so it is also the colour the streaming spawn edge, the far end
+/// of the hill terrain, and the base of the KE-0705 skyline billboard all dissolve
+/// into. Kept deliberately close to the engine's own default (`0.55, 0.62, 0.72`) —
+/// a touch brighter and warmer for the afternoon sun — because the backdrop stands
+/// in front of it and the two have to meet without a seam.
+pub(crate) const SKY_HORIZON_COLOR: [f32; 3] = [0.62, 0.67, 0.74];
+
+// ---------------------------------------------------------------------------
+// Audio mix (KE-0405)
+// ---------------------------------------------------------------------------
+//
+// Levels are in **decibels relative to each file's own recorded level**
+// (`kaman_core::Volume`), which is why they are all negative: both committed WAVs
+// are mastered close to full scale, and the mix is built by trimming down from
+// there rather than by pushing anything up. The engine knows nothing about which
+// sound is which — it takes a handle and a level — so the whole mixing policy is
+// these three numbers.
+
+/// Master level everything is mixed through.
+///
+/// A little headroom: the music bed and an impact land on top of each other at the
+/// exact moment a run ends, and two near-full-scale sources summing is precisely
+/// when a mix clips. Trimming the master (rather than each source) keeps the
+/// relative balance below intact.
+pub(crate) const MASTER_VOLUME: Volume = Volume(-3.0);
+
+/// The looping music, well **under** the impact.
+///
+/// ~11 dB below [`IMPACT_VOLUME`] — enough that the effect cuts through a busy
+/// loop instead of fighting it, and that the music reads as a bed rather than the
+/// thing you are listening to. The raw file is mastered hot (it is a finished
+/// track, not a game asset), so this is a big trim by design.
+pub(crate) const MUSIC_VOLUME: Volume = Volume(-14.0);
+
+/// The impact one-shot — the loudest thing in the mix.
+///
+/// It is the only *audible* signal that a run just ended, so it must land clearly
+/// over the music. Still trimmed a touch from the recorded level so that it plus
+/// the bed stays inside the master's headroom.
+pub(crate) const IMPACT_VOLUME: Volume = Volume(-3.0);

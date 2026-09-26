@@ -4,12 +4,13 @@
 
 //! The [`FrameRecorder`] trait — per-frame command recording.
 
-use kaman_math::glam::Mat4;
+use kaman_math::glam::{Mat4, Vec3};
 use kaman_math::Transform;
 
 use crate::descriptor::MaterialParams;
 use crate::handles::{MeshHandle, PipelineHandle, TextureHandle};
 use crate::overlay::OverlayQuad;
+use crate::sun::SunSky;
 
 /// Per-frame command recording: begin a frame, bind pipeline/texture state, record
 /// draws, and submit.
@@ -25,9 +26,10 @@ use crate::overlay::OverlayQuad;
 /// A well-formed frame follows this order:
 ///
 /// 1. [`begin_frame`](Self::begin_frame) exactly once to open the frame.
-/// 2. [`set_view_projection`](Self::set_view_projection) to establish the camera for
-///    the draws that follow. It is **sticky** (retained across frames), so the
-///    engine typically pushes it once per frame before the game records; a frame
+/// 2. [`set_view_projection`](Self::set_view_projection) and
+///    [`set_camera_position`](Self::set_camera_position) to establish the camera for
+///    the draws that follow. Both are **sticky** (retained across frames), so the
+///    engine typically pushes them once per frame before the game records; a frame
 ///    that draws must have a view-projection in effect (set this frame or a prior
 ///    one).
 /// 3. [`set_pipeline`](Self::set_pipeline) at least once **before the first draw**;
@@ -42,11 +44,22 @@ use crate::overlay::OverlayQuad;
 /// `submit` is a caller error. Implementations may panic, debug-assert, or drop the
 /// call, but must not silently corrupt an in-flight frame. Pipeline and bound-texture
 /// state do **not** carry across a `begin_frame`/`submit` boundary — each frame
-/// starts with no pipeline and no texture bound. The **view-projection is the
-/// exception: it is sticky**, retaining the last value set until it is replaced, so
-/// the engine loop can push it once per frame *before* the game opens its frame (the
-/// value survives `begin_frame`). A frame that never sets one draws with the identity
-/// matrix (the construction default).
+/// starts with no pipeline and no texture bound. The **camera and the sun/sky are
+/// the exceptions: they are sticky**, retaining the last value set until it is
+/// replaced, so the engine loop can push them once per frame *before* the game opens
+/// its frame (the values survive `begin_frame`). A frame that never sets a
+/// view-projection draws with the identity matrix (the construction default); one
+/// that never sets a sun/sky is lit by the backend's default [`SunSky`].
+///
+/// # Frame-wide state vs. resources
+///
+/// The sticky setters — [`set_view_projection`](Self::set_view_projection),
+/// [`set_camera_position`](Self::set_camera_position) and
+/// [`set_sun_sky`](Self::set_sun_sky) — live here rather than on
+/// [`RenderDevice`](crate::RenderDevice) because none of them creates or owns
+/// anything: they are *per-frame values* a backend folds into the uniforms it
+/// uploads for the frame it is recording. `RenderDevice` is for resources whose
+/// lifetime a caller manages with a handle.
 pub trait FrameRecorder {
     /// Open a new frame for recording.
     ///
@@ -78,6 +91,47 @@ pub trait FrameRecorder {
     ///   the draws that follow.
     /// - Until the first call, the implementation uses the identity matrix.
     fn set_view_projection(&mut self, view_proj: Mat4);
+
+    /// Set the camera's **world-space position** for this frame's draws (KE-0406).
+    ///
+    /// The view-projection matrix alone is not enough to shade a frame: any
+    /// view-dependent term — specular highlights, and anything else that needs to
+    /// know where the eye is — needs the camera's *position* in world space, and
+    /// recovering it by inverting the view-projection is both wasteful and
+    /// numerically fragile. So the caller that already owns the camera pushes it
+    /// here, as a plain [`Vec3`] from [`kaman_math::glam`].
+    ///
+    /// # Contract (ordering)
+    /// - **Describes the same camera** as the most recent
+    ///   [`set_view_projection`](Self::set_view_projection). A backend may light the
+    ///   frame with one and project it with the other, so pushing a position that
+    ///   disagrees with the matrix produces highlights that come from the wrong
+    ///   place. The engine loop pushes both together, once per frame.
+    /// - The value is **sticky**, exactly like the view-projection: it persists
+    ///   across `begin_frame`/`submit` until replaced.
+    /// - Until the first call, the implementation uses the world origin.
+    fn set_camera_position(&mut self, position: Vec3);
+
+    /// Set the **sun and sky** the frame is lit by (KE-0406).
+    ///
+    /// [`SunSky`] is the whole lighting description the seam accepts: the sun's
+    /// elevation/azimuth in degrees, its colour and intensity, the ambient sky-fill
+    /// level, and the sky gradient's zenith/horizon colours. The backend derives the
+    /// light direction from the angles ([`SunSky::direction`]) and uses that one
+    /// vector for **both** the shading and the sun disc it draws in the sky, so
+    /// turning the sun moves the light and the disc together.
+    ///
+    /// The seam carries no time of day: a game that wants "summer, 4pm" owns that
+    /// policy and expresses it as angles.
+    ///
+    /// # Contract (ordering)
+    /// - The value is **sticky** — it persists across `begin_frame`/`submit` until
+    ///   replaced — so a game with a fixed sun pushes it once at load, and a game
+    ///   with a day/night cycle pushes it every frame *before* it opens the frame.
+    /// - Backends honour it **per frame**: whatever is in effect when a frame opens
+    ///   lights that frame, including its sky pass.
+    /// - Until the first call, the implementation uses the default [`SunSky`].
+    fn set_sun_sky(&mut self, sun: &SunSky);
 
     /// Select the render pipeline used by subsequent draws.
     ///

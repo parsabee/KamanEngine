@@ -12,6 +12,7 @@
 //! engine state in [`Loop`]. This is the single loop implementation the ticket
 //! calls for: neither driver reimplements the accumulator.
 
+use kaman_audio::Audio;
 use kaman_camera::Camera;
 use kaman_perf::PerfTracker;
 use kaman_scene::Scene;
@@ -36,6 +37,16 @@ pub struct Loop {
     pub scene: Scene,
     /// The current input snapshot the game reads.
     pub input: InputState,
+    /// The audio layer the game reaches through
+    /// [`EngineCtx::audio`](crate::EngineCtx::audio) (KE-0405).
+    ///
+    /// [`Loop::new`] leaves this **silent**: a fresh loop opens no audio device, so
+    /// headless runs, unit tests and the `--smoke` oracle are quiet and need no
+    /// hardware. The windowed entry replaces it with
+    /// [`Audio::with_output_device`] once, at startup — which itself falls back to
+    /// silence if the machine has no output. Either way the game's calls are
+    /// identical.
+    pub audio: Audio,
     /// The engine-owned [`Camera`] (KE-0205). The game drives it through
     /// [`EngineCtx::camera_mut`](crate::EngineCtx::camera_mut) (e.g. via a chase
     /// controller); each frame the driver pushes its view-projection across the
@@ -51,13 +62,18 @@ pub struct Loop {
 }
 
 impl Loop {
-    /// A fresh loop: empty scene, no input, zeroed accumulator, un-initialized,
-    /// and a default [`Camera`] at `DEFAULT_ASPECT`.
+    /// A fresh loop: empty scene, no input, **silent audio**, zeroed accumulator,
+    /// un-initialized, and a default [`Camera`] at `DEFAULT_ASPECT`.
+    ///
+    /// Audio starts silent rather than device-bound so that constructing a loop —
+    /// which every test and the headless driver do — never opens hardware; see
+    /// [`audio`](Self::audio).
     #[must_use]
     pub fn new() -> Self {
         Self {
             scene: Scene::new(),
             input: InputState::new(),
+            audio: Audio::silent(),
             camera: Camera::new(Self::DEFAULT_ASPECT),
             perf: PerfTracker::new(),
             accumulator: Accumulator::new(),
@@ -77,12 +93,14 @@ impl Loop {
     /// `resumed`, headless on the first `run`).
     pub fn init_once<G: Game>(&mut self, game: &mut G, renderer: &mut dyn Renderer) {
         if !self.initialized {
+            let snapshot = self.perf.snapshot();
             let mut ctx = EngineCtx::new(
                 &mut self.scene,
                 renderer,
                 &mut self.camera,
                 &self.input,
-                self.perf.snapshot(),
+                &mut self.audio,
+                snapshot,
                 0.0,
             );
             game.init(&mut ctx);
@@ -139,6 +157,7 @@ pub fn drive_frame<G: Game>(
                 renderer,
                 &mut lp.camera,
                 &lp.input,
+                &mut lp.audio,
                 snapshot,
                 0.0,
             );
@@ -156,6 +175,12 @@ pub fn drive_frame<G: Game>(
     // drawn from the camera the game last positioned (e.g. a chase controller in
     // `update`). The backend below the seam owns no camera — only this matrix.
     renderer.set_view_projection(lp.camera.view_projection_matrix());
+    // The camera's world position goes with it (KE-0406): view-dependent shading
+    // (specular) needs to know where the eye is, and the matrix alone does not say
+    // — recovering it by inverting the view-projection would be both wasteful and
+    // numerically fragile. Pushed here, next to the matrix it must agree with, so
+    // the two can never describe different cameras.
+    renderer.set_camera_position(lp.camera.position());
 
     // Exactly one render per frame, carrying the interpolation alpha.
     {
@@ -165,6 +190,7 @@ pub fn drive_frame<G: Game>(
             renderer,
             &mut lp.camera,
             &lp.input,
+            &mut lp.audio,
             snapshot,
             alpha,
         );
@@ -306,5 +332,55 @@ mod tests {
         // still holds exactly the engine camera's view-projection.
         let expected = lp.camera.view_projection_matrix();
         assert_eq!(renderer.view_projection(), Some(expected));
+    }
+
+    /// The loop owns the audio layer and hands it to the game through
+    /// [`EngineCtx::audio`] (KE-0405) — and a loop built by [`Loop::new`] opens
+    /// **no output device**. So a game loads and plays unconditionally (no `cfg`,
+    /// no availability check) while a device-less test still asserts exactly what
+    /// it asked to hear.
+    #[test]
+    fn the_loop_hands_the_game_a_silent_audio_layer() {
+        use kaman_audio::{SoundHandle, Volume};
+
+        /// A game that loads one sound in `init` and, every step, asks for it once
+        /// as a one-shot and (repeatedly) as the looping bed.
+        #[derive(Default)]
+        struct MakesNoise {
+            sound: Option<SoundHandle>,
+        }
+        impl Game for MakesNoise {
+            fn init(&mut self, ctx: &mut EngineCtx) {
+                // A path that does not exist: silent mode decodes nothing, so the
+                // load still succeeds and hands back a usable handle.
+                self.sound = Some(ctx.audio().load("/kaman-core/tests/absent.wav"));
+            }
+            fn update(&mut self, ctx: &mut EngineCtx, _dt: f32) {
+                let sound = self.sound.expect("loaded in init");
+                ctx.audio().play_once(sound, Volume(-6.0));
+                ctx.audio().play_looping(sound, Volume(-12.0));
+            }
+            fn render(&mut self, _ctx: &mut EngineCtx) {}
+        }
+
+        let mut lp = Loop::new();
+        let mut renderer = NullRenderer::new();
+        let mut game = MakesNoise::default();
+        assert!(lp.audio.is_silent(), "a fresh loop opens no audio device");
+
+        lp.init_once(&mut game, &mut renderer);
+        let step = Duration::from_secs_f64(f64::from(FIXED_DT));
+        for _ in 0..5 {
+            drive_frame(&mut lp, &mut game, &mut renderer, step);
+        }
+
+        let sound = game.sound.unwrap();
+        assert_eq!(lp.audio.sound_count(), 1);
+        assert_eq!(lp.audio.decode_count(), 0, "silent mode decodes nothing");
+        assert_eq!(lp.audio.one_shots_of(sound), 5, "one per fixed step");
+        // Five requests for the same looping sound, one loop: the layer's single
+        // loop channel makes a doubled bed impossible from above the seam.
+        assert_eq!(lp.audio.loop_starts(), 1);
+        assert_eq!(lp.audio.looping(), Some(sound));
     }
 }

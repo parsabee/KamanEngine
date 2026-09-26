@@ -45,6 +45,11 @@ The HUD shows the live score while you drive, and a centered `GAME OVER` banner 
 the final score, the session best and the replay prompt after a crash. Progress and
 the crash report are also printed to stdout.
 
+Sound (KE-0405): the music starts when you do — the title screen is silent — and then
+loops for the rest of the session, across crashes and replays alike; an impact plays
+once each time a run ends. The `--smoke` path and every test are **silent and open no
+audio device**, so neither needs sound hardware.
+
 ## Code layout
 
 One line per module in [`src/`](src), and what it owns:
@@ -52,12 +57,12 @@ One line per module in [`src/`](src), and what it owns:
 | Module | Owns |
 | --- | --- |
 | [`main.rs`](src/main.rs) | The binary: CLI parsing, the windowed entry (builds the Metal backend and injects it via a factory), and the `--smoke` oracle. |
-| [`config.rs`](src/config.rs) | Every tuning constant, grouped by area — lanes/speed/camera, car fit, asset paths, buildings, guardrail, terrain, backdrop, HUD. No logic. |
+| [`config.rs`](src/config.rs) | Every tuning constant, grouped by area — lanes/speed/camera, car fit, asset paths, buildings, guardrail, terrain, backdrop, HUD, sun/sky, audio mix. No logic. |
 | [`rng.rs`](src/rng.rs) | Deterministic randomness: the seeded SplitMix64 lane PRNG, and the independent per-slot hash that picks cosmetic variants without perturbing it. |
 | [`assets.rs`](src/assets.rs) | glTF import through `kaman-assets` (load once, share by handle), the fit transforms that place a model on the road, and the vertex-layout helpers. |
 | [`scenery.rs`](src/scenery.rs) | Procedural geometry built once in `init`: the guardrail segment and the hill-terrain sheet, packed as raw `[pos,normal,color]` vertex bytes. |
 | [`components.rs`](src/components.rs) | The game-side ECS components (`TrafficVariant`, `BuildingVariant`, `GuardrailTag`) and the `PlacedModel` enum. These name game concepts, which is why they live here and not in `kaman-ecs`. |
-| [`game.rs`](src/game.rs) | `CarRunner`, the `kaman_core::Game` implementation: lane input, the state machine, the difficulty ramp, scoring, streaming, the rebase bookkeeping, and collision. |
+| [`game.rs`](src/game.rs) | `CarRunner`, the `kaman_core::Game` implementation: lane input, the state machine, the difficulty ramp, scoring, streaming, the rebase bookkeeping, collision, and the two sound triggers (music on the start transition, impact on the end of a run). |
 | [`render.rs`](src/render.rs) | The render pass: gathers this frame's transforms from the ECS world and records the draws grouped by pipeline and texture. Allocates no GPU resources. |
 | [`hud.rs`](src/hud.rs) | The on-screen HUD: loads the SDF font atlas, and draws the score, the title/game-over banners and the screen washes through the engine's 2D overlay seam. Allocation-free text via `StackStr` + `FontAtlas::layout`. |
 
@@ -93,6 +98,7 @@ font's full licence text is committed alongside it as `assets/font-OFL.txt`.
 | `asphalt_src.jpg` (baked into `road.gltf`) | **Poly Haven** [`asphalt_02`](https://polyhaven.com/a/asphalt_02) diffuse | CC0 1.0 — public domain, no attribution required |
 | `skyline_src.jpg` (baked into `skyline.gltf`) | New York City skyline photo, **Wikimedia Commons** | CC0 1.0 / public domain |
 | `font.ttf` (baked into `font.bin`) | **Roboto**, © 2011 The Roboto Project Authors | SIL Open Font License 1.1 — see `assets/font-OFL.txt` |
+| `runner_loop.wav` (music), `car_crash_impact_only.wav` (impact) | **Provenance not yet recorded** | **Unconfirmed — see note below** |
 
 `cube.gltf` is no longer imported by the demo — it was the placeholder player mesh
 before the real car models landed (KE-0703). Do not delete it: it is still a live
@@ -104,6 +110,11 @@ this directory to prove the glTF path works against a real committed file, and
 The credits above are given as courtesy; the CC0 assets impose no attribution
 requirement. Only the OFL font ships with a licence file, because only the OFL
 requires one.
+
+The two `.wav` files (KE-0405) are the exception: their source and licence have not
+been established, so the table records that rather than guessing. Establish them
+before this repository is distributed or released — unlike the CC0 assets, silence
+here is not the same as "no attribution required".
 
 ---
 

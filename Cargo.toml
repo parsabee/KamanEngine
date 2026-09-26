@@ -10,6 +10,7 @@ members = [
     "crates/kaman-render-api",
     "crates/kaman-render",
     "crates/kaman-assets",
+    "crates/kaman-audio",
     "crates/kaman-core",
     "games/playable-demo",
 ]
@@ -42,6 +43,7 @@ kaman-scene = { path = "crates/kaman-scene" }
 kaman-render-api = { path = "crates/kaman-render-api" }
 kaman-render = { path = "crates/kaman-render" }
 kaman-assets = { path = "crates/kaman-assets" }
+kaman-audio = { path = "crates/kaman-audio" }
 kaman-core = { path = "crates/kaman-core" }
 
 glam = "0.29"
@@ -58,6 +60,21 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # Pure-Rust TrueType rasterizer. Dev-dependency only: the demo's `gen_font`
 # example uses it to bake the committed SDF font atlas; no runtime crate links it.
 fontdue = "0.9"
+# Audio (KE-0405): game-audio library — mixer, static sounds, loop regions,
+# tweened volume. Pure Rust over `cpal` (CoreAudio on Apple), so no C toolchain
+# beyond std and no metal. Engine-generic; the game supplies the sounds.
+#
+# `default-features` is off and only four features are enabled. Kira's defaults
+# also pull mp3, ogg, vorbis, flac, aac and `cpal-realtime-dbus`; the demo's
+# assets are 16-bit PCM WAV and this engine is Apple-only, so every one of those
+# is dead weight (dbus doubly so). Same trimming discipline as `gltf`/`image`.
+# `wav` is the container reader and `pcm` the codec — WAV needs both.
+kira = { version = "0.12", default-features = false, features = [
+    "cpal",
+    "cpal-realtime",
+    "wav",
+    "pcm",
+] }
 rapier3d = "0.22"
 hecs = "0.10"
 winit = { version = "0.30", features = ["rwh_06"] }

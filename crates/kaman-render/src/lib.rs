@@ -49,6 +49,23 @@
 //! each draw's model transform to form the MVP (KE-0205). The previously-inlined
 //! minimal camera was deleted with this migration.
 //!
+//! The camera's **world position** arrives the same way, via
+//! [`FrameRecorder::set_camera_position`](kaman_render_api::FrameRecorder::set_camera_position)
+//! (KE-0406), because a matrix alone cannot say where the eye is and specular
+//! needs to know. Both are sticky and describe one camera; the backend folds them
+//! into the frame's light block as it opens each frame.
+//!
+//! # Sun and sky (via the seam)
+//!
+//! Lighting is likewise not the backend's choice. A
+//! [`SunSky`](kaman_render_api::SunSky) — sun elevation/azimuth, colour,
+//! intensity, sky fill, and the sky gradient — is pushed through
+//! [`FrameRecorder::set_sun_sky`](kaman_render_api::FrameRecorder::set_sun_sky)
+//! and uploaded per frame (KE-0406). The backend derives the light direction from
+//! the angles once and uses that single vector for both the shading and the sun
+//! disc the sky pass draws, so they cannot disagree. Until something pushes one,
+//! the default is the `Default` impl of [`SunSky`](kaman_render_api::SunSky).
+//!
 //! # Ray tracer (feature-gated)
 //!
 //! The ray-tracing code that was entangled in the prototype renderer is behind

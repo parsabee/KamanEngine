@@ -243,3 +243,64 @@ fn view_projection_is_sticky_across_frames() {
     assert_eq!(r.view_projection(), Some(Mat4::IDENTITY));
     r.submit();
 }
+
+#[test]
+fn camera_position_is_recorded_and_sticky() {
+    let mut r = NullRenderer::new();
+
+    // Nothing pushed yet (KE-0406).
+    assert_eq!(r.camera_position(), None);
+
+    let eye = Vec3::new(0.0, 6.0, 12.0);
+    r.set_camera_position(eye);
+    r.begin_frame();
+    assert_eq!(
+        r.camera_position(),
+        Some(eye),
+        "begin_frame must not clear the sticky camera position"
+    );
+    r.submit();
+
+    // Survives the frame boundary, like the view-projection it accompanies.
+    r.begin_frame();
+    assert_eq!(r.camera_position(), Some(eye));
+    r.submit();
+}
+
+#[test]
+fn sun_sky_is_recorded_sticky_and_assertable() {
+    use kaman_render_api::SunSky;
+
+    let mut r = NullRenderer::new();
+
+    // Nothing pushed yet: the backend would light the frame with its own default.
+    assert_eq!(r.sun_sky(), None);
+
+    // A game's own choice of sun — here a low western one — pushed once at load.
+    let sun = SunSky {
+        sun_elevation_deg: 32.0,
+        sun_azimuth_deg: 284.0,
+        sun_color: [1.0, 0.96, 0.88],
+        sun_intensity: 1.15,
+        sky_fill: 0.22,
+        sky_zenith_color: [0.12, 0.28, 0.55],
+        sky_horizon_color: [0.62, 0.68, 0.76],
+    };
+    r.set_sun_sky(&sun);
+
+    r.begin_frame();
+    assert_eq!(
+        r.sun_sky(),
+        Some(sun),
+        "begin_frame must not clear the sticky sun/sky"
+    );
+    r.submit();
+
+    // Still in effect for the next frame — a fixed sun is pushed once, not every
+    // frame — and the recorded angles imply the light vector the shader will use.
+    r.begin_frame();
+    let recorded = r.sun_sky().expect("sun pushed above");
+    assert!(recorded.toward_sun().x < 0.0, "the sun is in the west");
+    assert!(recorded.direction().y < 0.0, "its light travels downward");
+    r.submit();
+}

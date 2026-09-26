@@ -26,6 +26,10 @@
 //!   `draw_mesh` / `submit`.
 //! - Plain-data descriptors: [`VertexLayout`], [`VertexAttribute`], [`VertexFormat`],
 //!   [`MaterialParams`], [`MeshData`], [`TextureData`], [`PipelineDescriptor`].
+//! - [`SunSky`] — the engine-generic sun + sky description (KE-0406), pushed per
+//!   frame through [`FrameRecorder::set_sun_sky`]. Physical parameters only: the
+//!   sun's elevation/azimuth, colour and intensity, the sky-fill level, and the
+//!   sky gradient. No time-of-day policy lives below the seam.
 //! - [`NullRenderer`] — a headless, GPU-free test double implementing both traits so scene
 //!   and game code can be unit-tested without a device.
 //!
@@ -69,6 +73,7 @@ pub mod handles;
 pub mod null;
 pub mod overlay;
 pub mod recorder;
+pub mod sun;
 
 pub use descriptor::{MaterialParams, VertexAttribute, VertexFormat, VertexLayout};
 pub use device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
@@ -76,3 +81,4 @@ pub use handles::{MeshHandle, PipelineHandle, TextureHandle};
 pub use null::{NullRenderer, RecordedDraw};
 pub use overlay::{FontAtlas, Glyph, OverlayFill, OverlayQuad};
 pub use recorder::FrameRecorder;
+pub use sun::SunSky;

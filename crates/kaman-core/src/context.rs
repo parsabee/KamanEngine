@@ -20,6 +20,7 @@
 //! [`renderer`](EngineCtx::renderer), …); those borrows end at the end of the
 //! statement, so the game cannot hold two conflicting mutable views at once.
 
+use kaman_audio::Audio;
 use kaman_camera::Camera;
 use kaman_ecs::hecs::World;
 use kaman_perf::PerfSnapshot;
@@ -69,6 +70,9 @@ impl<T: RenderDevice + FrameRecorder> Renderer for T {}
 ///   [`render`](crate::Game::render), so the backend stays camera-free.
 /// - The [`InputState`] snapshot — [`input`](Self::input) (read-only; the engine
 ///   owns input).
+/// - The [`Audio`] layer — [`audio`](Self::audio). Load sounds in
+///   [`init`](crate::Game::init), then play them from game events. It needs no
+///   audio device and never fails, so it is called unconditionally.
 /// - Frame timing — [`perf`](Self::perf), a [`PerfSnapshot`] for the previous
 ///   frame.
 ///
@@ -79,6 +83,7 @@ pub struct EngineCtx<'a> {
     renderer: &'a mut dyn Renderer,
     camera: &'a mut Camera,
     input: &'a InputState,
+    audio: &'a mut Audio,
     perf: PerfSnapshot,
     alpha: f32,
 }
@@ -87,8 +92,8 @@ impl<'a> EngineCtx<'a> {
     /// Assemble a context borrowing the engine's state for one hook call.
     ///
     /// This is `pub(crate)`: only the engine's loop/driver constructs an
-    /// `EngineCtx`. Each of `scene`, `renderer`, and `input` is a distinct field
-    /// of engine-owned state, so the borrows do not alias.
+    /// `EngineCtx`. Each of `scene`, `renderer`, `input`, and `audio` is a distinct
+    /// field of engine-owned state, so the borrows do not alias.
     ///
     /// `alpha` is the fixed-timestep interpolation factor (see
     /// [`alpha`](Self::alpha)); it is meaningful on the render path and `0.0` for
@@ -98,6 +103,7 @@ impl<'a> EngineCtx<'a> {
         renderer: &'a mut dyn Renderer,
         camera: &'a mut Camera,
         input: &'a InputState,
+        audio: &'a mut Audio,
         perf: PerfSnapshot,
         alpha: f32,
     ) -> Self {
@@ -106,6 +112,7 @@ impl<'a> EngineCtx<'a> {
             renderer,
             camera,
             input,
+            audio,
             perf,
             alpha,
         }
@@ -185,7 +192,8 @@ impl<'a> EngineCtx<'a> {
     /// render seam **before** the game's `render` runs, so whatever pose the game
     /// last set is the pose the frame is drawn from. The game never touches the
     /// render backend's camera (there isn't one) — the view crosses the seam as a
-    /// plain matrix.
+    /// plain matrix, accompanied by `camera().position()` for view-dependent
+    /// shading (KE-0406).
     #[must_use]
     pub fn camera_mut(&mut self) -> &mut Camera {
         self.camera
@@ -198,6 +206,25 @@ impl<'a> EngineCtx<'a> {
     #[must_use]
     pub fn input(&self) -> &InputState {
         self.input
+    }
+
+    /// The engine's [`Audio`] layer (KE-0405) — load sounds, play one-shots, drive
+    /// the looping bed, set the master level.
+    ///
+    /// Mutable because every audio operation mutates the mixer (a load registers a
+    /// sound, a play starts one). Load in [`init`](crate::Game::init) — decoding is
+    /// load-time work, and a repeat load of the same path is free — then trigger
+    /// playback from game *events*, not every step: the loop never polls audio for
+    /// you and nothing here belongs on the fixed-update hot path.
+    ///
+    /// **It works with no audio device.** The engine hands a game either a live
+    /// mixer (the windowed entry) or a silent no-op that accepts everything and
+    /// produces nothing (the headless driver, and any machine with no output
+    /// device). Both behave identically from here, so game code has no `cfg`, no
+    /// availability check, and nothing to unwrap.
+    #[must_use]
+    pub fn audio(&mut self) -> &mut Audio {
+        self.audio
     }
 
     /// The [`PerfSnapshot`] describing recent frame timing.

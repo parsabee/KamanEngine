@@ -16,12 +16,14 @@
 use kaman_assets::AssetCache;
 use kaman_camera::ChaseController;
 use kaman_core::input::Key;
-use kaman_core::{EngineCtx, Game};
+use kaman_core::{EngineCtx, Game, SoundHandle};
 use kaman_ecs::hecs::Entity;
 use kaman_ecs::{DynamicTag, RenderComponent, StaticTag, TransformComponent};
 use kaman_math::glam::{Quat, Vec3};
 use kaman_math::Transform;
-use kaman_render_api::{MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, TextureHandle};
+use kaman_render_api::{
+    MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, SunSky, TextureHandle,
+};
 use kaman_scene::Scene;
 
 use crate::assets::{building_fit, color_layout, fit_transform, load_model, load_textured_mesh, textured_layout, CarPart};
@@ -113,6 +115,13 @@ pub(crate) struct CarRunner {
     /// The SDF font atlas the HUD draws with (KE-0404/KE-0707), loaded once in
     /// `init`. `None` until then — the HUD simply draws nothing.
     pub(crate) font: Option<kaman_render_api::FontAtlas>,
+    /// The looping driving-music track (KE-0405), loaded once in `init` and started
+    /// on the `Ready → Playing` transition. See [`Self::start_music`] for why it is
+    /// started there and never restarted.
+    music: Option<SoundHandle>,
+    /// The impact one-shot (KE-0405), loaded once in `init` and played exactly once
+    /// per ended run, from [`Self::game_over`].
+    impact: Option<SoundHandle>,
     /// Seconds of the opening fade still to play. The title screen is fully black;
     /// starting a run sets this to [`config::HUD_FADE_SECONDS`] and it counts down
     /// on the fixed timestep, fading the black away to reveal the scene. Purely
@@ -180,6 +189,8 @@ impl CarRunner {
                 .with_smoothing(config::CHASE_SMOOTHING),
             state: GameState::Ready,
             font: None,
+            music: None,
+            impact: None,
             fade_remaining: 0.0,
             run_time: 0.0,
             rebased_last_step: false,
@@ -259,11 +270,49 @@ impl CarRunner {
         ))
     }
 
-    /// End the run: record the best score, report it, and enter `GameOver`.
+    /// Start the looping music (KE-0405).
+    ///
+    /// # The policy: one loop, started once, never restarted
+    ///
+    /// Called from the `Ready → Playing` transition only — the first Space press —
+    /// so the title screen is silent and the music comes up with the first metre of
+    /// road. From there it **keeps playing for the rest of the session**: a crash
+    /// does not stop it and a replay does not restart it. The alternative (stop on
+    /// crash, restart on replay) was rejected because it cuts the track mid-phrase
+    /// every time and restarts it from the top on every retry, which in an endless
+    /// runner you retry constantly is far more noticeable than a bed that simply
+    /// keeps going under the game-over banner.
+    ///
+    /// The practical consequence is that this must never be reached twice with the
+    /// loop already running, or the player hears two copies of the track drifting
+    /// apart. Two independent things prevent that: the demo only calls it on the
+    /// `Ready → Playing` edge (and never returns to `Ready`), and the engine's audio
+    /// layer has a single loop channel where re-asking for the sound already looping
+    /// starts nothing. `audio.loop_starts()` counts the starts that really happened,
+    /// which is what the test pins.
+    fn start_music(&self, ctx: &mut EngineCtx) {
+        if let Some(music) = self.music {
+            ctx.audio().play_looping(music, config::MUSIC_VOLUME);
+        }
+    }
+
+    /// End the run: play the impact, record the best score, report it, and enter
+    /// `GameOver`.
     ///
     /// The world is left frozen (the crashed car stays put) until the player hits
     /// the replay key; reporting is stdout for now (the on-screen HUD is KE-0707).
-    fn game_over(&mut self, hit: Vec3) {
+    ///
+    /// This is the run's single **edge** from live to ended, which is what makes it
+    /// the right place for a one-shot: it is reached from the collision test at the
+    /// end of a `Playing` step, and the very next `update` returns early on
+    /// `GameOver` before that test runs again. So sitting in `GameOver` for a
+    /// thousand frames plays the impact once, not a thousand times — a test pins
+    /// that, because "trigger a sound from a state instead of from the transition
+    /// into it" is the classic way to get a machine-gun sound effect.
+    fn game_over(&mut self, ctx: &mut EngineCtx, hit: Vec3) {
+        if let Some(impact) = self.impact {
+            ctx.audio().play_once(impact, config::IMPACT_VOLUME);
+        }
         self.best = self.best.max(self.distance);
         self.state = GameState::GameOver;
         let player = self.player_position();
@@ -321,6 +370,10 @@ travel={:.1} speed={:.1} rebased_last_step={}",
         // A fresh run starts at the base speed again.
         self.run_time = 0.0;
         self.state = GameState::Playing;
+        // Audio is deliberately untouched here: the music has been looping since the
+        // first run started and keeps going across the crash and this replay, so
+        // there is nothing to restart (and nothing to accidentally double). See
+        // `start_music` for the policy.
         println!("replay — score {}. go!", self.best as u64);
     }
 
@@ -446,6 +499,22 @@ impl Game for CarRunner {
         let scene = ctx.scene_mut();
         self.player = Some(Self::spawn_player(scene, start));
 
+        // Sounds (KE-0405): decoded **here**, once, and referenced by handle from
+        // then on — same discipline as the meshes below, and for the same reason:
+        // decoding a 27-second track is not something that may happen anywhere near
+        // a fixed update. Nothing is played yet. The music deliberately does not
+        // start at launch; the demo opens on a frozen title prompt, and music under
+        // a still image reads as a bug, so it starts when the player does (see
+        // `start_music`).
+        //
+        // No error handling and no availability check on purpose: the engine's audio
+        // layer never fails and never needs a device — headless, on CI, or under
+        // `--smoke` these calls are silent no-ops that still hand back valid handles.
+        let audio = ctx.audio();
+        audio.set_master_volume(config::MASTER_VOLUME);
+        self.music = Some(audio.load(config::MUSIC_ASSET));
+        self.impact = Some(audio.load(config::IMPACT_ASSET));
+
         // The cars are **imported** through `kaman-assets` (KE-0402/KE-0703) from
         // committed CC0 `.glb` models (Quaternius, public domain): the player drives
         // `assets/sports_car.glb`; the traffic cars are `assets/{car,car2,police_car}.glb`.
@@ -476,6 +545,24 @@ impl Game for CarRunner {
             fragment_shader: "textured_fragment_main".into(),
             vertex_layout: textured_layout(),
         }));
+
+        // Ask the engine for the demo's sun (KE-0406): a summer ~4pm sun low in the
+        // west-northwest, with the sky tuned to match. Pushed **once**, here, rather
+        // than every frame: the seam value is sticky and the backend re-uploads it
+        // per frame, and the demo's time of day never changes. It must be in effect
+        // before the first frame opens, because the sky pass (which draws the sun)
+        // runs as a frame begins. A day/night cycle would push this from `update`
+        // instead — the *choice* of hour is game policy either way, which is why the
+        // numbers live in `config` and the engine only ever sees angles and colours.
+        renderer.set_sun_sky(&SunSky {
+            sun_elevation_deg: config::SUN_ELEVATION_DEG,
+            sun_azimuth_deg: config::SUN_AZIMUTH_DEG,
+            sun_color: config::SUN_COLOR,
+            sun_intensity: config::SUN_INTENSITY,
+            sky_fill: config::SKY_FILL,
+            sky_zenith_color: config::SKY_ZENITH_COLOR,
+            sky_horizon_color: config::SKY_HORIZON_COLOR,
+        });
 
         let mut cache = AssetCache::new();
 
@@ -548,6 +635,9 @@ impl Game for CarRunner {
                 // Start the opening fade: the black title screen dissolves into
                 // the running game over the next fraction of a second.
                 self.fade_remaining = config::HUD_FADE_SECONDS;
+                // ...and bring the music up with it (KE-0405). This transition is
+                // the only place it starts: the title screen stays silent.
+                self.start_music(ctx);
             }
             let player_pos = self.player_position();
             self.chase.follow(ctx.camera_mut(), player_pos, config::FORWARD);
@@ -651,7 +741,7 @@ impl Game for CarRunner {
         // KE-0707 the HUD draws it live on screen every frame. The one line the
         // demo still prints on a crash is a diagnostic, not a readout.
         if let Some(hit) = self.hit_any_obstacle(ctx) {
-            self.game_over(hit);
+            self.game_over(ctx, hit);
         }
     }
 
@@ -689,6 +779,36 @@ mod tests {
             harness.scene().streamed_count() > 0,
             "init primed streamed content ahead of the player"
         );
+    }
+
+    #[test]
+    fn init_asks_the_engine_for_a_summer_afternoon_sun() {
+        // KE-0406: the demo's time of day is a *demo* decision pushed through the
+        // seam, so it is assertable headlessly — no GPU, no pixels.
+        let mut game = CarRunner::new();
+        let harness = kaman_core::headless::run(&mut game, 0);
+        let sun = harness
+            .renderer()
+            .sun_sky()
+            .expect("init pushes the demo's sun across the seam");
+
+        assert_eq!(sun.sun_elevation_deg, config::SUN_ELEVATION_DEG);
+        assert_eq!(sun.sun_azimuth_deg, config::SUN_AZIMUTH_DEG);
+        // A summer 4pm sun: 30-35 degrees up, from the west (270 +/- ~20).
+        assert!((30.0..=35.0).contains(&sun.sun_elevation_deg));
+        assert!((250.0..=290.0).contains(&sun.sun_azimuth_deg));
+        // Warm, but only slightly — not an orange golden-hour sun.
+        assert!(sun.sun_color[2] < sun.sun_color[0], "warm: less blue than red");
+        assert!(sun.sun_color[2] > 0.8, "still nearly white at 4pm");
+        // Sky fill stays fill; the direct sun dominates.
+        assert!(sun.sky_fill < sun.sun_intensity * 0.35);
+
+        // And the derived light: arriving from the west and above means it travels
+        // eastward (+X) and downward (-Y) — off the car's left flank as it drives
+        // north along FORWARD (-Z).
+        let d = sun.direction();
+        assert!(d.x > 0.0, "light travels eastward, so the sun is in the west");
+        assert!(d.y < 0.0, "light travels downward, so the sun is above the horizon");
     }
 
     #[test]
@@ -1078,6 +1198,149 @@ mod tests {
         assert!(game.distance < score_at_crash, "score reset on replay");
         assert_eq!(game.lane, config::START_LANE, "lane recentered");
         assert!(game.travel >= travel_before, "world travel stays monotonic");
+    }
+
+    /// Drive `game` until the run ends, up to `limit` frames. Returns whether it
+    /// actually ended, so a test can insist that it did.
+    fn drive_until_over(game: &mut CarRunner, h: &mut Headless, limit: u32) -> bool {
+        for _ in 0..limit {
+            h.run(game, 1);
+            if game.state == GameState::GameOver {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn sounds_load_once_in_init_and_the_title_screen_stays_silent() {
+        // KE-0405. Two facts in one test, because they are the same fact: audio is
+        // *loaded* at init and only *played* on a game event.
+        let mut game = CarRunner::new();
+        let mut h = Headless::new();
+        h.run(&mut game, 30);
+
+        // Headless means no audio device at all — which is what makes `--smoke` and
+        // every test here silent, and what makes these assertions possible.
+        assert!(h.audio().is_silent(), "a headless run opens no audio device");
+        assert_eq!(h.audio().sound_count(), 2, "the music and the impact, loaded once each");
+        assert_eq!(h.audio().decode_count(), 0, "silent mode decodes nothing");
+        assert_ne!(game.music, game.impact, "two distinct handles");
+        assert_eq!(h.audio().master_volume(), config::MASTER_VOLUME);
+
+        // Thirty frames of frozen title prompt: nothing has played.
+        assert_eq!(h.audio().looping(), None, "no music under the title prompt");
+        assert_eq!(h.audio().one_shots_played(), 0);
+
+        // The start key brings the music up — this transition, and only it.
+        h.input_mut().press_key(Key::Space);
+        h.run(&mut game, 1);
+        h.input_mut().release_key(Key::Space);
+        assert_eq!(h.audio().looping(), game.music, "the start key starts the music");
+        assert_eq!(h.audio().loop_starts(), 1);
+    }
+
+    #[test]
+    fn the_music_is_never_layered_across_a_crash_and_replay() {
+        // The bug this pins: a naive "start the music when the state becomes
+        // Playing" fires again on every replay, so after one retry the player hears
+        // two copies of the track drifting apart, and three after the next.
+        // `loop_starts` counts starts that actually happened, so it is exactly 1 for
+        // a session no matter how many runs it contains.
+        let (mut game, mut h) = drive_to_game_over();
+        assert_eq!(h.audio().loop_starts(), 1);
+        assert_eq!(h.audio().one_shots_played(), 1, "one impact for the first run");
+
+        // Replay: GameOver -> Playing.
+        h.input_mut().press_key(Key::Space);
+        h.run(&mut game, 1);
+        h.input_mut().release_key(Key::Space);
+        assert_eq!(game.state, GameState::Playing, "replay resumed play");
+
+        // ...and crash again.
+        assert!(
+            drive_until_over(&mut game, &mut h, 600),
+            "the replayed run never ended, so this test would prove nothing",
+        );
+
+        assert_eq!(
+            h.audio().loop_starts(),
+            1,
+            "the music must still be the one loop started at the beginning of the \
+             session — a replay that restarts it layers a second copy",
+        );
+        assert_eq!(h.audio().looping(), game.music, "and it is still playing");
+        assert_eq!(h.audio().one_shots_played(), 2, "one impact per ended run");
+    }
+
+    #[test]
+    fn the_impact_fires_once_per_ended_run_and_not_once_per_frame() {
+        // Edge-triggered, not state-triggered: `game_over` is the single transition
+        // out of `Playing`, and the `GameOver` branch of `update` returns before the
+        // collision test can run again. Sitting in `GameOver` must therefore not
+        // re-fire the sound — the failure mode being a machine-gun effect for as
+        // long as the banner is up.
+        let (mut game, mut h) = drive_to_game_over();
+        let impact = game.impact.expect("loaded in init");
+        assert_eq!(h.audio().one_shots_of(impact), 1, "exactly one impact on the crash");
+
+        // Sit in GameOver for a long time (no input, so no replay).
+        h.run(&mut game, 500);
+        assert_eq!(game.state, GameState::GameOver, "still waiting for the replay key");
+        assert_eq!(
+            h.audio().one_shots_of(impact),
+            1,
+            "500 frames of GameOver must not play the impact again",
+        );
+        assert_eq!(h.audio().one_shots_played(), 1, "and nothing else played either");
+    }
+
+    /// The committed WAVs really decode and play on a **real** audio device.
+    ///
+    /// Every other audio test here runs against `Audio::silent()`, which by design
+    /// does not even open the files — that is what keeps `cargo test` quiet and CI
+    /// device-free, but it means nothing above would notice if
+    /// [`config::MUSIC_ASSET`] pointed at a missing path, or if a committed WAV were
+    /// truncated or in a container the enabled `kira` features cannot decode. This
+    /// test closes exactly that gap by asserting the decode actually happened.
+    ///
+    /// `#[ignore]`d because it needs sound hardware and makes noise. Run it with:
+    ///
+    /// ```text
+    /// cargo test -p playable-demo -- --ignored the_committed_sounds_decode
+    /// ```
+    ///
+    /// It plays at -60 dB, so it verifies the path without being audible.
+    #[test]
+    #[ignore = "needs a real audio output device; makes sound"]
+    fn the_committed_sounds_decode_on_a_real_device() {
+        use kaman_core::{Audio, Volume};
+
+        let mut audio = Audio::with_output_device();
+        if audio.is_silent() {
+            // No device on this machine (or it was refused) — the layer degraded as
+            // designed. Nothing to assert about decoding, so say so rather than
+            // passing silently and implying the files were checked.
+            println!("skipped: no audio output device available");
+            return;
+        }
+
+        let music = audio.load(config::MUSIC_ASSET);
+        let impact = audio.load(config::IMPACT_ASSET);
+        assert_eq!(
+            audio.decode_count(),
+            2,
+            "both committed WAVs decoded ({} and {})",
+            config::MUSIC_ASSET,
+            config::IMPACT_ASSET,
+        );
+
+        // Quiet enough to be inaudible, loud enough to exercise the real mixer.
+        audio.set_master_volume(Volume(-60.0));
+        audio.play_looping(music, Volume(-60.0));
+        assert_eq!(audio.looping(), Some(music), "the music took the loop channel");
+        audio.play_once(impact, Volume(-60.0));
+        assert_eq!(audio.one_shots_of(impact), 1, "the impact played once");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 //! [`NullRenderer`] — a headless, GPU-free test double for the render seam.
 
-use kaman_math::glam::Mat4;
+use kaman_math::glam::{Mat4, Vec3};
 use kaman_math::Transform;
 
 use crate::descriptor::MaterialParams;
@@ -12,6 +12,7 @@ use crate::device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
 use crate::handles::{MeshHandle, PipelineHandle, TextureHandle};
 use crate::overlay::OverlayQuad;
 use crate::recorder::FrameRecorder;
+use crate::sun::SunSky;
 
 /// A single recorded draw, captured by [`NullRenderer`] for later assertion.
 ///
@@ -41,6 +42,13 @@ pub struct RecordedDraw {
 /// Tests introspect the recorder through its accessors — [`draw_count`](Self::draw_count),
 /// [`draws`](Self::draws), [`created_meshes`](Self::created_meshes), and friends — to
 /// assert what the code under test asked the renderer to do.
+///
+/// The sticky frame-wide state is recorded the same way:
+/// [`view_projection`](Self::view_projection),
+/// [`camera_position`](Self::camera_position) and [`sun_sky`](Self::sun_sky) each
+/// hold the last value pushed, so a test can assert *which camera and which sun* a
+/// game asked for — a headless way to check lighting intent that would otherwise
+/// need a GPU and a pixel hash.
 ///
 /// It also tracks live vs. destroyed resources so tests can assert correct cleanup,
 /// and records the frame protocol (frames begun/submitted, whether a frame is open)
@@ -75,6 +83,16 @@ pub struct NullRenderer {
     /// the seam contract that a real backend keeps the last view-projection until
     /// it is replaced.
     view_projection: Option<Mat4>,
+    /// The most recent camera world position pushed via
+    /// [`set_camera_position`](FrameRecorder::set_camera_position) (KE-0406).
+    /// `None` until the first push, then sticky — like `view_projection`, which it
+    /// must agree with.
+    camera_position: Option<Vec3>,
+    /// The most recent sun/sky pushed via
+    /// [`set_sun_sky`](FrameRecorder::set_sun_sky) (KE-0406). `None` until the first
+    /// push, then sticky, so a headless test can assert *which sun* a game asked
+    /// for without a GPU.
+    sun_sky: Option<SunSky>,
 }
 
 impl NullRenderer {
@@ -193,6 +211,28 @@ impl NullRenderer {
     pub fn view_projection(&self) -> Option<Mat4> {
         self.view_projection
     }
+
+    /// The most recent camera world position recorded via
+    /// [`set_camera_position`](FrameRecorder::set_camera_position) (KE-0406).
+    ///
+    /// `None` before the first push, then sticky. Pairs with
+    /// [`view_projection`](Self::view_projection): a test can assert the engine
+    /// pushed a position that matches the matrix it pushed.
+    #[must_use]
+    pub fn camera_position(&self) -> Option<Vec3> {
+        self.camera_position
+    }
+
+    /// The most recent [`SunSky`] recorded via
+    /// [`set_sun_sky`](FrameRecorder::set_sun_sky) (KE-0406).
+    ///
+    /// `None` before the first push, then sticky. Lets a headless test assert the
+    /// *sun a game asked for* — its elevation, azimuth, colour and sky — and, via
+    /// [`SunSky::direction`], the light vector that follows from it.
+    #[must_use]
+    pub fn sun_sky(&self) -> Option<SunSky> {
+        self.sun_sky
+    }
 }
 
 impl RenderDevice for NullRenderer {
@@ -252,15 +292,24 @@ impl FrameRecorder for NullRenderer {
     fn begin_frame(&mut self) {
         self.frame_open = true;
         self.frames_begun += 1;
-        // Per-frame state resets at the start of each frame. The view-projection
-        // is deliberately NOT reset: it is sticky across frames (seam contract),
-        // so an engine loop can push it once per frame before the game records.
+        // Per-frame state resets at the start of each frame. The camera and the
+        // sun/sky are deliberately NOT reset: they are sticky across frames (seam
+        // contract), so an engine loop can push them once per frame before the game
+        // records — or, for a fixed sun, just once at load.
         self.current_pipeline = None;
         self.current_texture = None;
     }
 
     fn set_view_projection(&mut self, view_proj: Mat4) {
         self.view_projection = Some(view_proj);
+    }
+
+    fn set_camera_position(&mut self, position: Vec3) {
+        self.camera_position = Some(position);
+    }
+
+    fn set_sun_sky(&mut self, sun: &SunSky) {
+        self.sun_sky = Some(*sun);
     }
 
     fn set_pipeline(&mut self, handle: PipelineHandle) {

@@ -27,6 +27,15 @@
 //! headless driver and the plain [`run`] entry keep the GPU-free
 //! [`NullRenderer`].
 //!
+//! # Audio (KE-0405)
+//!
+//! This is also the only entry that opens an **audio output device**: it replaces
+//! the loop's silent [`Audio`](kaman_audio::Audio) layer with
+//! [`Audio::with_output_device`](kaman_audio::Audio::with_output_device) at
+//! startup. The headless driver keeps the silent layer, so tests and `--smoke`
+//! never touch audio hardware; and since the device-bound constructor falls back
+//! to silence when there is no output, even this path cannot fail on that account.
+//!
 //! # macOS isolation
 //!
 //! The window-creation and event-translation helpers are kept as small free
@@ -159,10 +168,22 @@ struct EngineApp<'g, 'f, G: Game> {
 
 impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
     fn new(game: &'g mut G, factory: Option<BackendFactory<'f>>) -> Self {
+        // A fresh `Loop` is silent (it opens no audio device, which is what keeps
+        // headless runs and tests quiet). The windowed entry is the one place that
+        // *wants* speakers, so bind the mixer to the system's default output here —
+        // exactly once, at startup, before the game's `init` can load a sound.
+        //
+        // `with_output_device` cannot fail: a machine with no output device falls
+        // back to the same silent no-op, so a windowed run on a headless CI box
+        // still runs, just quietly. Audio is intentionally *not* deferred to
+        // `resumed` like the render backend is — it needs no window.
+        let mut lp = Loop::new();
+        lp.audio = kaman_audio::Audio::with_output_device();
+
         Self {
             game,
             window: None,
-            lp: Loop::new(),
+            lp,
             renderer: Box::new(NullRenderer::new()),
             factory,
             last_frame: None,

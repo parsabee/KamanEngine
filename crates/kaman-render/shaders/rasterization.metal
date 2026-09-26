@@ -10,7 +10,8 @@
 //   * Linear-space lighting presented through an explicit sRGB encode + ACES
 //     tonemap (colors correct, not washed out) — see `present_color`.
 //   * A gradient sky drawn as a fullscreen pass (`sky_vertex_main` /
-//     `sky_fragment_main`) instead of a flat clear.
+//     `sky_fragment_main`) instead of a flat clear, carrying the **sun disc and
+//     its glow** (KE-0406) at the direction the light actually comes from.
 //   * Distance fog that blends far geometry into the sky/horizon color, hiding
 //     the streaming spawn edge (`apply_fog`).
 //   * A cheap directional contact-shadow "blob" projected onto the ground plane
@@ -59,7 +60,14 @@ struct Uniforms {
 };
 
 /// Lighting parameters (directional light with Phong components) plus the
-/// KE-0401 look parameters (fog, sky, shadow). Mirrors the Rust `LightUniforms`.
+/// KE-0401 look parameters (fog, sky, shadow) and the KE-0406 camera block.
+/// Mirrors the Rust `LightUniforms` **byte for byte** — 208 bytes.
+///
+/// LAYOUT WARNING: an MSL `float3` occupies 16 bytes, so each one below sits at a
+/// 16-byte-aligned offset (0, 16, 48, 64, 96, 128) and the trailing `float4x4` at
+/// 144. The Rust side spells those pads out explicitly and asserts every offset;
+/// a mismatch here does not fail to compile, it silently shades with the wrong
+/// bytes (it has happened once — see the `REFERENCE_HASH` re-bless note).
 struct Light {
     float3 direction;                  // Light direction in world space (points FROM the light)
     float3 color;                      // Light color (RGB)
@@ -78,8 +86,38 @@ struct Light {
     float3 shadowCenter;               // World-space point the car sits above (blob center)
     float  shadowRadius;               // Blob shadow radius in world units
     float  shadowStrength;             // 0..1 darkening under the car
-    float  groundHeight;               // World Y of the ground plane (shadow receiver)
+
+    // --- KE-0406 camera block (the frame's camera, not its light) ---
+    float3 cameraPosition;             // Camera world position -> view-dependent specular
+    float4x4 inverseViewProjection;    // clip -> world, for the sky pass's view ray
 };
+
+// ============================================================================
+// Sun disc + glow tuning (KE-0406)
+// ============================================================================
+//
+// Angular sizes, stored as cosines so the fragment shader only ever needs one dot
+// product. The real sun subtends ~0.53 degrees, which is a couple of pixels and
+// reads as a stray dot, so the disc is drawn a little larger than life and the
+// glow carries most of the impression of brightness.
+//
+// The glow extent is deliberately narrow (18 degrees). It has to be: the
+// screen-space overlay reference renders with an identity view-projection, whose
+// unprojection gives every pixel the constant view ray (0,0,1) — and the default
+// sun sits 75 degrees off that, so a glow this tight contributes *exactly* zero
+// there and cannot move OVERLAY_REFERENCE_HASH.
+
+/// cos of the disc's solid core (~0.45 degrees).
+constant float SUN_DISC_COS_INNER = 0.99997;
+/// cos of the disc's outer rim (~0.95 degrees); the core fades to 0 by here.
+constant float SUN_DISC_COS_OUTER = 0.99986;
+/// cos of the glow's outer extent (~18 degrees).
+constant float SUN_GLOW_COS = 0.95106;
+/// How much brighter than the sun colour the disc's core is. Well over 1 so it
+/// clips to white through the ACES tonemap, like looking at a real sun.
+constant float SUN_DISC_GAIN = 12.0;
+/// Peak brightness of the glow, as a fraction of the sun colour.
+constant float SUN_GLOW_GAIN = 0.55;
 
 // ============================================================================
 // Color management: linear -> ACES tonemap -> sRGB encode (KE-0401)
@@ -187,9 +225,18 @@ inline float3 lit_linear(float3 albedo, float3 worldNormal, float3 worldPos,
     float diff = max(dot(normal, lightDir), 0.0);
     float3 diffuse = light.diffuseIntensity * diff * light.color;
 
-    float3 viewDir = normalize(float3(0.0, 0.0, 1.0));
+    // View-dependent specular (KE-0406): the eye position comes across the seam
+    // each frame, so highlights track the camera. This used to be a constant
+    // float3(0,0,1), which pinned every highlight to a fixed screen direction —
+    // most visible on car bodywork under a low sun, where the highlight should
+    // sweep as you drive past it and simply did not.
+    float3 viewDir = normalize(light.cameraPosition - worldPos);
     float3 halfDir = normalize(lightDir + viewDir);
     float spec = pow(max(dot(normal, halfDir), 0.0), light.shininess);
+    // Only lit faces can have a highlight. With a real view vector a face turned
+    // away from the sun but toward the camera would otherwise pick up a spurious
+    // one; the CPU mirror in `raytracer.rs` already gates on `ndotl > 0`.
+    spec *= step(1e-4, diff);
     float3 specular = light.specularIntensity * spec * light.color;
 
     float shadow = ground_shadow(worldPos, light);
@@ -212,6 +259,13 @@ fragment float4 fragment_main(VertexOut in [[stage_in]],
 // A fullscreen triangle drawn first (depth test disabled) that paints a vertical
 // gradient from `skyHorizonColor` up to `skyTopColor`, replacing the flat clear.
 // Far geometry fogs toward `skyHorizonColor`, so the horizon reads seamlessly.
+//
+// KE-0406 adds the **sun** to it: a small disc with a soft halo, placed at
+// `-light.direction` — the very vector `lit_linear` shades with, so turning the
+// sun moves the disc and the lighting together and they cannot drift apart. It
+// stays a single fullscreen pass with no new geometry: the per-pixel view ray is
+// unprojected from the NDC the vertex stage already interpolates, and "is this
+// pixel the sun?" is one dot product plus two smoothsteps.
 
 struct SkyOut {
     float4 position [[position]];
@@ -228,14 +282,50 @@ vertex SkyOut sky_vertex_main(uint vid [[vertex_id]]) {
     return out;
 }
 
-/// Vertical gradient sky, tonemapped + sRGB-encoded like the rest of the scene.
+/// World-space view ray through a fullscreen-pass pixel, from its NDC.
+///
+/// The sky owns no geometry, so it recovers the ray by unprojecting the pixel at
+/// both ends of the depth range through the camera's inverse view-projection and
+/// taking the direction between them. That works for any projection the seam
+/// pushes, and degenerates safely: with an identity view-projection (the backend's
+/// state before the first camera push) it yields a constant `(0, 0, 1)` rather
+/// than NaNs.
+inline float3 sky_view_ray(float2 ndc, constant Light& light) {
+    float4 nearH = light.inverseViewProjection * float4(ndc, 0.0, 1.0);
+    float4 farH  = light.inverseViewProjection * float4(ndc, 1.0, 1.0);
+    return normalize(farH.xyz / farH.w - nearH.xyz / nearH.w);
+}
+
+/// Vertical gradient sky **plus the sun disc and its glow** (KE-0406), tonemapped
+/// + sRGB-encoded like the rest of the scene — so a blazing disc clips to white
+/// through the same ACES curve as everything else instead of blowing out.
 fragment float4 sky_fragment_main(SkyOut in [[stage_in]],
                                   constant Light& light [[buffer(0)]]) {
     float t = clamp(in.ndc.y * 0.5 + 0.5, 0.0, 1.0);
     // Smooth the horizon->zenith transition a touch.
     t = t * t * (3.0 - 2.0 * t);
     float3 sky = mix(light.skyHorizonColor, light.skyTopColor, t);
-    return float4(present_color(sky), 1.0);
+
+    // The sun: one dot product between this pixel's view ray and the direction the
+    // sunlight arrives *from*. `light.direction` is the direction it travels, so
+    // the sun is at its negation — the same single source of truth the shading
+    // uses, which is what keeps the disc and the highlights on the same sun.
+    float3 rayDir = sky_view_ray(in.ndc, light);
+    float cosToSun = dot(rayDir, normalize(-light.direction));
+
+    // Core disc, antialiased over the rim by the smoothstep, and a halo that falls
+    // off into the gradient (cubed so it stays tight near the disc and vanishes
+    // gently). Both are exactly 0 outside their extents, so a frame whose sun is
+    // off-screen is bit-identical to the plain gradient.
+    float disc = smoothstep(SUN_DISC_COS_OUTER, SUN_DISC_COS_INNER, cosToSun);
+    float glow = smoothstep(SUN_GLOW_COS, 1.0, cosToSun);
+    glow = glow * glow * glow;
+
+    // Scaled by the sun's own intensity so a dimmer sun also has a dimmer disc.
+    float3 sun = light.color * light.diffuseIntensity
+               * (disc * SUN_DISC_GAIN + glow * SUN_GLOW_GAIN);
+
+    return float4(present_color(sky + sun), 1.0);
 }
 
 // ============================================================================

@@ -13,6 +13,11 @@
 //! and no Metal device**, so it is what the `--smoke` oracle and the crate's
 //! tests use, and it runs on headless CI runners.
 //!
+//! The same goes for sound: the harness holds a **silent** [`Audio`] layer
+//! (KE-0405) and opens no audio device, yet it records every play request, so a
+//! game's audio behaviour is asserted here the same way its draws are — see
+//! [`Headless::audio`].
+//!
 //! # The synthetic clock
 //!
 //! To stay deterministic, this driver does not read wall time: each frame it
@@ -26,6 +31,7 @@
 
 use std::time::Duration;
 
+use kaman_audio::Audio;
 use kaman_camera::Camera;
 use kaman_ecs::hecs::World;
 use kaman_render_api::NullRenderer;
@@ -76,13 +82,13 @@ pub fn run<G: Game>(game: &mut G, frames: u32) -> Headless {
 /// A reusable headless harness owning the engine state a [`Game`]
 /// runs against.
 ///
-/// Wraps a shared [`Loop`] (ECS [`World`], [`InputState`], `PerfTracker`, and the
-/// fixed-timestep [`Accumulator`](crate::timestep::Accumulator)) plus a
-/// [`NullRenderer`] (the render seam double). Construct one with
-/// [`new`](Self::new), optionally seed input, then call [`run`](Self::run) (or
-/// the free [`run`] function). After a run, inspect
-/// [`world`](Self::world) and [`renderer`](Self::renderer) to assert what the
-/// game did.
+/// Wraps a shared [`Loop`] (ECS [`World`], [`InputState`], a silent [`Audio`]
+/// layer, `PerfTracker`, and the fixed-timestep
+/// [`Accumulator`](crate::timestep::Accumulator)) plus a [`NullRenderer`] (the
+/// render seam double). Construct one with [`new`](Self::new), optionally seed
+/// input, then call [`run`](Self::run) (or the free [`run`] function). After a run,
+/// inspect [`world`](Self::world), [`renderer`](Self::renderer) and
+/// [`audio`](Self::audio) to assert what the game did.
 pub struct Headless {
     lp: Loop,
     renderer: NullRenderer,
@@ -90,7 +96,8 @@ pub struct Headless {
 }
 
 impl Headless {
-    /// Create an empty harness: empty world, fresh `NullRenderer`, no input.
+    /// Create an empty harness: empty world, fresh `NullRenderer`, no input, and a
+    /// silent audio layer (no device is opened).
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -153,6 +160,19 @@ impl Headless {
     #[must_use]
     pub fn renderer(&self) -> &NullRenderer {
         &self.renderer
+    }
+
+    /// The [`Audio`] layer the game played through (KE-0405).
+    ///
+    /// A headless harness holds a **silent** layer and opens no output device, so
+    /// this run makes no sound and needs no hardware. It is still a full record of
+    /// what the game asked for — which sounds it loaded, how many one-shots it
+    /// fired, what it left looping — so audio behaviour is asserted here exactly
+    /// the way draws are asserted through [`renderer`](Self::renderer), with no
+    /// device and no listening.
+    #[must_use]
+    pub fn audio(&self) -> &Audio {
+        &self.lp.audio
     }
 
     /// Total number of frames driven so far across all [`run`](Self::run) calls.
