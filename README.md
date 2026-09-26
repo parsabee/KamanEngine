@@ -65,6 +65,30 @@ oracle). Layout follows [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §3.
 Honored by rustup (the recommended setup) and CI. The MSRV is also enforced by cargo via
 `rust-version`.
 
+## The playable demo
+
+`games/playable-demo` is the first title — an endless runner — and the **reference example** for
+building a game on this engine: it touches nothing but the engine's public API.
+
+```sh
+cargo run -p playable-demo             # windowed, Metal backend (macOS)
+cargo run -p playable-demo -- --smoke  # headless oracle: 120 frames, prints "smoke: 120 frames OK", exits 0
+```
+
+| Key | Action |
+|---|---|
+| `Left` / `Right` | Move one lane left / right (one lane per press) |
+| `Space` | Start the run from the title screen; replay after a crash |
+| `Escape` | Quit |
+
+- [docs/PLAYABLE_DEMO.md](docs/PLAYABLE_DEMO.md) — how the demo is built: the `Game`/`EngineCtx`
+  boundary, the fixed-timestep loop, streaming + floating-origin rebase, asset loading, the render
+  seam, the HUD, and determinism/testing.
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — **build your own game**: the minimal steps
+  to stand up a new `Game`, load an asset, record a draw, and run it windowed and headless.
+- [games/playable-demo/README.md](games/playable-demo/README.md) — the demo's own README: code
+  layout, the asset bakers, and asset licences.
+
 ## Documentation
 
 **📖 Live API docs: https://parsabee.github.io/KamanEngine/** — built from rustdoc and published
@@ -78,6 +102,8 @@ cargo doc --workspace --no-deps --open   # build + open the API docs in a browse
 ```
 
 Architecture docs (prose + diagrams):
+- [docs/PLAYABLE_DEMO.md](docs/PLAYABLE_DEMO.md) — the demo walked through as a reference example ·
+  [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — build your own game on the engine.
 - [docs/DESIGN.md](docs/DESIGN.md) — **diagrams**: component, UML class, and sequence diagrams
   (Mermaid) of the layers, the render seam, the frame loop, streaming, and asset load.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — intentional constraints + the render seam.

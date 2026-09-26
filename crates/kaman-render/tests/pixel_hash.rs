@@ -4,39 +4,51 @@
 
 //! Render pixel-hash guard (KR1.3).
 //!
-//! Deterministically renders a fixed reference scene into an offscreen Metal
-//! texture, reads the pixels back, hashes them, and asserts the hash equals a
+//! Deterministically renders fixed reference content into an offscreen Metal
+//! texture, reads the pixels back, hashes it, and asserts the hash equals a
 //! committed baseline. This is the golden net that pins the migrated renderer's
 //! output so the buffer/frames-in-flight refactors (KE-0103/0104/0105) can prove
 //! they preserved behavior.
 //!
-//! # Blessing the baseline
+//! Two independent references are pinned, each with its own baseline constant:
 //!
-//! The committed hash below was blessed from this migrated renderer's first
-//! correct frame. To re-bless after an *intended* visual change, run:
+//! 1. **The 3D reference scene** ([`REFERENCE_HASH`]) — a lit, rotated box through
+//!    the Phong pipeline and the KE-0401 look stack.
+//! 2. **The 2D reference overlay** ([`OVERLAY_REFERENCE_HASH`], KE-0404) — the HUD
+//!    overlay pass: a solid quad, a textured quad, an SDF quad, and a pair of
+//!    overlapping partial-alpha quads whose record order the blend must respect.
+//!
+//! They are separate renders (separate offscreen backends) so a change to one
+//! cannot shift the other's pixels, and a failure names which pass regressed.
+//!
+//! # Blessing the baselines
+//!
+//! The committed hashes below were blessed from this migrated renderer's first
+//! correct frame of each pass. To re-bless after an *intended* visual change, run:
 //!
 //! ```text
 //! BLESS=1 cargo test -p kaman-render --test pixel_hash -- --nocapture
 //! ```
 //!
-//! The test prints the new hash and passes (without asserting) so you can copy
-//! it into `REFERENCE_HASH` below **with a justification note in the commit
-//! message**. Blessing is deliberately manual and loud.
+//! Each test prints its new hash, named after the constant that holds it, and
+//! passes (without asserting) so you can copy the value into that constant
+//! **with a justification note in the commit message**. Blessing is deliberately
+//! manual and loud.
 //!
 //! # CI safety (GPU-less runners)
 //!
 //! GitHub macOS runners are headless with no GPU, so `MTLCreateSystemDefaultDevice`
-//! can return nil. When no Metal device is available the test **skips** (prints a
-//! skip line and returns) instead of failing, so it never breaks a GPU-less
-//! build. On a real Mac (this dev machine) it runs and asserts.
+//! can return nil. When no Metal device is available the tests **skip** (print a
+//! skip line and return) instead of failing, so they never break a GPU-less
+//! build. On a real Mac (this dev machine) they run and assert.
 
 use kaman_camera::Camera;
 use kaman_math::glam::{Quat, Vec3};
 use kaman_math::Transform;
 use kaman_render::MetalRenderer;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, RenderDevice, VertexAttribute, VertexFormat,
-    VertexLayout,
+    FrameRecorder, MaterialParams, MeshData, OverlayFill, OverlayQuad, RenderDevice, TextureData,
+    TextureHandle, VertexAttribute, VertexFormat, VertexLayout,
 };
 
 /// Offscreen render size for the reference scene.
@@ -84,6 +96,31 @@ const HEIGHT: u32 = 64;
 // reference box now renders lit-red instead of fully fogged to the horizon color.
 const REFERENCE_HASH: u64 = 0x90d4631260adc5cc;
 
+/// Committed baseline hash of the **reference overlay**'s pixels (FNV-1a 64-bit).
+///
+/// Guards the KE-0404 2D overlay pass end to end: the pixel→NDC mapping with its
+/// `Y` flip, source-over alpha blending in record order, and all three
+/// [`OverlayFill`] modes (solid, textured, SDF) — see
+/// [`reference_overlay_quads`] for exactly what is drawn and why.
+///
+/// # KE-0404 first blessing
+///
+/// Blessed from this machine's first correct overlay frame, on the same Apple GPU
+/// that produces [`REFERENCE_HASH`]. Two things were checked before accepting it,
+/// because a golden hash is worthless if either fails:
+///
+/// - **The frame is not blank.** `bless_or_assert` requires more than 8 distinct
+///   pixel values, so a baseline can never be blessed from a render that silently
+///   drew nothing.
+/// - **The 3D baseline did not move.** The same blessing run reprinted
+///   `REFERENCE_HASH` as `0x90d4631260adc5cc`, unchanged — confirming the overlay
+///   reference is genuinely independent and the shared-helper refactor that
+///   introduced it altered no 3D pixel.
+///
+/// From here it is a normal golden baseline: hold it stable, and re-bless only via
+/// the documented path with a justification note in the commit message.
+const OVERLAY_REFERENCE_HASH: u64 = 0x2b3859048070b2b6;
+
 /// FNV-1a 64-bit hash over a byte buffer. Self-contained (no external crate) so
 /// the golden hash has no dependency surface.
 fn fnv1a_64(bytes: &[u8]) -> u64 {
@@ -93,6 +130,56 @@ fn fnv1a_64(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(0x00000100000001b3);
     }
     hash
+}
+
+/// Print the GPU-less skip line for the `what` reference; the caller then returns.
+///
+/// Shared by both pixel-hash tests so the skip behavior (and its wording) cannot
+/// drift apart between them: no Metal device is a **skip**, never a failure.
+fn skip_no_gpu(what: &str) {
+    eprintln!(
+        "skipping {what} pixel-hash test: no Metal device available (GPU-less runner). \
+         This is expected on headless CI; it runs and asserts on a real Mac."
+    );
+}
+
+/// Hash `pixels` and either print a fresh baseline (`BLESS=1`) or assert it
+/// matches `baseline`.
+///
+/// `constant` is the name of the `const` that holds `baseline`, so a `BLESS=1`
+/// run that exercises several references says which constant each printed value
+/// belongs in, and a failure says which one to look at. Shared by both tests so
+/// the blessing contract has exactly one implementation.
+fn bless_or_assert(pixels: &[u8], baseline: u64, constant: &str) {
+    // A pixel hash only guards anything if the frame actually has content. A
+    // regression that drew *nothing* would produce a perfectly stable hash, and
+    // once blessed it would pass forever while testing nothing at all. Both
+    // references put varied geometry over a gradient sky, so a frame this uniform
+    // means the render broke — checked before blessing too, so a blank frame can
+    // never be baked into a baseline.
+    let distinct = pixels.chunks_exact(4).collect::<std::collections::HashSet<_>>();
+    assert!(
+        distinct.len() > 8,
+        "{constant}: the rendered frame has only {} distinct pixel value(s) — it is \
+         effectively blank, so its hash would guard nothing",
+        distinct.len(),
+    );
+
+    let hash = fnv1a_64(pixels);
+
+    if std::env::var("BLESS").is_ok() {
+        println!("BLESS: new {constant} = {hash:#018x}");
+        println!("Update {constant} in tests/pixel_hash.rs with a justification note.");
+        return;
+    }
+
+    assert_eq!(
+        hash, baseline,
+        "{constant} pixel hash changed ({hash:#018x} != {baseline:#018x}). \
+         If this is an intended visual change, re-bless with \
+         `BLESS=1 cargo test -p kaman-render --test pixel_hash` and update {constant} \
+         with a justification note."
+    );
 }
 
 /// The 9-float-per-vertex layout used by `kaman-ecs` meshes, packed as raw bytes
@@ -199,26 +286,167 @@ fn render_reference() -> Option<Vec<u8>> {
 #[test]
 fn reference_scene_matches_committed_hash() {
     let Some(pixels) = render_reference() else {
-        eprintln!(
-            "skipping pixel-hash test: no Metal device available (GPU-less runner). \
-             This is expected on headless CI; it runs and asserts on a real Mac."
-        );
+        skip_no_gpu("reference-scene");
         return;
     };
 
-    let hash = fnv1a_64(&pixels);
+    bless_or_assert(&pixels, REFERENCE_HASH, "REFERENCE_HASH");
+}
 
-    if std::env::var("BLESS").is_ok() {
-        println!("BLESS: new reference hash = {hash:#018x}");
-        println!("Update REFERENCE_HASH in tests/pixel_hash.rs with a justification note.");
-        return;
+// ---------------------------------------------------------------------------
+// Reference overlay (KE-0404)
+// ---------------------------------------------------------------------------
+
+/// Edge length of the hand-written RGBA pattern the `Textured` quad samples.
+const PATTERN_SIZE: u32 = 4;
+
+/// Edge length of the analytic distance field the `Sdf` quad samples.
+const SDF_SIZE: u32 = 16;
+
+/// A tiny **hand-written** RGBA8 pattern: four fixed colors in 2x2-texel
+/// quadrants.
+///
+/// Written out in code rather than read from an asset so the overlay reference is
+/// self-contained and byte-identical on every machine — a decoded PNG would make
+/// the baseline hostage to an image decoder's rounding. The quadrants give the
+/// `Textured` mode structure to sample, so a broken UV mapping (a swapped or
+/// flipped axis) moves pixels and breaks the hash.
+fn reference_pattern() -> Vec<u8> {
+    // The four quadrant colors, all opaque: red-orange, green, blue, yellow.
+    const A: [u8; 4] = [255, 64, 32, 255];
+    const B: [u8; 4] = [32, 255, 96, 255];
+    const C: [u8; 4] = [48, 96, 255, 255];
+    const D: [u8; 4] = [240, 240, 64, 255];
+
+    let mut rgba = Vec::with_capacity((PATTERN_SIZE * PATTERN_SIZE) as usize * 4);
+    for y in 0..PATTERN_SIZE {
+        for x in 0..PATTERN_SIZE {
+            let texel = match (x / 2) + 2 * (y / 2) {
+                0 => A,
+                1 => B,
+                2 => C,
+                _ => D,
+            };
+            rgba.extend_from_slice(&texel);
+        }
     }
+    rgba
+}
 
-    assert_eq!(
-        hash, REFERENCE_HASH,
-        "reference-scene pixel hash changed ({hash:#018x} != {REFERENCE_HASH:#018x}). \
-         If this is an intended visual change, re-bless with \
-         `BLESS=1 cargo test -p kaman-render --test pixel_hash` and update REFERENCE_HASH \
-         with a justification note."
-    );
+/// A small **analytic** signed-distance field: a centered disc.
+///
+/// The overlay's SDF mode reads distance from the red channel and treats `0.5` as
+/// the edge, so this encodes `0.5` exactly at the disc's rim, above it inside and
+/// below it outside, spread linearly over `SPREAD` texels. Computed from a closed
+/// form rather than baked from a font so it needs no asset and no font parser, and
+/// so every texel is reproducible by inspection. The smooth ramp through `0.5` is
+/// what the shader's `fwidth`-derived antialiasing works on — a regression in the
+/// SDF branch (reading the wrong channel, losing the coverage smoothstep, or
+/// dropping the tint's alpha) changes the disc's edge pixels and breaks the hash.
+fn reference_sdf() -> Vec<u8> {
+    // Distance, in texels, that the encoded `0..=1` range spans either side of the
+    // edge. Wide enough that the ramp is several texels, narrow enough that the
+    // field saturates well inside and outside the disc.
+    const SPREAD: f32 = 4.0;
+
+    let n = SDF_SIZE as f32;
+    let radius = n * 0.3;
+    let mut rgba = Vec::with_capacity((SDF_SIZE * SDF_SIZE) as usize * 4);
+    for y in 0..SDF_SIZE {
+        for x in 0..SDF_SIZE {
+            // Texel centers relative to the field's center.
+            let dx = x as f32 + 0.5 - n * 0.5;
+            let dy = y as f32 + 0.5 - n * 0.5;
+            // Signed distance to the rim: positive inside, negative outside.
+            let signed = radius - (dx * dx + dy * dy).sqrt();
+            let encoded = (0.5 + signed / (2.0 * SPREAD)).clamp(0.0, 1.0);
+            let d = (encoded * 255.0).round() as u8;
+            // Expanded to RGBA for the seam's upload; the shader samples `.r`.
+            rgba.extend_from_slice(&[d, d, d, 255]);
+        }
+    }
+    rgba
+}
+
+/// The reference overlay's quads, **in record order**.
+///
+/// Order is part of the reference, not an implementation detail: the overlay
+/// blends source-over, which is not commutative, so recording these in a
+/// different order composites different pixels. Quads 0 and 1 overlap with
+/// partial alpha precisely so the hash catches a blend-order regression (a
+/// backend that batched, sorted, or reversed the recorded stream would change
+/// the overlap region).
+///
+/// All three [`OverlayFill`] modes are covered, so the hash guards each shader
+/// branch:
+///
+/// 0. `Solid`, alpha `0.6` — the lower half of the overlapping pair.
+/// 1. `Solid`, alpha `0.5` — the upper half; its top-left corner lies over quad 0.
+/// 2. `Textured` — samples the whole [`reference_pattern`], tinted and partly
+///    transparent so the tint multiply *and* the blend are both exercised.
+/// 3. `Sdf` — samples the whole [`reference_sdf`], opaque tint, so the disc's
+///    antialiased edge is the only source of partial coverage.
+///
+/// Every rect is inside the `WIDTH` x `HEIGHT` drawable, so nothing is clipped
+/// and the hash covers each quad in full.
+fn reference_overlay_quads(pattern: TextureHandle, sdf: TextureHandle) -> [OverlayQuad; 4] {
+    [
+        OverlayQuad::solid([8.0, 8.0, 32.0, 32.0], [0.9, 0.2, 0.15, 0.6]),
+        OverlayQuad::solid([24.0, 24.0, 32.0, 32.0], [0.15, 0.35, 0.95, 0.5]),
+        OverlayQuad {
+            rect: [4.0, 40.0, 20.0, 20.0],
+            uv: [0.0, 0.0, 1.0, 1.0],
+            color: [1.0, 0.9, 0.8, 0.8],
+            fill: OverlayFill::Textured(pattern),
+        },
+        OverlayQuad {
+            rect: [36.0, 4.0, 24.0, 24.0],
+            uv: [0.0, 0.0, 1.0, 1.0],
+            color: [0.96, 0.96, 0.98, 1.0],
+            fill: OverlayFill::Sdf(sdf),
+        },
+    ]
+}
+
+/// Render the fixed reference **overlay** offscreen and return its pixel bytes,
+/// or `None` if no Metal device is available.
+///
+/// Deliberately draws **no 3D geometry and pushes no camera**: the overlay is
+/// screen-space, so leaving the scene out isolates the overlay pass (its ortho
+/// mapping, blending and fill modes) over the backend's gradient sky. That also
+/// keeps this reference fully independent of [`render_reference`]'s — a change to
+/// the 3D scene cannot move these pixels, and vice versa.
+fn render_reference_overlay() -> Option<Vec<u8>> {
+    let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
+
+    // Both textures are built in code (see the builders above), so this render
+    // touches no file and is byte-identical on any machine.
+    let pattern = renderer.create_texture(&TextureData {
+        width: PATTERN_SIZE,
+        height: PATTERN_SIZE,
+        rgba8: &reference_pattern(),
+    });
+    let sdf = renderer.create_texture(&TextureData {
+        width: SDF_SIZE,
+        height: SDF_SIZE,
+        rgba8: &reference_sdf(),
+    });
+
+    renderer.begin_frame();
+    for quad in reference_overlay_quads(pattern, sdf) {
+        renderer.draw_overlay_quad(&quad);
+    }
+    renderer.submit();
+
+    renderer.read_pixels()
+}
+
+#[test]
+fn reference_overlay_matches_committed_hash() {
+    let Some(pixels) = render_reference_overlay() else {
+        skip_no_gpu("reference-overlay");
+        return;
+    };
+
+    bless_or_assert(&pixels, OVERLAY_REFERENCE_HASH, "OVERLAY_REFERENCE_HASH");
 }

@@ -17,6 +17,7 @@ path = "src/main.rs"
 # the embedded PNG through `kaman-assets` at import time.
 [dev-dependencies]
 image.workspace = true
+fontdue.workspace = true
 
 [dependencies]
 clap.workspace = true

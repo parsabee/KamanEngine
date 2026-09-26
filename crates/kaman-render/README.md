@@ -103,26 +103,41 @@ Shaders compile at runtime via `include_str!` + `new_library_with_source`
 
 ## Render pixel-hash guard (KR1.3)
 
-`tests/pixel_hash.rs` renders a fixed reference scene into an offscreen Metal
-texture, reads the pixels back, hashes them (FNV-1a 64-bit, no external crate),
-and asserts the hash equals the committed `REFERENCE_HASH`. This is the golden net
-that pins the migrated renderer's output so KE-0103/0104/0105 can prove they
-preserved behavior.
+`tests/pixel_hash.rs` renders fixed reference content into an offscreen Metal
+texture, reads the pixels back, hashes it (FNV-1a 64-bit, no external crate), and
+asserts the hash equals a committed baseline. This is the golden net that pins the
+renderer's output so KE-0103/0104/0105 can prove they preserved behavior.
 
-- **Committed baseline:** `0x292c5df343b5eba8`, blessed from this migrated
-  renderer's first correct frame.
+Two independent references are pinned, each with its own baseline:
+
+| Constant | Guards |
+| --- | --- |
+| `REFERENCE_HASH` = `0x90d4631260adc5cc` | The **3D reference scene**: a lit, rotated box through the Phong pipeline and the KE-0401 look stack (gradient sky, ACES tonemap, fog, blob shadow, 4x MSAA). |
+| `OVERLAY_REFERENCE_HASH` = `0x2b3859048070b2b6` | The **2D overlay pass** (KE-0404): the pixel→NDC mapping and its `Y` flip, source-over blending in record order, and all three `OverlayFill` modes — solid, textured, and SDF. |
+
+The overlay reference draws no geometry and pushes no camera, so the two are truly
+independent: a change to the 3D scene cannot move the overlay's pixels, or vice
+versa.
+
+Both go through `bless_or_assert`, which first refuses any frame with 8 or fewer
+distinct pixel values. A render that silently drew *nothing* would otherwise hash
+perfectly stably and, once blessed, pass forever while guarding nothing.
+
 - **Re-bless (intended visual change only):**
 
   ```text
   BLESS=1 cargo test -p kaman-render --test pixel_hash -- --nocapture
   ```
 
-  This prints the new hash and passes without asserting; copy it into
-  `REFERENCE_HASH` **with a justification note in the commit message**. Blessing is
-  deliberately manual and loud.
+  This prints each new hash **named by its constant** and passes without
+  asserting; copy the one you intended to change into that constant **with a
+  justification note in the commit message**, and leave the other alone. If a
+  baseline you did not mean to touch comes back different, something unintended
+  moved — investigate rather than pasting it. Blessing is deliberately manual and
+  loud.
 - **CI safety:** GitHub macOS runners are headless with no GPU, so
-  `MTLCreateSystemDefaultDevice` can return nil. The test detects device absence
-  and **skips** (prints a skip line, returns) instead of failing, so it never
-  breaks a GPU-less build. On a real Mac it runs and asserts.
+  `MTLCreateSystemDefaultDevice` can return nil. Both tests detect device absence
+  and **skip** (print a skip line, return) instead of failing, so they never
+  break a GPU-less build. On a real Mac they run and assert.
 
 Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.

@@ -128,4 +128,20 @@ pub trait RenderDevice {
     ///   [`set_pipeline`](crate::FrameRecorder::set_pipeline).
     /// - Destroying an unknown or already-destroyed handle is a caller error.
     fn destroy_pipeline(&mut self, handle: PipelineHandle);
+
+    /// The drawable's current size in pixels, `(width, height)`.
+    ///
+    /// This is the coordinate space the 2D overlay is laid out in (see the
+    /// [`overlay`](crate::overlay) module) — a HUD positions itself against it, so
+    /// it must reflect the live drawable, including resizes.
+    fn surface_size(&self) -> (u32, u32);
+
+    /// Insets, in pixels, of the region that is safe from device intrusions —
+    /// notches, rounded corners, home indicators — as `[top, right, bottom, left]`.
+    ///
+    /// A HUD should keep anything it wants guaranteed-visible inside
+    /// [`surface_size`](Self::surface_size) shrunk by these. Backends without
+    /// intrusions (a plain desktop window) report zeros; the iOS path reports the
+    /// real insets.
+    fn safe_area_insets(&self) -> [f32; 4];
 }

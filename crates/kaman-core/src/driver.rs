@@ -7,7 +7,7 @@
 //! The [`headless`](crate::headless) driver and the winit [windowed](crate::run)
 //! entry differ only in where they get their input, their render backend, and
 //! their clock. The *cadence* — init-once, then fixed-timestep `update`s draining
-//! the [`Accumulator`](crate::timestep::Accumulator) followed by one `render` — is
+//! the [`Accumulator`] followed by one `render` — is
 //! identical, so it lives here as [`drive_frame`], operating on the shared
 //! engine state in [`Loop`]. This is the single loop implementation the ticket
 //! calls for: neither driver reimplements the accumulator.
@@ -39,14 +39,14 @@ pub struct Loop {
     /// The engine-owned [`Camera`] (KE-0205). The game drives it through
     /// [`EngineCtx::camera_mut`](crate::EngineCtx::camera_mut) (e.g. via a chase
     /// controller); each frame the driver pushes its view-projection across the
-    /// render seam before [`Game::render`](crate::Game::render), so the game owns
+    /// render seam before [`Game::render`], so the game owns
     /// the view while the render backend stays camera-free.
     pub camera: Camera,
     /// Frame-timing tracker.
     pub perf: PerfTracker,
     /// The fixed-timestep accumulator shared with the windowed driver.
     pub accumulator: Accumulator,
-    /// Whether [`Game::init`](crate::Game::init) has already run.
+    /// Whether [`Game::init`] has already run.
     pub initialized: bool,
 }
 
@@ -70,7 +70,7 @@ impl Loop {
     /// renders pixels, so the value is inconsequential there.
     const DEFAULT_ASPECT: f32 = 4.0 / 3.0;
 
-    /// Run [`Game::init`](crate::Game::init) once, against `renderer`.
+    /// Run [`Game::init`] once, against `renderer`.
     ///
     /// Idempotent: the first call inits and latches; later calls are no-ops. Both
     /// drivers call this before their first frame (the windowed driver on first
@@ -104,10 +104,10 @@ impl Default for Loop {
 /// previous frame — a synthetic delta in headless, a measured monotonic delta in
 /// the windowed driver. The accumulator turns it into a whole number of
 /// [`FIXED_DT`] steps (clamped against the spiral of death); each step calls
-/// [`Game::update`](crate::Game::update)`(ctx, FIXED_DT)` and then advances the
+/// [`Game::update`]`(ctx, FIXED_DT)` and then advances the
 /// [`Scene`]'s physics by one fixed step ([`Scene::step_physics`]), so physics is
 /// integrated exactly once per fixed update in lockstep with the simulation.
-/// After the update steps, a single [`Game::render`](crate::Game::render) runs with
+/// After the update steps, a single [`Game::render`] runs with
 /// the leftover interpolation [`alpha`](crate::EngineCtx::alpha).
 ///
 /// Ordering within a fixed step is `update` → `step_physics`: the game applies

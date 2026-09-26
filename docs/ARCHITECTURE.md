@@ -64,7 +64,10 @@ depends only on `gltf`, `kaman-math`, `kaman-render-api`, and `kaman-ecs` — th
 kaman-ecs` edge stays acyclic (`kaman-ecs` never depends on `kaman-assets`) and no `metal` enters the
 tree. Imported geometry packs onto `[pos,normal,color]` with a default vertex color so it renders
 through the existing pipeline immediately; parsed UVs are retained on `MeshAsset::uvs` for the KE-0403
-textured pipeline. `playable-demo` now loads its player mesh from a committed `assets/cube.gltf`.
+textured pipeline. `playable-demo` loads every mesh it draws this way: since KE-0703 the player and
+traffic are real committed CC0 car models (`assets/*.glb`), and the road, skyline, and scenery come
+from committed glTF too — see the [demo guide](PLAYABLE_DEMO.md). The earlier placeholder,
+`assets/cube.gltf`, is retained only as a `kaman-assets` import fixture.
 
 **Modern-look rendering stack (KE-0401).** Below the seam, `kaman-render` applies a small,
 mobile/TBDR-safe look stack — nothing above the seam learns about it. In pass order per frame:
@@ -106,7 +109,12 @@ kaman-engine/
 
 Dependency direction is acyclic: `kaman-math` is a leaf; `kaman-core` and `games/*` sit at
 the top. Game concepts (car, road, score) never enter engine crates — the boundary is a
-`Game` trait + `EngineCtx` seam (Phase 1).
+`Game` trait + `EngineCtx` seam (Phase 1), and self-scanning guard tests in `kaman-core`,
+`kaman-scene`, `kaman-assets` and `kaman-ecs` fail if a game-named symbol appears in them.
+
+For how `games/playable-demo` sits on that boundary in practice — the only consumer of the public
+API today — see [PLAYABLE_DEMO.md](PLAYABLE_DEMO.md); for standing up a new game on it, see
+[GETTING_STARTED.md](GETTING_STARTED.md).
 
 ## 4. Engine stack
 

@@ -7,7 +7,7 @@
 //! A game is anything that implements [`Game`]. The engine owns the event loop
 //! and drives the game through three lifecycle hooks; the game owns all
 //! game-specific state (its structs, its rules) and reaches engine services only
-//! through the [`EngineCtx`](crate::EngineCtx) it is handed. This is the seam
+//! through the [`EngineCtx`] it is handed. This is the seam
 //! that keeps game concepts (vehicles, tracks, tallies, …) out of the engine crates
 //! (ARCHITECTURE §3): the engine depends on the *trait*, never on a concrete
 //! game.

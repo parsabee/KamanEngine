@@ -9,7 +9,7 @@
 //! Mesh geometry is uploaded into a persistent `MTLBuffer` **once** at load time
 //! ([`RenderDevice::create_mesh`](kaman_render_api::RenderDevice::create_mesh))
 //! and thereafter referenced by an opaque
-//! [`MeshHandle`](kaman_render_api::MeshHandle) on the hot draw path. The draw
+//! [`MeshHandle`] on the hot draw path. The draw
 //! path performs **no allocation**: it looks the buffer up in this registry by
 //! handle. This is the mobile-safe replacement for the prototype's per-frame
 //! `new_buffer_with_data`.

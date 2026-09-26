@@ -9,6 +9,7 @@ use kaman_math::Transform;
 
 use crate::descriptor::MaterialParams;
 use crate::handles::{MeshHandle, PipelineHandle, TextureHandle};
+use crate::overlay::OverlayQuad;
 
 /// Per-frame command recording: begin a frame, bind pipeline/texture state, record
 /// draws, and submit.
@@ -111,6 +112,30 @@ pub trait FrameRecorder {
     ///   is the plain-data shading block. The currently-bound pipeline and texture
     ///   (if any) apply.
     fn draw_mesh(&mut self, mesh: MeshHandle, transform: &Transform, material: &MaterialParams);
+
+    /// Record a screen-space quad into this frame's **2D overlay** (KE-0404).
+    ///
+    /// Overlay quads are not part of the 3D scene: the backend collects them
+    /// during the frame and flushes them in a single orthographic pass at
+    /// [`submit`](Self::submit) — **after** all 3D draws, with no depth test or
+    /// write and alpha blending on — so the HUD composites on top of the scene
+    /// regardless of when it was recorded.
+    ///
+    /// Coordinates are pixels with the origin at the drawable's top-left; see the
+    /// [`overlay`](crate::overlay) module. Use
+    /// [`FontAtlas::layout`](crate::overlay::FontAtlas::layout) to turn a string
+    /// into a run of these without allocating.
+    ///
+    /// # Contract
+    /// - Requires an open frame (after [`begin_frame`](Self::begin_frame), before
+    ///   [`submit`](Self::submit)).
+    /// - Independent of [`set_pipeline`](Self::set_pipeline) /
+    ///   [`bind_texture`](Self::bind_texture): the overlay pass owns its own
+    ///   pipeline, and each quad names the texture it samples via its
+    ///   [`fill`](crate::overlay::OverlayQuad::fill).
+    /// - Quads composite in **record order**, so later quads draw over earlier
+    ///   ones.
+    fn draw_overlay_quad(&mut self, quad: &OverlayQuad);
 
     /// Close the current frame and present it.
     ///

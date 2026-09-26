@@ -42,8 +42,8 @@
 //!
 //! Simulation is decoupled from display rate. Each frame the driver banks the
 //! real elapsed time in the [`Accumulator`] and runs
-//! [`Game::update`](Game::update)`(ctx, `[`FIXED_DT`]`)` a whole number of times
-//! (0..N) — draining the accumulator — then [`Game::render`](Game::render) once.
+//! [`Game::update`]`(ctx, `[`FIXED_DT`]`)` a whole number of times
+//! (0..N) — draining the accumulator — then [`Game::render`] once.
 //! So the `update` count per second of simulated time is framerate-independent
 //! (identical at 60 and 120 Hz), a spiral-of-death clamp
 //! ([`MAX_STEPS_PER_FRAME`]) keeps a stall from wedging the loop, and

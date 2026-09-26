@@ -2,7 +2,7 @@
 
 Phase:         7
 Priority:      P0
-Status:        Todo
+Status:        Done
 Integration:   New
 Size:          M · A0
 Time:          M
@@ -16,16 +16,30 @@ works if it's cleanly architected and thoroughly documented — the docs are a d
 afterthought.
 
 ## Scope & Acceptance
-- [ ] A demo guide (`games/playable-demo/README.md` and a section in `docs/`) walking through how the
+- [x] A demo guide (`games/playable-demo/README.md` and a section in `docs/`) walking through how the
       demo is built **on the engine's public API only**: the `Game`/`EngineCtx` boundary, the
       fixed-timestep loop, streaming, asset loading, the render seam, and the HUD.
-- [ ] A "build your own game" how-to: the minimal steps to stand up a new `Game`, load assets, and
+      → `docs/PLAYABLE_DEMO.md` (§1–§6) + a rewritten `games/playable-demo/README.md` with a
+      per-module code-layout map.
+- [x] A "build your own game" how-to: the minimal steps to stand up a new `Game`, load assets, and
       render — pointing at the demo's code as the worked example.
-- [ ] Architecture notes: how the demo keeps game concepts out of engine crates (the boundary), and a
+      → `docs/GETTING_STARTED.md`, with a complete `Game` skeleton and a per-step pointer into the
+      demo.
+- [x] Architecture notes: how the demo keeps game concepts out of engine crates (the boundary), and a
       diagram or link into `docs/DESIGN.md`.
-- [ ] The demo code itself is exemplary: `#![deny(missing_docs)]`-clean, well-commented, no dead code,
+      → `docs/PLAYABLE_DEMO.md` §7 (names the four `no_game_specific_symbols` guard tests + the CI
+      firewall/de-brand guards) and links into `DESIGN.md` §1/§2/§5/§8/§9/§11 rather than
+      duplicating diagrams; `ARCHITECTURE.md` §3 gained the reciprocal pointer.
+- [x] The demo code itself is exemplary: `#![deny(missing_docs)]`-clean, well-commented, no dead code,
       no reaching past the engine's public API.
-- [ ] Controls + how to run documented in the top-level `README`.
+      → `main.rs` carries `#![deny(missing_docs)]` with **no** `allow(...)` escape anywhere in
+      `src/`; the 1504-line `main.rs` was split into eight single-concern modules (`config`, `rng`,
+      `assets`, `scenery`, `components`, `game`, `render`, `hud`), each with a module-level rustdoc
+      header. `cargo doc --workspace --no-deps` is warning-free, `cargo clippy --workspace
+      --all-targets` is clean (which is also the dead-code gate), and the four
+      `no_game_specific_symbols` guards prove nothing game-shaped leaked into the engine crates.
+- [x] Controls + how to run documented in the top-level `README`.
+      → new "The playable demo" section (controls table, both run modes, links to the two guides).
 
 ## Technical notes
 - Cross-link `docs/DESIGN.md` (diagrams), `ARCHITECTURE.md` (constraints), and the rustdoc.

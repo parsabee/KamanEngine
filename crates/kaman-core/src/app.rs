@@ -2,13 +2,13 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! The windowed entry: run a [`Game`](crate::Game) inside a `winit` window on
+//! The windowed entry: run a [`Game`] inside a `winit` window on
 //! macOS.
 //!
 //! This is the platform half of the engine loop. It opens a window, translates
 //! `winit` events into the engine's backend-agnostic
 //! [`InputState`](crate::InputState), and drives the *same* shared
-//! [`drive_frame`](crate::driver::drive_frame) as the headless driver — the only
+//! [`drive_frame`] as the headless driver — the only
 //! difference is the clock. Here the per-frame elapsed time comes from a real
 //! monotonic [`Instant`], so the fixed-timestep
 //! [`Accumulator`](crate::timestep::Accumulator) may run 0..N `update`s before the
@@ -25,7 +25,7 @@
 //! in `resumed`, right after the window is created, and
 //! the returned `Box<dyn Renderer>` drives every frame through the seam. The
 //! headless driver and the plain [`run`] entry keep the GPU-free
-//! [`NullRenderer`](kaman_render_api::NullRenderer).
+//! [`NullRenderer`].
 //!
 //! # macOS isolation
 //!
@@ -54,7 +54,7 @@ use crate::input::{Key, MouseButton};
 /// The engine calls this once, in `resumed`, after the
 /// window exists, passing the window plus its pixel size. The game binary (the
 /// only place that depends on `kaman-render`) returns a boxed
-/// [`Renderer`](crate::Renderer) — a type that is both a
+/// [`Renderer`] — a type that is both a
 /// [`RenderDevice`](kaman_render_api::RenderDevice) and a
 /// [`FrameRecorder`](kaman_render_api::FrameRecorder). This is the single seam
 /// that keeps `metal` out of `kaman-core`'s dependency tree while still letting

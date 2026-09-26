@@ -6,8 +6,8 @@
 //! engine-generic **world-streaming** layer for KamanEngine.
 //!
 //! A [`Scene`] bundles the two simulation stores a running world needs — a hecs
-//! [`World`](kaman_ecs::hecs::World) of entities/components and a
-//! [`PhysicsWorld`](kaman_physics::PhysicsWorld) of rigid bodies — behind one
+//! [`World`] of entities/components and a
+//! [`PhysicsWorld`] of rigid bodies — behind one
 //! type, and drives them in lockstep at the engine's fixed timestep
 //! ([`step_physics`](Scene::step_physics), stepping at
 //! [`kaman_physics::FIXED_DT`]).
@@ -25,11 +25,11 @@
 //! 2. **Atomic despawn** ([`despawn`](Scene::despawn), used by streaming). Removing
 //!    a streamed entity removes its ECS entity **and** its physics rigid body (via
 //!    [`PhysicsWorld::remove_body`]) together, so no live
-//!    [`PhysicsBodyComponent`](kaman_ecs::PhysicsBodyComponent) is ever left
+//!    [`PhysicsBodyComponent`] is ever left
 //!    holding a freed handle (the KE-0202 / KE-0005 handle-ownership invariant).
 //! 3. **Floating-origin rebase** ([`maybe_rebase`](Scene::maybe_rebase)). When the
 //!    focus drifts past a threshold from the origin, every position — ECS
-//!    [`TransformComponent`](kaman_ecs::TransformComponent) *and* every physics
+//!    [`TransformComponent`] *and* every physics
 //!    body translation — is shifted by a fixed offset back toward the origin, so
 //!    world coordinates never grow into float-precision error. Relative positions
 //!    are preserved, so gameplay is unaffected.
@@ -217,7 +217,7 @@ impl Scene {
     /// Steps the [`PhysicsWorld`] once, then copies each dynamic body's simulated
     /// transform back into its entity's [`TransformComponent`] (only entities
     /// carrying a [`PhysicsBodyComponent`] and a
-    /// [`DynamicTag`](kaman_ecs::DynamicTag) are synced; static geometry keeps its
+    /// [`DynamicTag`] are synced; static geometry keeps its
     /// authored transform). Call this exactly once per fixed engine update so the
     /// solver stays in lockstep with `kaman_core`'s fixed-timestep driver.
     ///

@@ -67,10 +67,12 @@ pub mod descriptor;
 pub mod device;
 pub mod handles;
 pub mod null;
+pub mod overlay;
 pub mod recorder;
 
 pub use descriptor::{MaterialParams, VertexAttribute, VertexFormat, VertexLayout};
 pub use device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
 pub use handles::{MeshHandle, PipelineHandle, TextureHandle};
 pub use null::{NullRenderer, RecordedDraw};
+pub use overlay::{FontAtlas, Glyph, OverlayFill, OverlayQuad};
 pub use recorder::FrameRecorder;

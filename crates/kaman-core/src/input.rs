@@ -26,11 +26,11 @@ use std::collections::HashSet;
 /// A keyboard key, identified by physical position (backend-agnostic).
 ///
 /// This is a curated subset — enough for the Phase-1 game and camera controls —
-/// not the full keyboard. It is [`#[non_exhaustive]`] so future keys can be added
-/// without a breaking change; downstream `match` expressions must include a
-/// wildcard arm.
+/// not the full keyboard. It is [`#[non_exhaustive]`][non_exhaustive] so future
+/// keys can be added without a breaking change; downstream `match` expressions
+/// must include a wildcard arm.
 ///
-/// [`#[non_exhaustive]`]: https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute
+/// [non_exhaustive]: https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Key {
@@ -62,9 +62,9 @@ pub enum Key {
 
 /// A mouse button (backend-agnostic).
 ///
-/// [`#[non_exhaustive]`] so additional buttons can be added later.
+/// [`#[non_exhaustive]`][non_exhaustive] so additional buttons can be added later.
 ///
-/// [`#[non_exhaustive]`]: https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute
+/// [non_exhaustive]: https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum MouseButton {

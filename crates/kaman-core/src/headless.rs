@@ -2,13 +2,13 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! The headless driver — run a [`Game`](crate::Game) with no window and no GPU.
+//! The headless driver — run a [`Game`] with no window and no GPU.
 //!
 //! This is the engine loop with the platform layer stripped away: it holds a
-//! [`Loop`](crate::driver::Loop) (the ECS world, an [`InputState`](crate::InputState),
+//! [`Loop`] (the ECS world, an [`InputState`],
 //! a [`PerfTracker`](kaman_perf::PerfTracker), and the fixed-timestep
 //! [`Accumulator`](crate::timestep::Accumulator)) plus a
-//! [`NullRenderer`](kaman_render_api::NullRenderer) standing in for the render
+//! [`NullRenderer`] standing in for the render
 //! seam, and drives a game for a fixed number of frames. It requires **no display
 //! and no Metal device**, so it is what the `--smoke` oracle and the crate's
 //! tests use, and it runs on headless CI runners.
@@ -17,7 +17,7 @@
 //!
 //! To stay deterministic, this driver does not read wall time: each frame it
 //! advances a **synthetic clock** by exactly one [`FIXED_DT`], so the shared
-//! [`drive_frame`](crate::driver::drive_frame) runs exactly one `update` and one
+//! [`drive_frame`] runs exactly one `update` and one
 //! `render` per frame. The windowed entry ([`run`](crate::run)) runs the *same*
 //! [`drive_frame`] but off a real monotonic clock, so a fast display yields 0..N
 //! `update`s per frame. Only the clock source differs; the accumulator logic is
@@ -26,6 +26,7 @@
 
 use std::time::Duration;
 
+use kaman_camera::Camera;
 use kaman_ecs::hecs::World;
 use kaman_render_api::NullRenderer;
 use kaman_scene::Scene;
@@ -38,10 +39,10 @@ pub use crate::timestep::FIXED_DT;
 
 /// Drive `game` headlessly for `frames` frames and return the engine state.
 ///
-/// Calls [`Game::init`](crate::Game::init) once, then advances a synthetic clock
+/// Calls [`Game::init`] once, then advances a synthetic clock
 /// by one [`FIXED_DT`] per frame — so each of `frames` frames runs exactly one
-/// [`Game::update`](crate::Game::update)`(ctx, FIXED_DT)` followed by one
-/// [`Game::render`](crate::Game::render), honoring the call-ordering contract on
+/// [`Game::update`]`(ctx, FIXED_DT)` followed by one
+/// [`Game::render`], honoring the call-ordering contract on
 /// [`Game`]. The synthetic clock keeps runs fully deterministic.
 ///
 /// Returns the [`Headless`] harness so callers/tests can inspect the resulting
@@ -72,14 +73,14 @@ pub fn run<G: Game>(game: &mut G, frames: u32) -> Headless {
     harness
 }
 
-/// A reusable headless harness owning the engine state a [`Game`](crate::Game)
+/// A reusable headless harness owning the engine state a [`Game`]
 /// runs against.
 ///
 /// Wraps a shared [`Loop`] (ECS [`World`], [`InputState`], `PerfTracker`, and the
 /// fixed-timestep [`Accumulator`](crate::timestep::Accumulator)) plus a
 /// [`NullRenderer`] (the render seam double). Construct one with
 /// [`new`](Self::new), optionally seed input, then call [`run`](Self::run) (or
-/// the free [`run`](crate::headless::run) function). After a run, inspect
+/// the free [`run`] function). After a run, inspect
 /// [`world`](Self::world) and [`renderer`](Self::renderer) to assert what the
 /// game did.
 pub struct Headless {
@@ -101,11 +102,11 @@ impl Headless {
 
     /// Drive `game` for `frames` frames against this harness's state.
     ///
-    /// [`Game::init`](crate::Game::init) runs on the first call to `run` only;
+    /// [`Game::init`] runs on the first call to `run` only;
     /// subsequent calls continue driving `update`/`render` without re-`init`, so
     /// a caller can step a game in chunks. Each frame advances the synthetic
     /// clock by one [`FIXED_DT`] and runs the shared
-    /// [`drive_frame`](crate::driver::drive_frame), so it produces exactly one
+    /// [`drive_frame`], so it produces exactly one
     /// `update` and one `render` per frame.
     pub fn run<G: Game>(&mut self, game: &mut G, frames: u32) {
         self.lp.init_once(game, &mut self.renderer);
@@ -135,6 +136,17 @@ impl Headless {
     #[must_use]
     pub fn scene(&self) -> &Scene {
         &self.lp.scene
+    }
+
+    /// The engine-owned [`Camera`] after the frames run so far.
+    ///
+    /// The game drives the camera through
+    /// [`EngineCtx::camera_mut`](crate::EngineCtx::camera_mut) (typically a chase
+    /// controller), so this is how a headless test asserts on *view* behaviour —
+    /// that the camera tracks its target, and in particular that it keeps up
+    /// across a floating-origin rebase, which teleports every transform at once.
+    pub fn camera(&self) -> &Camera {
+        &self.lp.camera
     }
 
     /// The [`NullRenderer`] — inspect recorded draws / created resources.

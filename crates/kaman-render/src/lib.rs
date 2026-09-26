@@ -33,7 +33,7 @@
 //!   seam-provided view-projection and this instance's transform, writes a per-draw uniform
 //!   buffer (the one remaining per-frame allocation, removed by KE-0104), and
 //!   records a triangle draw. A stale/freed handle is a defined no-op, never a
-//!   silent wrong-buffer draw (see [`RegistryError`](registry::RegistryError)).
+//!   silent wrong-buffer draw (see [`RegistryError`]).
 //! - `begin_frame` acquires the color attachment (drawable or offscreen
 //!   texture) and opens a render encoder; `submit` ends encoding and presents
 //!   (windowed) or synchronizes for readback (offscreen).

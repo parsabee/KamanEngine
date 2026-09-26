@@ -83,7 +83,7 @@
 //! # Vertex color vs. material
 //!
 //! The raster shader reads color from the per-vertex data (as the prototype
-//! did), so [`MaterialParams`](kaman_render_api::MaterialParams) is accepted at
+//! did), so [`MaterialParams`] is accepted at
 //! the seam but does not currently drive the raster color; the mesh bytes carry
 //! the color. This matches prototype behavior and is intentional for KE-0102.
 
@@ -103,8 +103,9 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use kaman_math::glam::Mat4;
 use kaman_math::Transform;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle,
-    RenderDevice, TextureData, TextureHandle, VertexFormat, VertexLayout,
+    FrameRecorder, MaterialParams, MeshData, MeshHandle, OverlayFill, OverlayQuad,
+    PipelineDescriptor, PipelineHandle, RenderDevice, TextureData, TextureHandle, VertexFormat,
+    VertexLayout,
 };
 
 use crate::frame_sync::FrameSemaphore;
@@ -312,6 +313,27 @@ struct MeshEntry {
     vertex_count: u64,
 }
 
+/// One vertex of the 2D overlay pass (KE-0404), matching `OverlayVertexIn` in the
+/// shader: screen-space position in pixels, atlas UV, RGBA tint, and the fill mode
+/// (0 = solid, 1 = textured, 2 = SDF).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct OverlayVertex {
+    position: [f32; 2],
+    uv: [f32; 2],
+    color: [f32; 4],
+    mode: f32,
+}
+
+/// Byte stride of [`OverlayVertex`] — must match the overlay pipeline's vertex
+/// layout stride.
+const OVERLAY_VERTEX_STRIDE: u64 = std::mem::size_of::<OverlayVertex>() as u64;
+
+/// Fill-mode discriminants shared with the overlay fragment shader.
+const OVERLAY_MODE_SOLID: f32 = 0.0;
+const OVERLAY_MODE_TEXTURED: f32 = 1.0;
+const OVERLAY_MODE_SDF: f32 = 2.0;
+
 /// A render target the backend presents into.
 ///
 /// The windowed path renders into a `CAMetalLayer` and presents a drawable; the
@@ -363,6 +385,18 @@ pub struct MetalRenderer {
     // `sky_fragment_main`, sample-count matched to the MSAA scene attachments,
     // no vertex buffer (it derives a fullscreen triangle from `vertex_id`).
     sky_pipeline_state: metal::RenderPipelineState,
+    // 2D overlay / HUD (KE-0404): its own alpha-blended pipeline, a clamped
+    // sampler for the SDF atlas, and a persistent vertex buffer + CPU staging
+    // vec that are cleared (never reallocated) each frame, so recording a HUD
+    // adds no per-frame allocation (KR1.2).
+    overlay_pipeline_state: metal::RenderPipelineState,
+    overlay_sampler_state: metal::SamplerState,
+    overlay_vertices: Vec<OverlayVertex>,
+    /// One entry per recorded quad (6 vertices): the texture it samples, if any.
+    /// Lets `submit` batch consecutive quads that share a texture into one draw.
+    overlay_textures: Vec<Option<TextureHandle>>,
+    overlay_buffer: Option<metal::Buffer>,
+    overlay_buffer_capacity: usize,
     light_buffer: metal::Buffer,
 
     // The world → clip view-projection, pushed through the seam via
@@ -621,6 +655,70 @@ impl MetalRenderer {
             .new_render_pipeline_state(&sky_descriptor)
             .expect("failed to create sky render pipeline state");
 
+        // 2D overlay / HUD pipeline (KE-0404): screen-space quads drawn after the
+        // scene. Alpha blended (the HUD composites over the tonemapped image), and
+        // paired at draw time with the no-write/no-test depth state so it never
+        // depth-fights the scene. Vertex layout mirrors `OverlayVertex`:
+        // position(float2), uv(float2), color(float4), mode(float).
+        let overlay_vertex_function = library
+            .get_function("overlay_vertex_main", None)
+            .expect("overlay_vertex_main not found");
+        let overlay_fragment_function = library
+            .get_function("overlay_fragment_main", None)
+            .expect("overlay_fragment_main not found");
+
+        let overlay_vertex_descriptor = metal::VertexDescriptor::new();
+        let overlay_attrs: [(u64, metal::MTLVertexFormat, u64); 4] = [
+            (0, metal::MTLVertexFormat::Float2, 0),  // position (pixels)
+            (1, metal::MTLVertexFormat::Float2, 8),  // uv
+            (2, metal::MTLVertexFormat::Float4, 16), // color (RGBA)
+            (3, metal::MTLVertexFormat::Float, 32),  // fill mode
+        ];
+        for (index, format, offset) in overlay_attrs {
+            let attr = overlay_vertex_descriptor
+                .attributes()
+                .object_at(index)
+                .unwrap();
+            attr.set_format(format);
+            attr.set_offset(offset);
+            attr.set_buffer_index(0);
+        }
+        let overlay_layout = overlay_vertex_descriptor.layouts().object_at(0).unwrap();
+        overlay_layout.set_stride(OVERLAY_VERTEX_STRIDE);
+
+        let overlay_descriptor = metal::RenderPipelineDescriptor::new();
+        overlay_descriptor.set_vertex_function(Some(&overlay_vertex_function));
+        overlay_descriptor.set_fragment_function(Some(&overlay_fragment_function));
+        overlay_descriptor.set_vertex_descriptor(Some(overlay_vertex_descriptor));
+        let overlay_color = overlay_descriptor.color_attachments().object_at(0).unwrap();
+        overlay_color.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+        // Standard source-over alpha blending for the HUD.
+        overlay_color.set_blending_enabled(true);
+        overlay_color.set_rgb_blend_operation(metal::MTLBlendOperation::Add);
+        overlay_color.set_alpha_blend_operation(metal::MTLBlendOperation::Add);
+        overlay_color.set_source_rgb_blend_factor(metal::MTLBlendFactor::SourceAlpha);
+        overlay_color
+            .set_destination_rgb_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
+        overlay_color.set_source_alpha_blend_factor(metal::MTLBlendFactor::One);
+        overlay_color
+            .set_destination_alpha_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
+        overlay_descriptor.set_depth_attachment_pixel_format(MTLPixelFormat::Depth32Float);
+        overlay_descriptor.set_sample_count(MSAA_SAMPLE_COUNT);
+        let overlay_pipeline_state = device
+            .new_render_pipeline_state(&overlay_descriptor)
+            .expect("failed to create overlay render pipeline state");
+
+        // Clamped linear sampler for the overlay atlas — SDF glyphs must not wrap
+        // or they bleed neighbouring atlas cells into each other.
+        let overlay_sampler_descriptor = metal::SamplerDescriptor::new();
+        overlay_sampler_descriptor.set_min_filter(metal::MTLSamplerMinMagFilter::Linear);
+        overlay_sampler_descriptor.set_mag_filter(metal::MTLSamplerMinMagFilter::Linear);
+        overlay_sampler_descriptor
+            .set_address_mode_s(metal::MTLSamplerAddressMode::ClampToEdge);
+        overlay_sampler_descriptor
+            .set_address_mode_t(metal::MTLSamplerAddressMode::ClampToEdge);
+        let overlay_sampler_state = device.new_sampler(&overlay_sampler_descriptor);
+
         // Trilinear sampler for base-color textures: min/mag linear + mip linear,
         // so the mipmaps generated in `create_texture` are sampled smoothly.
         let sampler_descriptor = metal::SamplerDescriptor::new();
@@ -667,6 +765,12 @@ impl MetalRenderer {
             depth_stencil_state,
             sky_depth_stencil_state,
             sky_pipeline_state,
+            overlay_pipeline_state,
+            overlay_sampler_state,
+            overlay_vertices: Vec::new(),
+            overlay_textures: Vec::new(),
+            overlay_buffer: None,
+            overlay_buffer_capacity: 0,
             light_buffer,
             // No camera pushed yet; identity until the first `set_view_projection`.
             view_projection: Mat4::IDENTITY,
@@ -731,6 +835,98 @@ impl MetalRenderer {
     /// on macOS). Preserves the prototype's caching optimization — reallocated
     /// only when the target size changes — so the per-frame path allocates
     /// nothing (KR1.2).
+    /// Flush this frame's recorded 2D overlay quads (KE-0404) onto `frame`'s
+    /// encoder, then reset the recording buffers for the next frame.
+    ///
+    /// Runs after every 3D draw and before `end_encoding`, so the HUD composites
+    /// on top of the scene. Uses the no-write/no-test depth state (shared with the
+    /// sky) so it neither depth-tests against nor writes into the scene's depth,
+    /// and the alpha-blended overlay pipeline. Consecutive quads that sample the
+    /// same texture are batched into a single draw.
+    ///
+    /// The staging `Vec`s are cleared but keep their capacity, so a steady-state
+    /// HUD performs no per-frame allocation (KR1.2).
+    fn flush_overlay(&mut self, frame: &FrameState) {
+        if self.overlay_vertices.is_empty() {
+            self.overlay_textures.clear();
+            return;
+        }
+
+        let (surface_w, surface_h) = self.surface_size();
+        if surface_w == 0 || surface_h == 0 {
+            self.overlay_vertices.clear();
+            self.overlay_textures.clear();
+            return;
+        }
+
+        // Grow the persistent vertex buffer only when this frame needs more room.
+        let needed = self.overlay_vertices.len();
+        if self.overlay_buffer.is_none() || self.overlay_buffer_capacity < needed {
+            let capacity = needed.next_power_of_two().max(256);
+            let buffer = self.device.new_buffer(
+                (capacity as u64) * OVERLAY_VERTEX_STRIDE,
+                metal::MTLResourceOptions::StorageModeShared,
+            );
+            self.overlay_buffer = Some(buffer);
+            self.overlay_buffer_capacity = capacity;
+        }
+        let buffer = self
+            .overlay_buffer
+            .as_ref()
+            .expect("overlay buffer just ensured");
+
+        // SAFETY: the buffer is shared-storage, sized for at least `needed`
+        // vertices above, and `OverlayVertex` is `#[repr(C)]` plain data.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.overlay_vertices.as_ptr(),
+                buffer.contents() as *mut OverlayVertex,
+                needed,
+            );
+        }
+
+        let encoder = &frame.encoder;
+        encoder.set_render_pipeline_state(&self.overlay_pipeline_state);
+        encoder.set_depth_stencil_state(&self.sky_depth_stencil_state);
+        encoder.set_vertex_buffer(0, Some(buffer), 0);
+        // The ortho mapping only needs the drawable size; pass it inline.
+        let viewport = [surface_w as f32, surface_h as f32];
+        encoder.set_vertex_bytes(
+            1,
+            std::mem::size_of_val(&viewport) as u64,
+            viewport.as_ptr() as *const _,
+        );
+        encoder.set_fragment_sampler_state(0, Some(&self.overlay_sampler_state));
+
+        // Batch consecutive quads that share a texture into one draw call.
+        let mut start_quad = 0usize;
+        while start_quad < self.overlay_textures.len() {
+            let texture = self.overlay_textures[start_quad];
+            let mut end_quad = start_quad + 1;
+            while end_quad < self.overlay_textures.len()
+                && self.overlay_textures[end_quad] == texture
+            {
+                end_quad += 1;
+            }
+
+            let bound = texture
+                .and_then(|h| self.textures.get(h.0 as usize))
+                .and_then(|slot| slot.as_ref());
+            encoder.set_fragment_texture(0, bound.map(|t| t.as_ref()));
+
+            const VERTS_PER_QUAD: usize = 6;
+            encoder.draw_primitives(
+                metal::MTLPrimitiveType::Triangle,
+                (start_quad * VERTS_PER_QUAD) as u64,
+                ((end_quad - start_quad) * VERTS_PER_QUAD) as u64,
+            );
+            start_quad = end_quad;
+        }
+
+        self.overlay_vertices.clear();
+        self.overlay_textures.clear();
+    }
+
     fn depth_texture_for(&mut self, width: u64, height: u64) -> metal::Texture {
         if let Some(tex) = &self.depth_texture {
             if self.depth_texture_size == (width, height) {
@@ -1085,6 +1281,22 @@ impl RenderDevice for MetalRenderer {
         PipelineHandle(id)
     }
 
+    fn surface_size(&self) -> (u32, u32) {
+        match &self.target {
+            RenderTarget::Surface { layer } => {
+                let size = layer.drawable_size();
+                (size.width as u32, size.height as u32)
+            }
+            RenderTarget::Offscreen { width, height, .. } => (*width as u32, *height as u32),
+        }
+    }
+
+    fn safe_area_insets(&self) -> [f32; 4] {
+        // macOS windows have no notch/home-indicator intrusions; the iOS path
+        // (Phase 3) reports the real `UIView.safeAreaInsets` here.
+        [0.0; 4]
+    }
+
     fn destroy_pipeline(&mut self, handle: PipelineHandle) {
         if let Some(slot) = self.pipelines.get_mut(handle.0 as usize) {
             *slot = None;
@@ -1300,10 +1512,51 @@ impl FrameRecorder for MetalRenderer {
         encoder.draw_primitives(metal::MTLPrimitiveType::Triangle, 0, vertex_count);
     }
 
+    fn draw_overlay_quad(&mut self, quad: &OverlayQuad) {
+        // Record only: overlay quads are flushed as one ortho pass in `submit`,
+        // after every 3D draw, so the HUD always composites on top regardless of
+        // when the game recorded it. Pushing into a retained Vec keeps this
+        // allocation-free in steady state.
+        let mode = match quad.fill {
+            OverlayFill::Solid => OVERLAY_MODE_SOLID,
+            OverlayFill::Textured(_) => OVERLAY_MODE_TEXTURED,
+            OverlayFill::Sdf(_) => OVERLAY_MODE_SDF,
+        };
+        let [x, y, w, h] = quad.rect;
+        let [u0, v0, u1, v1] = quad.uv;
+        let color = quad.color;
+
+        // Two triangles, counter-clockwise, covering the rect.
+        let corners = [
+            ([x, y], [u0, v0]),
+            ([x, y + h], [u0, v1]),
+            ([x + w, y + h], [u1, v1]),
+            ([x, y], [u0, v0]),
+            ([x + w, y + h], [u1, v1]),
+            ([x + w, y], [u1, v0]),
+        ];
+        for (position, uv) in corners {
+            self.overlay_vertices.push(OverlayVertex {
+                position,
+                uv,
+                color,
+                mode,
+            });
+        }
+        // Remember which texture each quad wants so `submit` can batch runs that
+        // share one; six vertices per quad keeps the index arithmetic trivial.
+        self.overlay_textures.push(quad.fill.texture());
+    }
+
     fn submit(&mut self) {
         let Some(frame) = self.frame.take() else {
             return;
         };
+
+        // 2D overlay / HUD pass (KE-0404): flush everything recorded this frame
+        // on the same encoder, after all 3D draws, so it composites on top.
+        self.flush_overlay(&frame);
+
         frame.encoder.end_encoding();
 
         // Frames-in-flight release (KE-0105): register a completion handler that

@@ -10,6 +10,7 @@ use kaman_math::Transform;
 use crate::descriptor::MaterialParams;
 use crate::device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
 use crate::handles::{MeshHandle, PipelineHandle, TextureHandle};
+use crate::overlay::OverlayQuad;
 use crate::recorder::FrameRecorder;
 
 /// A single recorded draw, captured by [`NullRenderer`] for later assertion.
@@ -65,6 +66,9 @@ pub struct NullRenderer {
     current_pipeline: Option<PipelineHandle>,
     current_texture: Option<TextureHandle>,
     draws: Vec<RecordedDraw>,
+    /// Overlay quads recorded this run, in record order (KE-0404), so headless
+    /// tests can assert what a HUD drew without a GPU.
+    overlay_quads: Vec<OverlayQuad>,
     /// The most recent view-projection pushed via
     /// [`set_view_projection`](FrameRecorder::set_view_projection), if any. `None`
     /// until the first push, then **sticky** (retained across frames) — mirroring
@@ -144,6 +148,18 @@ impl NullRenderer {
         &self.draws
     }
 
+    /// Every overlay quad recorded across all frames, in record order (KE-0404).
+    #[must_use]
+    pub fn overlay_quads(&self) -> &[OverlayQuad] {
+        &self.overlay_quads
+    }
+
+    /// Total number of overlay quads recorded across all frames.
+    #[must_use]
+    pub fn overlay_quad_count(&self) -> usize {
+        self.overlay_quads.len()
+    }
+
     /// Total number of draws recorded across all frames.
     #[must_use]
     pub fn draw_count(&self) -> usize {
@@ -212,7 +228,25 @@ impl RenderDevice for NullRenderer {
     fn destroy_pipeline(&mut self, handle: PipelineHandle) {
         self.destroyed_pipelines.push(handle);
     }
+
+    fn surface_size(&self) -> (u32, u32) {
+        // A fixed, GPU-less drawable size so headless HUD layout is deterministic.
+        (NULL_SURFACE_WIDTH, NULL_SURFACE_HEIGHT)
+    }
+
+    fn safe_area_insets(&self) -> [f32; 4] {
+        // No notches or rounded corners off-device.
+        [0.0; 4]
+    }
 }
+
+/// Drawable width the [`NullRenderer`] reports from
+/// [`surface_size`](RenderDevice::surface_size), so headless HUD layout is
+/// deterministic.
+pub const NULL_SURFACE_WIDTH: u32 = 1280;
+/// Drawable height the [`NullRenderer`] reports from
+/// [`surface_size`](RenderDevice::surface_size).
+pub const NULL_SURFACE_HEIGHT: u32 = 720;
 
 impl FrameRecorder for NullRenderer {
     fn begin_frame(&mut self) {
@@ -245,6 +279,10 @@ impl FrameRecorder for NullRenderer {
             transform: *transform,
             material: *material,
         });
+    }
+
+    fn draw_overlay_quad(&mut self, quad: &OverlayQuad) {
+        self.overlay_quads.push(*quad);
     }
 
     fn submit(&mut self) {

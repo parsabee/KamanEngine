@@ -93,14 +93,14 @@ use kaman_math::Transform;
 use rapier3d::na::{Quaternion, UnitQuaternion};
 use rapier3d::prelude::*;
 
-/// Re-export of rapier's [`RigidBodyHandle`](rapier3d::prelude::RigidBodyHandle).
+/// Re-export of rapier's [`RigidBodyHandle`].
 ///
 /// Downstream crates reach the handle type through this path so the whole
 /// workspace shares one pinned rapier version. `kaman_ecs::PhysicsBodyComponent`
 /// stores a value of this exact type.
 pub use rapier3d::prelude::RigidBodyHandle;
 
-/// Re-export of rapier's [`ColliderHandle`](rapier3d::prelude::ColliderHandle).
+/// Re-export of rapier's [`ColliderHandle`].
 ///
 /// Reached through this path so the workspace shares one pinned rapier version.
 pub use rapier3d::prelude::ColliderHandle;

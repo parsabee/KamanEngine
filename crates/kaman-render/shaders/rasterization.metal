@@ -296,3 +296,75 @@ fragment float4 textured_fragment_main(TexturedVertexOut in [[stage_in]],
                             in.viewDepth, light);
     return float4(present_color(lit), sampled.a * material.baseColorFactor.a);
 }
+
+// ============================================================================
+// 2D overlay / HUD pass (KE-0404)
+// ============================================================================
+//
+// Screen-space quads drawn AFTER the 3D scene: orthographic, no depth test or
+// write, alpha blended. Positions arrive in pixels with the origin at the
+// drawable's top-left; the vertex shader maps them to NDC using the viewport
+// size. `mode` selects how the texel is used (see OverlayFill on the Rust side):
+//   0 = solid   (ignore the texture, use the vertex color)
+//   1 = textured(sample RGBA, multiply by the vertex color)
+//   2 = SDF     (distance in .r -> crisp coverage, tinted by the vertex color)
+
+/// Per-vertex overlay data: pixel position, atlas UV, RGBA tint, fill mode.
+struct OverlayVertexIn {
+    float2 position [[attribute(0)]];
+    float2 uv       [[attribute(1)]];
+    float4 color    [[attribute(2)]];
+    float  mode     [[attribute(3)]];
+};
+
+struct OverlayVertexOut {
+    float4 position [[position]];
+    float2 uv;
+    float4 color;
+    float  mode;
+};
+
+/// Per-pass overlay uniforms: the drawable size used for the ortho mapping.
+struct OverlayUniforms {
+    float2 viewportSize;               // Drawable size in pixels
+};
+
+/// Overlay vertex shader: pixels (origin top-left, +Y down) -> NDC.
+vertex OverlayVertexOut overlay_vertex_main(OverlayVertexIn in [[stage_in]],
+                                            constant OverlayUniforms& uniforms [[buffer(1)]]) {
+    OverlayVertexOut out;
+    // Pixel -> [0,1] -> NDC, flipping Y because NDC is +Y up.
+    float2 unit = in.position / uniforms.viewportSize;
+    out.position = float4(unit.x * 2.0 - 1.0, 1.0 - unit.y * 2.0, 0.0, 1.0);
+    out.uv = in.uv;
+    out.color = in.color;
+    out.mode = in.mode;
+    return out;
+}
+
+/// Overlay fragment shader. Output is already display-referred (the overlay is
+/// authored in display space and composites over the tonemapped scene), so it
+/// does NOT run the scene's tonemap/encode path.
+fragment float4 overlay_fragment_main(OverlayVertexOut in [[stage_in]],
+                                      texture2d<float> atlas [[texture(0)]],
+                                      sampler atlasSampler [[sampler(0)]]) {
+    if (in.mode < 0.5) {
+        // Solid.
+        return in.color;
+    }
+
+    float4 sampled = atlas.sample(atlasSampler, in.uv);
+
+    if (in.mode < 1.5) {
+        // Straight textured.
+        return sampled * in.color;
+    }
+
+    // SDF text: the atlas stores signed distance in .r, 0.5 being the edge.
+    // Derive a screen-space-consistent antialiasing width from the distance
+    // field's own gradient so glyphs stay crisp at any scale.
+    float dist = sampled.r;
+    float width = max(fwidth(dist), 1e-4);
+    float coverage = smoothstep(0.5 - width, 0.5 + width, dist);
+    return float4(in.color.rgb, in.color.a * coverage);
+}

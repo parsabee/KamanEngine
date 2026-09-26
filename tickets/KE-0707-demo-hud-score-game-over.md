@@ -2,7 +2,7 @@
 
 Phase:         7
 Priority:      P0
-Status:        Todo
+Status:        Done
 Integration:   New
 Size:          M · A1
 Time:          M
@@ -16,10 +16,20 @@ overlay reporting the final score with a **replay** prompt. This is the demo's u
 2D HUD/text feature (KE-0404).
 
 ## Scope & Acceptance
-- [ ] Live **score** drawn as HUD text during `Playing` (top corner, safe-area aware).
-- [ ] A **game-over overlay** on crash: "Game Over", final score, and a "Press <key> to replay" prompt.
-- [ ] Text is crisp at the window size (SDF via KE-0404); the overlay draws over the 3D scene last.
-- [ ] The HUD reads game state from the demo (KE-0702) — it renders, it does not own game logic.
+- [x] Live **score** drawn as HUD text during `Playing` (top corner, safe-area aware).
+      → `SCORE n` at `inset + HUD_MARGIN` in the top-left safe corner. Pinned headlessly by
+      `playing_past_the_fade_draws_the_score_and_no_wash`.
+- [x] A **game-over overlay** on crash: "Game Over", final score, and a "Press <key> to replay" prompt.
+      → A partial dim (so the crashed scene stays readable behind) under a centered four-line banner:
+      `GAME OVER` / `SCORE n` / `BEST n` / `PRESS SPACE TO REPLAY`. Pinned by
+      `game_over_dims_the_scene_and_adds_a_banner`. The demo also gained a `Ready` title screen
+      (`KAMAN RUNNER` / `PRESS SPACE TO START`) with a `HUD_FADE_SECONDS` opening fade.
+- [x] Text is crisp at the window size (SDF via KE-0404); the overlay draws over the 3D scene last.
+      → SDF glyphs at three sizes; `flush_overlay` runs at the end of `submit()`, after all 3D draws.
+      The wash is recorded *first* so text composites over it — asserted by `assert_wash_first`.
+- [x] The HUD reads game state from the demo (KE-0702) — it renders, it does not own game logic.
+      → `hud.rs` holds no game logic at all: `draw_hud` is a `&self` method that reads `state`,
+      `score()`, `best_score()` and `fade_alpha()` and emits quads. It mutates nothing.
 
 ## Technical notes
 - Depends on the engine HUD/text capability (KE-0404). If KE-0404 lands first, this is pure game code
