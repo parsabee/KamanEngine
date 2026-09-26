@@ -123,6 +123,66 @@ cargo run -p playable-demo --example gen_asphalt
 encode the PNG); the runtime never gains an `image` dep — it decodes the embedded
 PNG via `kaman-assets`.
 
+### City skyline backdrop
+
+A distant city skyline sits on the horizon (KE-0705), so the freeway has a sense
+of place instead of an empty sky. It is a real, free **CC0** photo — a New York
+City skyline (Wikimedia Commons, public domain) — committed as
+`assets/skyline_src.jpg`, cropped to the skyline band and baked onto a **curved
+billboard** in `assets/skyline.gltf`.
+
+The technique is a **camera-locked far billboard**:
+
+- The mesh is a shallow horizontal **arc** (a quad whose strips bow forward toward
+  the camera at the edges) so the skyline **wraps around the road** rather than
+  reading as a flat wall. The bow depth is baked by the generator.
+- Each frame the demo draws it **first** (behind the gameplay, in front of the
+  gradient sky) at a transform locked to the **player's XZ** and a fixed distance
+  ahead — so a streaming/floating-origin rebase never shifts it, and it stays well
+  inside the camera's far plane. Gameplay depth-tests over it.
+- The skyline crop is contrast-boosted (the source is a foggy, low-contrast day)
+  and its picture is nudged down within the billboard so the building tops sit in
+  frame and the base lines up with the road's vanishing point.
+
+Regenerate `assets/skyline.gltf` with:
+
+```sh
+cargo run -p playable-demo --example gen_skyline
+```
+
+> Fog/blend polish (how strongly the distance fog washes the skyline) is a planned
+> follow-up, to be tuned with the fog work.
+
+### Elevated freeway: roadside buildings, guardrails, terrain
+
+The road is an **elevated freeway** running through a city (KE-0706):
+
+- **Building prefabs** — 8 committed **CC0** Kenney City Kit models
+  (`assets/{skyscraper_a,skyscraper_b,large_a,large_b,large_c,small_a,small_b,low_a}.glb`),
+  imported through `kaman-assets` and uploaded **once** each, then shared by handle
+  across every instance on screen.
+- **Streaming** — `spawn_slot` spawns one building per side per streaming slot,
+  reported via `SpawnCtx::spawned` so they despawn behind the player (bounded, no
+  per-frame allocation). Each is **non-colliding decoration** — no physics body, so
+  only the traffic cars can end a run.
+- **Weighted variety** — the prefab is chosen by a weighted per-slot hash
+  (`building_for_slot`): skyscrapers are rare (8%), mid/large common (55%), and
+  small/low the rest (37%). The lateral offset is jittered per slot so the rows
+  aren't a flat wall, and each building is turned 90° to face the freeway.
+- **Guardrails** — a procedural rail-and-posts segment (`guardrail_geometry`), one
+  `spawn_interval` long so segments abut seamlessly, streamed along both road edges
+  at `x = ±5.7` and sitting on the deck.
+- **Ground terrain** — a camera-locked ground sheet (`terrain_geometry`): a level
+  valley floor at the buildings' `GROUND_Y` under the road and both rows, climbing
+  into rolling hills on the flanks (cresting above the horizon). This is what the
+  buildings stand on, and it stops the sky showing through the mid-ground. Being
+  camera-locked, a streaming/floating-origin rebase never slides it.
+
+**Determinism.** Prefab choice, lateral jitter and traffic-car variant all derive
+from a `hash_u64` of the streaming slot — reproducible (same seed → same city) and
+deliberately **independent of the lane PRNG**, so adding scenery never perturbs the
+obstacle world or the headless smoke run.
+
 ## The smoke oracle
 
 ```sh

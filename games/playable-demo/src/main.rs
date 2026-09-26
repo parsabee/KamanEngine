@@ -49,8 +49,8 @@ use kaman_ecs::{DynamicTag, PhysicsBodyComponent, RenderComponent, StaticTag, Tr
 use kaman_math::glam::{Quat, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::{
-    MaterialParams, MeshHandle, PipelineDescriptor, PipelineHandle, TextureData, TextureHandle,
-    VertexLayout,
+    MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, TextureData,
+    TextureHandle, VertexLayout,
 };
 use kaman_scene::Scene;
 
@@ -63,14 +63,16 @@ const SMOKE_FRAMES: u32 = 120;
 /// with the material base-color the importer packed as its vertex color.
 type CarPart = (Transform, MeshHandle, Option<TextureHandle>);
 
-/// Which car model a placed car entity draws: the player's, or one of the traffic
-/// variants (index into [`CarRunner::traffic_cars`]).
+/// Which imported model a placed entity draws: the player's car, one of the
+/// traffic-car variants, or one of the roadside building prefabs.
 #[derive(Debug, Clone, Copy)]
-enum CarModel {
+enum PlacedModel {
     /// The player's car.
     Player,
-    /// A traffic car, by variant index.
+    /// A traffic car, by variant index (into [`CarRunner::traffic_cars`]).
     Traffic(usize),
+    /// A roadside building, by prefab index (into [`CarRunner::buildings`]).
+    Building(usize),
 }
 
 /// A game-side ECS component tagging an obstacle with which traffic car variant it
@@ -78,6 +80,19 @@ enum CarModel {
 /// streaming slot so an obstacle keeps the same car for its whole life.
 #[derive(Debug, Clone, Copy)]
 struct TrafficVariant(usize);
+
+/// A game-side ECS component tagging a streamed roadside building with which prefab
+/// it draws (index into [`BUILDING_ASSETS`]). Assigned once at spawn (deterministic
+/// per slot + side) so a building keeps the same prefab for its whole life. A
+/// building is **non-colliding** decoration — it carries no physics body.
+#[derive(Debug, Clone, Copy)]
+struct BuildingVariant(usize);
+
+/// A game-side ECS marker for a streamed guardrail segment (KE-0706), so the
+/// renderer draws it with the shared guardrail mesh and excludes it from the road
+/// pass. Non-colliding decoration.
+#[derive(Debug, Clone, Copy)]
+struct GuardrailTag;
 
 /// Command-line arguments for `playable-demo`.
 #[derive(Parser, Debug)]
@@ -214,6 +229,22 @@ struct CarRunner {
     /// The asphalt base-color texture uploaded once in `init` (KE-0704); bound
     /// before the road-tile draws so the textured pipeline samples it.
     asphalt: Option<TextureHandle>,
+    /// The guardrail segment mesh (KE-0706) — a procedural rail + posts one
+    /// `spawn_interval` long, built once and streamed along both road edges. Drawn
+    /// on the untextured pipeline (its metal color is baked into the vertices).
+    guardrail_mesh: Option<MeshHandle>,
+    /// The hill-terrain ground mesh (KE-0706) — a wide ground surface built once and
+    /// drawn camera-locked: a flat valley floor **under** the road and buildings
+    /// that rises into hills on both flanks, so the buildings sit on ground and the
+    /// sky doesn't show through the mid-ground.
+    hills_mesh: Option<MeshHandle>,
+    /// The distant city skyline backdrop — a billboard quad imported once from
+    /// `assets/skyline.gltf` (KE-0705), drawn far ahead and locked to the camera's
+    /// XZ so it reads as a far skyline behind the fog.
+    backdrop_mesh: Option<MeshHandle>,
+    /// The skyline base-color texture (KE-0705), uploaded once and bound before the
+    /// backdrop draw.
+    backdrop_texture: Option<TextureHandle>,
     /// The **player** car model, imported once from the CC0 `assets/sports_car.glb`
     /// (KE-0703): one [`CarPart`] per drawable mesh-node, fit to the road. Uploaded
     /// once (KE-0103) and reused every frame.
@@ -223,6 +254,11 @@ struct CarRunner {
     /// deterministically per streaming slot ([`variant_for_slot`]). All uploaded
     /// once (KE-0103) and shared across every obstacle on screen.
     traffic_cars: Vec<Vec<CarPart>>,
+    /// The roadside **building** prefabs — the CC0 Kenney City Kit models
+    /// ([`BUILDING_ASSETS`]), imported once and streamed along both sides of the
+    /// elevated road. Each streamed building draws one of these, chosen by a
+    /// weighted per-slot pick ([`building_for_slot`]); shared across all instances.
+    buildings: Vec<Vec<CarPart>>,
     /// The chase camera controller that keeps the player framed (KE-0205). It
     /// trails the box from behind and above along the travel axis, with light
     /// smoothing so the follow eases rather than snapping.
@@ -304,8 +340,13 @@ impl CarRunner {
             textured_pipeline: None,
             road_mesh: None,
             asphalt: None,
+            guardrail_mesh: None,
+            hills_mesh: None,
+            backdrop_mesh: None,
+            backdrop_texture: None,
             player_car: Vec::new(),
             traffic_cars: Vec::new(),
+            buildings: Vec::new(),
             chase: ChaseController::new(Self::CHASE_DISTANCE, Self::CHASE_HEIGHT)
                 .with_look_at_height(Self::CHASE_LOOK_AT_HEIGHT)
                 .with_smoothing(Self::CHASE_SMOOTHING),
@@ -450,6 +491,45 @@ impl CarRunner {
             ));
             cx.spawned(obstacle);
         }
+
+        // Roadside buildings (KE-0706): one on each side of the road at this slot,
+        // sitting on the ground plane BELOW the road so the freeway reads as raised.
+        // Non-colliding decoration (no physics body); deterministic per slot + side
+        // (weighted prefab, jittered offset) and independent of the lane PRNG.
+        for side in 0..2u64 {
+            let sign = if side == 0 { -1.0 } else { 1.0 };
+            let variant = building_for_slot(cx.slot, side);
+            let jitter = (hash_u64(cx.slot as u64 ^ (side << 40) ^ 0xB57D) % 1000) as f32 / 1000.0;
+            let x = sign * (BUILDING_SIDE_X + jitter * BUILDING_SIDE_JITTER);
+            // Turn each building 90° to face the freeway: the left row (`x < 0`)
+            // faces `+X` toward the road, the right row (`x > 0`) faces `-X`.
+            let facing = Quat::from_rotation_y(-sign * std::f32::consts::FRAC_PI_2);
+            let building = cx.world.spawn((
+                TransformComponent::new(Transform {
+                    position: Vec3::new(x, GROUND_Y, road_z),
+                    rotation: facing,
+                    ..Transform::identity()
+                }),
+                RenderComponent::cube([0.5, 0.5, 0.5]),
+                BuildingVariant(variant),
+                StaticTag,
+            ));
+            cx.spawned(building);
+        }
+
+        // Guardrails (KE-0706): a rail + posts segment along each road edge at this
+        // slot, sitting on the road deck. The shared mesh is one `spawn_interval`
+        // long, so tile-to-tile segments abut seamlessly. Non-colliding decoration.
+        for side in 0..2u64 {
+            let sign = if side == 0 { -1.0 } else { 1.0 };
+            let rail = cx.world.spawn((
+                TransformComponent::from_position(Vec3::new(sign * GUARDRAIL_X, GUARDRAIL_DECK_Y, road_z)),
+                RenderComponent::cube([0.6, 0.6, 0.6]),
+                GuardrailTag,
+                StaticTag,
+            ));
+            cx.spawned(rail);
+        }
     }
 
     /// Test the player against every streamed obstacle; return `true` on a hit.
@@ -492,6 +572,10 @@ impl Game for CarRunner {
         // material color. The road tile is likewise a textured quad from
         // `assets/road.gltf` (KE-0704), drawn on the textured pipeline with the
         // asphalt texture.
+        //
+        // The guardrail segment mesh (KE-0706) is sized to the scene's
+        // `spawn_interval` so streamed segments abut seamlessly.
+        let tile_depth = ctx.scene().config().spawn_interval;
         let renderer = ctx.renderer();
 
         // Untextured Phong pipeline (kept for any untextured car part / future use).
@@ -515,15 +599,48 @@ impl Game for CarRunner {
         // is packed on the textured layout (its material has a base-color texture),
         // so `AssetCache::load` uploads it as a textured mesh. Its decoded asphalt
         // base-color PNG becomes the bound texture.
-        let (road_mesh, asphalt) = load_road(&mut cache, renderer, ROAD_ASSET);
+        let (road_mesh, asphalt) = load_textured_mesh(&mut cache, renderer, ROAD_ASSET);
         self.road_mesh = Some(road_mesh);
         self.asphalt = Some(asphalt);
 
-        self.player_car = load_car(&mut cache, renderer, PLAYER_CAR_ASSET);
+        // Distant city skyline backdrop (KE-0705): a textured billboard quad,
+        // uploaded once and drawn far ahead, locked to the camera's XZ.
+        let (backdrop_mesh, backdrop_texture) =
+            load_textured_mesh(&mut cache, renderer, SKYLINE_ASSET);
+        self.backdrop_mesh = Some(backdrop_mesh);
+        self.backdrop_texture = Some(backdrop_texture);
+
+        self.player_car = load_model(&mut cache, renderer, PLAYER_CAR_ASSET, fit_transform);
         self.traffic_cars = TRAFFIC_CAR_ASSETS
             .iter()
-            .map(|path| load_car(&mut cache, renderer, path))
+            .map(|path| load_model(&mut cache, renderer, path, fit_transform))
             .collect();
+
+        // Roadside building prefabs (KE-0706): imported + uploaded once each, fit to
+        // a common footprint (heights preserved), base at the model origin so the
+        // spawn transform drops each onto the ground plane below the road.
+        self.buildings = BUILDING_ASSETS
+            .iter()
+            .map(|path| load_model(&mut cache, renderer, path, building_fit))
+            .collect();
+
+        // Guardrail segment mesh (KE-0706): built once (a rail + posts one
+        // `spawn_interval` long) and streamed along both road edges.
+        let (gr_vertices, gr_indices) = guardrail_geometry(tile_depth);
+        self.guardrail_mesh = Some(renderer.create_mesh(&MeshData {
+            vertices: &gr_vertices,
+            indices: &gr_indices,
+            layout: color_layout(),
+        }));
+
+        // Ground terrain sheet (KE-0706): built once, drawn camera-locked — a level
+        // valley floor under the road/buildings that climbs into hills on the flanks.
+        let (terrain_vertices, terrain_indices) = terrain_geometry();
+        self.hills_mesh = Some(renderer.create_mesh(&MeshData {
+            vertices: &terrain_vertices,
+            indices: &terrain_indices,
+            layout: color_layout(),
+        }));
 
         // Prime the road ahead so the first frame is not empty.
         let focus = self.player_position();
@@ -618,34 +735,45 @@ impl Game for CarRunner {
         // All meshes/textures are persistent (KE-0103).
         let player_entity = self.player;
         let road = self.road_mesh.expect("road mesh created in init");
+        let guardrail = self.guardrail_mesh.expect("guardrail mesh created in init");
 
-        // Road-tile transforms (textured pass): every renderable with no car role.
+        // Road-tile transforms (textured pass): every renderable that is not a car
+        // (player / obstacle), not a building, and not a guardrail — i.e. road tiles.
         let road_draws: Vec<Transform> = ctx
             .world()
             .query::<(&TransformComponent, &RenderComponent)>()
             .iter()
             .filter(|(e, _)| {
-                Some(*e) != player_entity && ctx.world().get::<&PhysicsBodyComponent>(*e).is_err()
+                Some(*e) != player_entity
+                    && ctx.world().get::<&PhysicsBodyComponent>(*e).is_err()
+                    && ctx.world().get::<&BuildingVariant>(*e).is_err()
+                    && ctx.world().get::<&GuardrailTag>(*e).is_err()
             })
             .map(|(_, (t, _))| t.transform)
             .collect();
 
-        // Car placements: each car entity's transform + which model it draws (the
-        // player's car, or one of the traffic variants tagged on the obstacle).
-        let car_draws: Vec<(Transform, CarModel)> = ctx
+        // Guardrail segment transforms (untextured pass).
+        let guardrail_draws: Vec<Transform> = ctx
+            .world()
+            .query::<(&TransformComponent, &GuardrailTag)>()
+            .iter()
+            .map(|(_, (t, _))| t.transform)
+            .collect();
+
+        // Model placements: each imported-model entity's transform + which model it
+        // draws — the player's car, a traffic car (obstacle), or a roadside building.
+        let model_draws: Vec<(Transform, PlacedModel)> = ctx
             .world()
             .query::<(&TransformComponent, &RenderComponent)>()
             .iter()
             .filter_map(|(e, (t, _))| {
                 if Some(e) == player_entity {
-                    Some((t.transform, CarModel::Player))
+                    Some((t.transform, PlacedModel::Player))
                 } else if ctx.world().get::<&PhysicsBodyComponent>(e).is_ok() {
-                    let variant = ctx
-                        .world()
-                        .get::<&TrafficVariant>(e)
-                        .map(|v| v.0)
-                        .unwrap_or(0);
-                    Some((t.transform, CarModel::Traffic(variant)))
+                    let variant = ctx.world().get::<&TrafficVariant>(e).map(|v| v.0).unwrap_or(0);
+                    Some((t.transform, PlacedModel::Traffic(variant)))
+                } else if let Ok(b) = ctx.world().get::<&BuildingVariant>(e) {
+                    Some((t.transform, PlacedModel::Building(b.0)))
                 } else {
                     None
                 }
@@ -655,18 +783,29 @@ impl Game for CarRunner {
         let textured_pipeline = self.textured_pipeline.expect("textured pipeline in init");
         let pipeline = self.pipeline.expect("pipeline created in init");
         let asphalt = self.asphalt.expect("asphalt texture created in init");
+        let backdrop = self.backdrop_mesh.expect("backdrop mesh created in init");
+        let backdrop_texture = self.backdrop_texture.expect("backdrop texture created in init");
+        let backdrop_transform = self.backdrop_transform();
+        let terrain = self.hills_mesh.expect("terrain mesh created in init");
+        let terrain_transform = self.terrain_transform();
         let renderer = ctx.renderer();
         renderer.begin_frame();
 
+        // Distant skyline backdrop first (KE-0705): far ahead and locked to the
+        // camera's XZ, so it sits behind the gameplay and in front of the gradient
+        // sky, blended toward the horizon by the distance fog.
+        renderer.set_pipeline(textured_pipeline);
+        renderer.bind_texture(backdrop_texture);
+        renderer.draw_mesh(backdrop, &backdrop_transform, &MaterialParams::default());
+
         // Textured pass: the asphalt road, then every textured car part (each binds
         // its own base-color texture).
-        renderer.set_pipeline(textured_pipeline);
         renderer.bind_texture(asphalt);
         for transform in &road_draws {
             renderer.draw_mesh(road, transform, &MaterialParams::default());
         }
-        for (entity_transform, model) in &car_draws {
-            for (local, mesh, texture) in self.car_model(*model) {
+        for (entity_transform, model) in &model_draws {
+            for (local, mesh, texture) in self.model_parts(*model) {
                 if let Some(texture) = texture {
                     renderer.bind_texture(*texture);
                     renderer.draw_mesh(*mesh, &compose(*entity_transform, local), &MaterialParams::default());
@@ -674,11 +813,16 @@ impl Game for CarRunner {
             }
         }
 
-        // Untextured pass: any car part with no base-color texture (drawn on the
-        // Phong pipeline with its packed material color).
+        // Untextured pass: the ground terrain first (it sits under/behind
+        // everything; depth sorts it), then the guardrails, then any model part with
+        // no base-color texture (drawn on the Phong pipeline with its vertex color).
         renderer.set_pipeline(pipeline);
-        for (entity_transform, model) in &car_draws {
-            for (local, mesh, texture) in self.car_model(*model) {
+        renderer.draw_mesh(terrain, &terrain_transform, &MaterialParams::default());
+        for transform in &guardrail_draws {
+            renderer.draw_mesh(guardrail, transform, &MaterialParams::default());
+        }
+        for (entity_transform, model) in &model_draws {
+            for (local, mesh, texture) in self.model_parts(*model) {
                 if texture.is_none() {
                     renderer.draw_mesh(*mesh, &compose(*entity_transform, local), &MaterialParams::default());
                 }
@@ -689,17 +833,35 @@ impl Game for CarRunner {
 }
 
 impl CarRunner {
-    /// The parts of the car model a placement draws: the player's, or a traffic
-    /// variant (clamped to the loaded set).
-    fn car_model(&self, model: CarModel) -> &[CarPart] {
+    /// The parts of the model a placement draws: the player's car, a traffic-car
+    /// variant, or a building prefab (each clamped to its loaded set).
+    fn model_parts(&self, model: PlacedModel) -> &[CarPart] {
         match model {
-            CarModel::Player => &self.player_car,
-            CarModel::Traffic(i) => self
-                .traffic_cars
-                .get(i)
-                .or_else(|| self.traffic_cars.first())
-                .map(Vec::as_slice)
-                .unwrap_or(&[]),
+            PlacedModel::Player => &self.player_car,
+            PlacedModel::Traffic(i) => pick_model(&self.traffic_cars, i),
+            PlacedModel::Building(i) => pick_model(&self.buildings, i),
+        }
+    }
+
+    /// The world transform for the skyline backdrop billboard this frame (KE-0705):
+    /// a wide, tall quad placed [`BACKDROP_DIST`] units ahead of the player along
+    /// the travel axis and **locked to the player's XZ** (centered on `x = 0`) so a
+    /// world stream/rebase never shifts it — it reads as a fixed far skyline. Sits
+    /// at [`BACKDROP_DIST`] < the camera far plane (100) so it is not clipped.
+    /// The world transform for the ground terrain this frame (KE-0706): the sheet is
+    /// baked in player-relative `Z`, so translating it to the player's `Z` keeps it
+    /// camera-locked — the ground always fills the view and a stream/rebase never
+    /// slides it.
+    fn terrain_transform(&self) -> Transform {
+        Transform::from_position(Vec3::new(0.0, 0.0, self.player_position().z))
+    }
+
+    fn backdrop_transform(&self) -> Transform {
+        let player = self.player_position();
+        Transform {
+            position: Vec3::new(0.0, BACKDROP_Y, player.z - BACKDROP_DIST),
+            rotation: Quat::IDENTITY,
+            scale: Vec3::new(BACKDROP_W, BACKDROP_H, 1.0),
         }
     }
 }
@@ -717,18 +879,55 @@ const TRAFFIC_CAR_ASSETS: [&str; 3] = [
     concat!(env!("CARGO_MANIFEST_DIR"), "/assets/police_car.glb"),
 ];
 
+/// A SplitMix64 finalizer over `x`, used for all deterministic per-slot choices so
+/// they are independent of the lane PRNG (adding variety never perturbs the
+/// obstacle world / the smoke run).
+fn hash_u64(x: u64) -> u64 {
+    let mut z = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
 /// Pick a traffic car variant (index into [`TRAFFIC_CAR_ASSETS`]) for a streaming
-/// `slot`. A SplitMix64-style hash of the slot, so it is deterministic and
-/// **independent of the lane PRNG** — adding variety does not perturb the obstacle
-/// world. Returns `0` if there are no traffic models.
+/// `slot`. Deterministic and independent of the lane PRNG. Returns `0` if there are
+/// no traffic models.
 fn variant_for_slot(slot: i64, n: usize) -> usize {
     if n == 0 {
         return 0;
     }
-    let mut z = (slot as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z ^= z >> 27;
-    (z % n as u64) as usize
+    (hash_u64(slot as u64) % n as u64) as usize
+}
+
+/// Pick a roadside building prefab (index into [`BUILDING_ASSETS`]) for a streaming
+/// `slot` and `side` (0 = left, 1 = right), weighted by [`BUILDING_WEIGHTS`] so
+/// skyscrapers are rare and mid/small buildings common. Deterministic and
+/// independent of the lane PRNG.
+fn building_for_slot(slot: i64, side: u64) -> usize {
+    let total: u32 = BUILDING_WEIGHTS.iter().sum();
+    if total == 0 {
+        return 0;
+    }
+    let r = (hash_u64((slot as u64).wrapping_mul(0x2545_F491_4F6C_DD1D) ^ (side + 1)) % total as u64)
+        as u32;
+    let mut acc = 0;
+    for (i, &w) in BUILDING_WEIGHTS.iter().enumerate() {
+        acc += w;
+        if r < acc {
+            return i;
+        }
+    }
+    BUILDING_WEIGHTS.len() - 1
+}
+
+/// The parts of one of `models` by index, falling back to the first model when the
+/// index is out of range (so a stale/oversized variant never panics).
+fn pick_model(models: &[Vec<CarPart>], i: usize) -> &[CarPart] {
+    models
+        .get(i)
+        .or_else(|| models.first())
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 /// Target car length in world units (the model is fit so its longer horizontal
@@ -742,27 +941,171 @@ const CAR_BOTTOM: f32 = -0.4;
 /// direction (`-Z`). Tuned to the ToyCar model's authored orientation.
 const CAR_YAW: f32 = std::f32::consts::PI;
 
+/// The committed roadside **building** prefabs (CC0 Kenney City Kit, public
+/// domain), imported at startup (KE-0706). Order matches [`BUILDING_WEIGHTS`].
+const BUILDING_ASSETS: [&str; 8] = [
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/skyscraper_a.glb"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/skyscraper_b.glb"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/large_a.glb"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/large_b.glb"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/large_c.glb"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/small_a.glb"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/small_b.glb"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/low_a.glb"),
+];
+
+/// Spawn weights per prefab (out of 100), parallel to [`BUILDING_ASSETS`]:
+/// skyscrapers rare (8% total), large/mid common (~55%), small/low the rest
+/// (~37%). Tunes how the streamed city reads.
+const BUILDING_WEIGHTS: [u32; 8] = [4, 4, 18, 18, 19, 12, 12, 13];
+
+/// Target horizontal footprint (world units) each building is fit to; the model's
+/// height scales with it, so tall prefabs stay tall and short ones short.
+const BUILDING_FOOTPRINT: f32 = 8.0;
+/// World `Y` of the ground plane the buildings' bases rest on — well below the road
+/// surface (`≈ -0.3`), so the road reads as an elevated freeway above the city.
+const GROUND_Y: f32 = -10.0;
+/// Lateral offset (from center, `x = 0`) of the building row on each side of the
+/// road. Beyond the road's outer edge (`±6`).
+const BUILDING_SIDE_X: f32 = 11.0;
+/// Per-slot lateral jitter added to [`BUILDING_SIDE_X`] so the rows aren't a flat
+/// wall.
+const BUILDING_SIDE_JITTER: f32 = 4.0;
+
+/// Lateral position of the guardrail on each side of the road — just inside the
+/// road's outer edge (`±6`), outboard of the drivable lanes (`±4.5`).
+const GUARDRAIL_X: f32 = 5.7;
+/// World `Y` the guardrail's base sits at — the top of the road deck (the road tile
+/// is centered at `y = -0.5` with half-height `0.2`, so its surface is `y = -0.3`).
+const GUARDRAIL_DECK_Y: f32 = -0.3;
+/// Height of the guardrail (top rail) above its base, in world units.
+const GUARDRAIL_H: f32 = 0.6;
+/// Spacing between guardrail posts, in world units.
+const GUARDRAIL_POST_SPACING: f32 = 2.0;
+
+/// Total width (along `X`) of the ground terrain sheet.
+const TERRAIN_W: f32 = 260.0;
+/// How far behind / ahead of the player the terrain sheet extends (camera-locked,
+/// relative `Z`). The far edge stays inside the camera's far plane (100) measured
+/// from the trailing camera, so it never clips.
+const TERRAIN_Z_NEAR: f32 = 30.0;
+const TERRAIN_Z_FAR: f32 = -80.0;
+/// Half-width of the flat valley floor the road and buildings sit on — the terrain
+/// stays level at [`GROUND_Y`] out to here, so buildings rest flush, then rises.
+const TERRAIN_FLAT_HALF: f32 = 13.0;
+/// World `Y` the flanking hills crest at. Above the apparent horizon so the hills
+/// eclipse the sky behind the buildings.
+const HILL_CREST: f32 = 9.0;
+/// Number of columns across the terrain sheet (smoothness of the hill profile).
+const TERRAIN_COLUMNS: u32 = 96;
+
+/// Ground height at lateral position `x`: a flat valley floor at [`GROUND_Y`] out to
+/// [`TERRAIN_FLAT_HALF`] (so the road platform and the building rows sit on level
+/// ground), then rising into rolling hills that crest near [`HILL_CREST`] at the
+/// sheet's edges.
+fn terrain_height(x: f32) -> f32 {
+    let ax = x.abs();
+    let span = (TERRAIN_W * 0.5 - TERRAIN_FLAT_HALF).max(f32::EPSILON);
+    let t = ((ax - TERRAIN_FLAT_HALF).max(0.0) / span).clamp(0.0, 1.0);
+    // Ease in so the ground leaves the valley floor gently, then climbs.
+    let climb = t.powf(1.4) * (HILL_CREST - GROUND_Y);
+    // Rolling variation, faded in with the climb so the valley floor stays level.
+    let roll = 2.2 * ((x * 0.11).sin() * 0.6 + (x * 0.29 + 1.3).sin() * 0.4);
+    GROUND_Y + climb + t * roll
+}
+
+/// Build the ground terrain sheet: one quad strip spanning
+/// [`TERRAIN_Z_NEAR`]..[`TERRAIN_Z_FAR`] in relative `Z`, with each column's height
+/// from [`terrain_height`]. Colored green, lighter toward the hilltops. Packed on
+/// the `[pos,normal,color]` layout (untextured pipeline); drawn camera-locked.
+fn terrain_geometry() -> (Vec<u8>, Vec<u32>) {
+    let valley_color = [0.20, 0.28, 0.17];
+    let hill_color = [0.36, 0.42, 0.33];
+
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    let push_vertex = |bytes: &mut Vec<u8>, pos: [f32; 3], color: [f32; 3]| {
+        for f in pos {
+            bytes.extend_from_slice(&f.to_ne_bytes());
+        }
+        for f in [0.0f32, 1.0, 0.0] {
+            bytes.extend_from_slice(&f.to_ne_bytes());
+        }
+        for f in color {
+            bytes.extend_from_slice(&f.to_ne_bytes());
+        }
+    };
+
+    for i in 0..=TERRAIN_COLUMNS {
+        let u = i as f32 / TERRAIN_COLUMNS as f32;
+        let x = (u - 0.5) * TERRAIN_W;
+        let y = terrain_height(x);
+        // Blend the color with how high this column climbed.
+        let t = ((y - GROUND_Y) / (HILL_CREST - GROUND_Y)).clamp(0.0, 1.0);
+        let color = [
+            valley_color[0] + (hill_color[0] - valley_color[0]) * t,
+            valley_color[1] + (hill_color[1] - valley_color[1]) * t,
+            valley_color[2] + (hill_color[2] - valley_color[2]) * t,
+        ];
+        push_vertex(&mut bytes, [x, y, TERRAIN_Z_NEAR], color);
+        push_vertex(&mut bytes, [x, y, TERRAIN_Z_FAR], color);
+    }
+
+    for i in 0..TERRAIN_COLUMNS {
+        let n = 2 * i; // near, this column
+        let f = n + 1; // far, this column
+        let n2 = n + 2; // near, next column
+        let f2 = n + 3; // far, next column
+        indices.extend_from_slice(&[n, f, f2, n, f2, n2]);
+    }
+
+    (bytes, indices)
+}
+
 /// The committed asphalt road-tile glTF (KE-0704), imported at startup: a flat
 /// textured quad carrying the tiling UVs plus an embedded asphalt base-color PNG.
 const ROAD_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/road.gltf");
 
-/// Import the car model through the asset cache and return its drawable parts: one
-/// `(fitted transform, mesh handle, base-color texture)` per mesh-node. The file
-/// is parsed + its meshes uploaded exactly once (KE-0103); each mesh's decoded
+/// The committed city skyline backdrop glTF (KE-0705): a vertical billboard quad
+/// with an embedded skyline base-color PNG cropped from a CC0 photo.
+const SKYLINE_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/skyline.gltf");
+
+/// How far ahead of the player (along the travel axis, `-Z`) the skyline backdrop
+/// sits. Kept well under the camera far plane (100) so it never clips; far enough
+/// that the distance fog blends it toward the horizon so it reads as a far skyline.
+const BACKDROP_DIST: f32 = 45.0;
+/// Backdrop billboard width in world units — wide enough to span the view frustum
+/// at [`BACKDROP_DIST`].
+const BACKDROP_W: f32 = 150.0;
+/// Backdrop billboard height in world units. Kept short enough that the full
+/// skyline (building tops included) fits within the frame rather than running off
+/// the top.
+const BACKDROP_H: f32 = 17.0;
+/// World `Y` of the backdrop's center. Lowered so the billboard's bottom edge
+/// (`base = Y - H/2`) reaches below the horizon and covers the mid-ground, rather
+/// than leaving sky seeping between the skyline and the terrain/buildings.
+const BACKDROP_Y: f32 = 5.0;
+
+/// Import a model through the asset cache and return its drawable parts: one
+/// `(fitted transform, mesh handle, base-color texture)` per mesh-node. The file is
+/// parsed + its meshes uploaded exactly once (KE-0103); each mesh's decoded
 /// base-color image is uploaded here via `create_texture` (the cache uploads
-/// meshes, not textures). The model is fit to the road with [`fit_transform`], and
-/// each part's stored transform is `fit ∘ node.transform` so the render pass only
-/// composes it with the car entity's placement.
-fn load_car(
+/// meshes, not textures). `fit` computes the model→world fit transform from the
+/// scene bounds ([`fit_transform`] for cars, [`building_fit`] for buildings); each
+/// part's stored transform is `fit ∘ node.transform` so the render pass only
+/// composes it with the entity's placement.
+fn load_model(
     cache: &mut AssetCache,
     renderer: &mut dyn Renderer,
     path: &str,
-) -> Vec<(Transform, MeshHandle, Option<TextureHandle>)> {
+    fit: fn(&kaman_assets::SceneAsset) -> Transform,
+) -> Vec<CarPart> {
     let asset = cache
         .load(renderer, path)
-        .unwrap_or_else(|e| panic!("import car asset {path}: {e}"));
+        .unwrap_or_else(|e| panic!("import model asset {path}: {e}"));
 
-    let fit = fit_transform(&asset.scene);
+    let fit = fit(&asset.scene);
 
     asset
         .scene
@@ -784,6 +1127,36 @@ fn load_car(
             (local, handle, texture)
         })
         .collect()
+}
+
+/// Compute the transform that fits a building prefab: a uniform scale so its
+/// horizontal footprint is [`BUILDING_FOOTPRINT`] (height scales with it, keeping
+/// tall/short character), centered in `X`/`Z`, with its **underside at the model
+/// origin** so the spawn transform drops the base onto the ground plane. No
+/// rotation — buildings keep their authored upright orientation.
+fn building_fit(scene: &kaman_assets::SceneAsset) -> Transform {
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    for (_, node) in scene.mesh_nodes() {
+        let mesh = &scene.meshes[node.mesh.expect("mesh node has a mesh")];
+        for p in &mesh.positions {
+            let w = node.transform.transform_point(Vec3::from_array(*p));
+            min = min.min(w);
+            max = max.max(w);
+        }
+    }
+
+    let size = max - min;
+    let footprint = size.x.max(size.z).max(f32::EPSILON);
+    let scale = BUILDING_FOOTPRINT / footprint;
+
+    // Pivot at the footprint center / underside → origin, so `base = 0`, centered.
+    let pivot = Vec3::new((min.x + max.x) * 0.5, min.y, (min.z + max.z) * 0.5);
+    Transform {
+        position: -(pivot * scale),
+        rotation: Quat::IDENTITY,
+        scale: Vec3::splat(scale),
+    }
 }
 
 /// Compute the transform that fits an imported car model to the road: a uniform
@@ -821,33 +1194,33 @@ fn fit_transform(scene: &kaman_assets::SceneAsset) -> Transform {
     }
 }
 
-/// Import the asphalt road-tile glTF (KE-0704) and return `(road mesh handle,
-/// asphalt texture handle)`.
+/// Import a **single-mesh textured** glTF (a unit quad whose material carries an
+/// embedded base-color PNG — the asphalt road tile, KE-0704, or the skyline
+/// billboard, KE-0705) and return `(mesh handle, base-color texture handle)`.
 ///
-/// The file is a single flat quad whose material carries an embedded base-color
-/// PNG, so the importer packs the quad on the `[pos,normal,uv]` textured layout
-/// and `AssetCache::load` uploads it as a textured mesh (one handle). The decoded
+/// The importer packs the quad on the `[pos,normal,uv]` textured layout and
+/// `AssetCache::load` uploads it as a textured mesh (one handle); the decoded
 /// base-color RGBA8 is handed straight to `create_texture`. Parsed + uploaded once
-/// (KE-0103); the mesh's node transform is identity (the road quad is a unit tile
-/// scaled by each streamed tile's transform), so only its handle is needed.
-fn load_road(
+/// (KE-0103); the mesh's node transform is identity (the quad is a unit tile
+/// placed/scaled by the caller's transform), so only its handle is needed.
+fn load_textured_mesh(
     cache: &mut AssetCache,
     renderer: &mut dyn Renderer,
     path: &str,
 ) -> (MeshHandle, TextureHandle) {
     let asset = cache
         .load(renderer, path)
-        .unwrap_or_else(|e| panic!("import road asset {path}: {e}"));
+        .unwrap_or_else(|e| panic!("import textured asset {path}: {e}"));
 
-    // The road glTF is a single mesh; grab its uploaded handle and its base-color.
+    // A single-mesh glTF; grab its uploaded handle and its base-color image.
     let mesh = *asset
         .mesh_handles
         .first()
-        .expect("road asset has one uploaded mesh");
+        .expect("textured asset has one uploaded mesh");
     let base_color = asset.scene.meshes[0]
         .base_color
         .as_ref()
-        .expect("road mesh carries a base-color (asphalt) texture");
+        .expect("textured mesh carries a base-color texture");
     let texture = renderer.create_texture(&TextureData {
         width: base_color.width,
         height: base_color.height,
@@ -875,6 +1248,62 @@ fn compose(parent: Transform, child: &Transform) -> Transform {
 /// the same layout the untextured Phong pipeline binds.
 fn color_layout() -> VertexLayout {
     kaman_assets::render_vertex_layout()
+}
+
+/// Append an axis-aligned box (6 outward-facing quads) at `center` with the given
+/// `half`-extents and a flat `color`, packed onto the `[pos,normal,color]` layout.
+fn push_box(bytes: &mut Vec<u8>, indices: &mut Vec<u32>, center: [f32; 3], half: [f32; 3], color: [f32; 3]) {
+    let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
+        ([0.0, 0.0, 1.0], [[-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0], [-1.0, 1.0, 1.0]]),
+        ([0.0, 0.0, -1.0], [[1.0, -1.0, -1.0], [-1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [1.0, 1.0, -1.0]]),
+        ([0.0, 1.0, 0.0], [[-1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, -1.0], [-1.0, 1.0, -1.0]]),
+        ([0.0, -1.0, 0.0], [[-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [-1.0, -1.0, 1.0]]),
+        ([1.0, 0.0, 0.0], [[1.0, -1.0, 1.0], [1.0, -1.0, -1.0], [1.0, 1.0, -1.0], [1.0, 1.0, 1.0]]),
+        ([-1.0, 0.0, 0.0], [[-1.0, -1.0, -1.0], [-1.0, -1.0, 1.0], [-1.0, 1.0, 1.0], [-1.0, 1.0, -1.0]]),
+    ];
+    for (n, corners) in faces {
+        let base = (bytes.len() / 36) as u32;
+        for c in corners {
+            let pos = [center[0] + c[0] * half[0], center[1] + c[1] * half[1], center[2] + c[2] * half[2]];
+            for f in pos {
+                bytes.extend_from_slice(&f.to_ne_bytes());
+            }
+            for f in n {
+                bytes.extend_from_slice(&f.to_ne_bytes());
+            }
+            for f in color {
+                bytes.extend_from_slice(&f.to_ne_bytes());
+            }
+        }
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+}
+
+/// Build one guardrail segment `length` units long (along `Z`), local origin at its
+/// base center so a spawn transform drops it onto the road deck: two horizontal
+/// metal rails plus evenly-spaced vertical posts. Packed on the `[pos,normal,color]`
+/// layout (untextured pipeline).
+fn guardrail_geometry(length: f32) -> (Vec<u8>, Vec<u32>) {
+    let rail_color = [0.62, 0.63, 0.66];
+    let post_color = [0.40, 0.41, 0.44];
+    let half_len = length / 2.0;
+
+    let mut bytes = Vec::new();
+    let mut indices = Vec::new();
+
+    // Two horizontal rails running the length of the segment (thin in X, at the
+    // road edge; the segment is placed at ±GUARDRAIL_X).
+    push_box(&mut bytes, &mut indices, [0.0, GUARDRAIL_H, 0.0], [0.05, 0.07, half_len], rail_color);
+    push_box(&mut bytes, &mut indices, [0.0, GUARDRAIL_H * 0.6, 0.0], [0.05, 0.055, half_len], rail_color);
+
+    // Vertical posts, evenly spaced along the segment (endpoints included).
+    let posts = ((length / GUARDRAIL_POST_SPACING).round() as i32).max(1);
+    for i in 0..=posts {
+        let z = -half_len + (i as f32 / posts as f32) * length;
+        push_box(&mut bytes, &mut indices, [0.0, GUARDRAIL_H * 0.5, z], [0.06, GUARDRAIL_H * 0.5, 0.06], post_color);
+    }
+
+    (bytes, indices)
 }
 
 /// The textured `[pos,normal,uv]` layout (32-byte stride) the road tiles use — the

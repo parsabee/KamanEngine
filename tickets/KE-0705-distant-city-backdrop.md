@@ -2,7 +2,7 @@
 
 Phase:         7
 Priority:      P1
-Status:        Todo
+Status:        Done
 Integration:   New
 Size:          M · A1
 Time:          M
@@ -15,13 +15,22 @@ Give the freeway a sense of place: a **solid city skyline in the distance**, beh
 buildings, so the horizon isn't empty sky.
 
 ## Scope & Acceptance
-- [ ] A distant city backdrop rendered behind the scene (in front of the gradient sky, behind the
+- [x] A distant city backdrop rendered behind the scene (in front of the gradient sky, behind the
       gameplay): e.g. a large textured billboard/curtain mesh or a panoramic band that follows the
       camera in XZ but stays far away, so it reads as "far skyline."
-- [ ] It sits behind the distance fog (KE-0401) so the transition to the sky is smooth, and does not
-      z-fight or pop as the world streams/rebases.
-- [ ] Committed backdrop asset (skyline texture or silhouette mesh) under the demo's `assets/`.
-- [ ] No per-frame allocation added (KR1.2 discipline); backdrop resources created once.
+      → a **curved (bowed) textured billboard** imported from `assets/skyline.gltf`, drawn first each
+      frame on the textured pipeline and locked to the player's XZ (`backdrop_transform`); its edges
+      bow toward the camera (`BEND_DEPTH`) so the skyline wraps around the road.
+- [x] It sits behind the distance fog (KE-0401) so the transition to the sky is smooth, and does not
+      z-fight or pop as the world streams/rebases. → drawn farthest (gameplay depth-tests over it) and
+      anchored to the player each frame, so a stream/rebase never shifts it. NOTE: fog/blend polish
+      (how strongly the fog washes the skyline vs its contrast) is **deferred** — revisit with the fog
+      work; for now the backdrop is placed closer + contrast-boosted so it reads clearly.
+- [x] Committed backdrop asset (skyline texture or silhouette mesh) under the demo's `assets/`.
+      → CC0 source `assets/skyline_src.jpg` (NYC skyline, public domain) + the generated
+      `assets/skyline.gltf` (cropped skyline band baked onto the curved billboard).
+- [x] No per-frame allocation added (KR1.2 discipline); backdrop resources created once.
+      → mesh + texture uploaded once in `init`; `backdrop_transform` returns a stack `Transform`.
 
 ## Technical notes
 - Simplest approach: a far billboard locked to the camera's XZ (not Y), drawn early with depth-write
