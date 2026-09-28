@@ -52,13 +52,13 @@ additions. Worked example: [games/playable-demo/Cargo.toml](../games/playable-de
 
 ## 2. Implement `Game`
 
-One trait, three hooks: [`kaman_core::Game`](../crates/kaman-core/src/game.rs#L95). `init` runs
+One trait, three hooks: [`kaman_core::Game`](../crates/kaman-core/src/game.rs#L96). `init` runs
 once; `update` runs 0..N times per frame with `dt` always equal to
 [`FIXED_DT`](../crates/kaman-core/src/timestep.rs#L50) (1/60 s); `render` runs exactly once per
 frame after that frame's updates. Advance state in `update`, record draws in `render`, and don't
 cross the two — that split is what makes the simulation framerate-independent.
 
-Everything the engine offers arrives through the [`EngineCtx`](../crates/kaman-core/src/context.rs#L81)
+Everything the engine offers arrives through the [`EngineCtx`](../crates/kaman-core/src/context.rs#L86)
 argument: the `Scene` (ECS world + physics + streaming), the ECS world, the render seam, the
 `Camera`, an input snapshot, frame timing. There is nothing else to reach for, and no way to reach
 past it.
@@ -184,7 +184,7 @@ fit transforms that place a model on the ground) and
 ## 4. Record a draw
 
 The render seam is two traits, handed to you as one `&mut dyn Renderer` from `ctx.renderer()`:
-[`RenderDevice`](../crates/kaman-render-api/src/device.rs#L77) for resources (and
+[`RenderDevice`](../crates/kaman-render-api/src/device.rs#L78) for resources (and
 `surface_size` / `safe_area_insets`) and
 [`FrameRecorder`](../crates/kaman-render-api/src/recorder.rs#L63) for the frame. The frame
 protocol is `begin_frame` → `set_pipeline` / `bind_texture` / `draw_mesh` /
@@ -244,11 +244,81 @@ cargo run -p my-game -- --smoke  # headless: 120 frames, exits 0
 Worked example: [main.rs](../games/playable-demo/src/main.rs), which does this with `clap` for
 argument parsing and asserts the stdout contract line in a unit test.
 
+### Graphics settings: the built-in menu, or your own UI
+
+Every windowed run gets graphics settings for free (KE-0408). There are two ways to expose them to
+the player, and both drive the **same** model, `kaman_core::GraphicsSettings`:
+
+| Setting | Options (default **bold**) | What it does |
+|---|---|---|
+| Shadows | Off · Low · **High** | Off skips the shadow pass; Low/High pick the shadow map (2048² / 4096² on Metal) |
+| Shadow Distance | **Match Draw Distance** · Medium · Near | Shadows cover all, half, or a quarter of the draw distance |
+| Draw Distance | Near · Medium · **Far** | 0.5× / 0.75× / 1× the streaming reach you set in `init`, with the fog scaled to match |
+| Resolution | **50%** · 75% · 100% | Render scale of the window's native pixels (50% is one pixel per point on Retina) |
+
+**Path 1: the built-in menu (default).** `run` / `run_with_backend` install a native **Graphics**
+menu in the macOS menu bar, next to the standard application menu. It has one submenu per setting
+plus *Enter Full Screen* (⌃⌘F) and *Reset to Defaults*. The runner also remembers the player's
+choices across launches (`NSUserDefaults`). You write no code for this.
+
+**Path 2: your own UI.** Turn the menu off with `RunConfig` and drive the settings from your
+game, for example from an options screen drawn with the HUD overlay:
+
+```rust
+#[cfg(target_os = "macos")]
+kaman_core::run_with_config(
+    &mut game,
+    Some(Box::new(|window, width, height| {
+        Box::new(kaman_render::MetalRenderer::new(window, width, height))
+            as Box<dyn kaman_core::Renderer>
+    })),
+    kaman_core::RunConfig {
+        native_settings_menu: false,       // your UI replaces the menu
+        ..kaman_core::RunConfig::default() // keep persistence
+    },
+);
+```
+
+```rust
+use kaman_core::{DrawDistance, GraphicsSettings, ShadowQuality};
+
+// Anywhere you have an `EngineCtx` (init / update / render):
+let mut s: GraphicsSettings = ctx.graphics_settings();  // what is in effect now
+s.shadows = ShadowQuality::Low;
+s.draw_distance = DrawDistance::Medium;
+ctx.set_graphics_settings(s);  // queued; applied at the start of the next frame
+```
+
+Each enum lists its options in menu order (`DrawDistance::ALL`, …) with a `label()`, so a custom
+UI can enumerate them rather than hardcode strings.
+
+Whichever path requests a change, the engine applies it identically:
+
+1. At the start of the next frame, before any `update`, it pushes the render settings (shadow tier,
+   shadow range, fog) across the render seam and rescales the scene's streaming reach.
+2. It calls your `Game::graphics_settings_changed` hook. This is optional, and the default does
+   nothing.
+3. It resizes the drawable for the render scale.
+4. It saves the settings, unless you also set `persist_graphics_settings: false`.
+
+Two things to know:
+
+- **Draw distance scales *your* reach.** The engine records the scene's `spawn_ahead` as it stands
+  at the end of `init` as 100%. Set your reach with `Scene::set_config` in `init`, as the demo does,
+  and don't change it later yourself.
+- **Author HUD sizes in points.** Multiply them by `renderer.surface_scale()` (drawable pixels per
+  window point) so text keeps its size at every render scale. See
+  [hud.rs](../games/playable-demo/src/hud.rs).
+
+Settings are testable headlessly too. `Headless::set_graphics_settings` queues a change exactly as
+the menu would, and the `NullRenderer` records the `RenderSettings` it received. Nothing is ever
+read from or written to the player's stored preferences in a headless run.
+
 ---
 
 ## 6. Test it without a GPU
 
-This is the part worth adopting early. [`Headless`](../crates/kaman-core/src/headless.rs#L92)
+This is the part worth adopting early. [`Headless`](../crates/kaman-core/src/headless.rs#L93)
 owns the engine state a `Game` runs against — scene, input, perf, accumulator, and a
 `NullRenderer` — and steps frames on a synthetic clock. So gameplay is an ordinary unit test:
 

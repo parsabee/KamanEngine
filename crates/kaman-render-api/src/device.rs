@@ -6,6 +6,7 @@
 
 use crate::descriptor::VertexLayout;
 use crate::handles::{MeshHandle, PipelineHandle, TextureHandle};
+use crate::settings::RenderSettings;
 
 /// Plain-data description of a mesh to upload.
 ///
@@ -144,4 +145,45 @@ pub trait RenderDevice {
     /// intrusions (a plain desktop window) report zeros; the iOS path reports the
     /// real insets.
     fn safe_area_insets(&self) -> [f32; 4];
+
+    /// Resize the drawable to `width` × `height` **pixels** (KE-0408).
+    ///
+    /// The engine's windowed runner calls this when the window is resized, moves
+    /// to a display with a different scale factor, or the render-resolution
+    /// setting changes. The drawable may be smaller than the window's native pixel
+    /// size: the platform scales it up to fill the window, which is how a render
+    /// scale below 100% trades sharpness for fill rate.
+    ///
+    /// `pixels_per_point` is how many drawable pixels span one logical point of
+    /// the window (native scale factor × render scale). It is reported back by
+    /// [`surface_scale`](Self::surface_scale) so a HUD can keep a constant
+    /// on-screen size whatever the resolution.
+    ///
+    /// # Contract
+    /// - After this returns, [`surface_size`](Self::surface_size) reports
+    ///   `(width, height)` (backends without a resizable surface, such as an
+    ///   offscreen target, may keep their fixed size) and
+    ///   [`surface_scale`](Self::surface_scale) reports `pixels_per_point`.
+    /// - Takes effect from the next [`begin_frame`](crate::FrameRecorder::begin_frame).
+    ///   Size-dependent attachments are re-created by the backend as needed.
+    /// - A zero dimension is treated as 1.
+    fn resize_surface(&mut self, width: u32, height: u32, pixels_per_point: f32);
+
+    /// Drawable pixels per logical point of the window: the **UI scale** (KE-0408).
+    ///
+    /// Multiply HUD sizes authored in points (font sizes, margins) by this, so they
+    /// keep the same apparent size at every render resolution. It is `1.0` until
+    /// the first [`resize_surface`](Self::resize_surface).
+    fn surface_scale(&self) -> f32;
+
+    /// Apply render quality settings: shadow quality and range, and the
+    /// draw-distance scale (KE-0408). See [`RenderSettings`].
+    ///
+    /// # Contract
+    /// - Sticky: the value holds until the next call, and the default applies
+    ///   before the first one.
+    /// - Takes effect from the next frame. A backend may (re)allocate resources
+    ///   here, for example a shadow map of a new size, so treat it as a
+    ///   load-time-cost call, not a per-frame one.
+    fn set_render_settings(&mut self, settings: &RenderSettings);
 }

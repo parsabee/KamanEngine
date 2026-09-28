@@ -30,6 +30,10 @@
 //!   frame through [`FrameRecorder::set_sun_sky`]. Physical parameters only: the
 //!   sun's elevation/azimuth, colour and intensity, the sky-fill level, and the
 //!   sky gradient. No time-of-day policy lives below the seam.
+//! - [`RenderSettings`] / [`ShadowQuality`] — render quality settings (KE-0408):
+//!   shadow tier and range and a draw-distance scale, pushed with
+//!   [`RenderDevice::set_render_settings`]; the drawable's resolution goes through
+//!   [`RenderDevice::resize_surface`].
 //! - [`NullRenderer`] — a headless, GPU-free test double implementing both traits so scene
 //!   and game code can be unit-tested without a device.
 //!
@@ -73,6 +77,7 @@ pub mod handles;
 pub mod null;
 pub mod overlay;
 pub mod recorder;
+pub mod settings;
 pub mod sun;
 
 pub use descriptor::{MaterialParams, VertexAttribute, VertexFormat, VertexLayout};
@@ -81,4 +86,5 @@ pub use handles::{MeshHandle, PipelineHandle, TextureHandle};
 pub use null::{NullRenderer, RecordedDraw};
 pub use overlay::{FontAtlas, Glyph, OverlayFill, OverlayQuad};
 pub use recorder::FrameRecorder;
+pub use settings::{RenderSettings, ShadowQuality};
 pub use sun::SunSky;

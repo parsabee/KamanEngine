@@ -281,9 +281,11 @@ pub(crate) const BACKDROP_Y: f32 = 1.5;
 /// example from the OFL-licensed `assets/font.ttf`.
 pub(crate) const FONT_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/font.bin");
 
-/// Padding, in pixels, between the safe-area edge and the HUD's live score.
+/// Padding, in points, between the safe-area edge and the HUD's live score. Like
+/// every HUD size here it is multiplied by the renderer's `surface_scale` (drawable
+/// pixels per point), so the HUD looks the same at every render resolution.
 pub(crate) const HUD_MARGIN: f32 = 24.0;
-/// Em size, in pixels, of the live score readout.
+/// Em size, in points, of the live score readout.
 pub(crate) const HUD_SCORE_PX: f32 = 30.0;
 /// Em size of the "GAME OVER" banner headline.
 pub(crate) const HUD_TITLE_PX: f32 = 64.0;

@@ -117,6 +117,19 @@ constant 2 cm, and filtered with 4×4 tent PCF. The fitting and bias math is GPU
 in `kaman-render/src/shadow.rs`; a new shadow pixel-hash proves occlusion by re-rendering with the
 casters disabled. A GPU-less runner never constructs the Metal backend, so it never reaches the pass.
 
+**Graphics settings (KE-0408).** Quality settings cross the seam as plain data, like `SunSky`:
+
+- `RenderDevice::set_render_settings(&RenderSettings)` carries a `ShadowQuality` tier, a shadow
+  range as a fraction of the draw distance, and a draw-distance scale on the backend's fog. All of
+  them are relative to the backend's defaults.
+- `RenderDevice::resize_surface` / `surface_scale` size the drawable for a render scale and report
+  the HUD's UI scale.
+
+The user-facing `GraphicsSettings` presets live in `kaman-core`, which applies them to the seam and
+to `Scene` streaming. Its windowed runner installs a native macOS **Graphics** menu by default,
+opt-out via `RunConfig`. That menu is built with `objc2` in `kaman-core::platform`, so AppKit stays
+out of every crate but `kaman-core`, and `metal` stays out of `kaman-core`.
+
 ## 3. Workspace layout
 
 ```

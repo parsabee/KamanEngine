@@ -122,6 +122,7 @@ targets (`./scripts/preflight.sh --ios`). Tickets below are intentionally rough 
 | KE-0405 | Audio (kira) | P1 | New | M · A0 | Done | KE-0101 | KR4.3 |
 | KE-0406 | Drivable sun + sky sun disc (lighting through the seam) | P1 | Refactor | M · A2 | Done | KE-0401, KE-0102 | KR4.1 |
 | KE-0407 | Real shadows: fitted shadow-map pass | P1 | New | L · A2 | Done | KE-0406 | KR4.1 |
+| KE-0408 | Graphics settings + native macOS Graphics menu | P1 | New | L · A2 | Done | KE-0407, KE-0404 | KR4.1 |
 
 Mostly macOS/CLT-friendly (the runner uses real meshes/textures/HUD/audio on macOS); ASTC + iOS
 audio-session/safe-area specifics finish alongside Phase 3.

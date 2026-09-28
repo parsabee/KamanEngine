@@ -20,7 +20,7 @@ To **start your own** game rather than read this one, see
 ## 1. The `Game` / `EngineCtx` boundary
 
 The engine owns the loop. A game is any type implementing
-[`kaman_core::Game`](../crates/kaman-core/src/game.rs#L95) — three hooks, no more:
+[`kaman_core::Game`](../crates/kaman-core/src/game.rs#L96) — three hooks, no more:
 
 | Hook | Called | The demo's implementation |
 |---|---|---|
@@ -28,7 +28,7 @@ The engine owns the loop. A game is any type implementing
 | `update(&mut EngineCtx, dt)` | 0..N times per frame, `dt` always `FIXED_DT` | [game.rs:628](../games/playable-demo/src/game.rs#L628) |
 | `render(&mut EngineCtx)` | exactly once per frame, after that frame's updates | [game.rs:748](../games/playable-demo/src/game.rs#L748) → [render.rs:38](../games/playable-demo/src/render.rs#L38) |
 
-[`EngineCtx`](../crates/kaman-core/src/context.rs#L81) is the only channel into the engine. It
+[`EngineCtx`](../crates/kaman-core/src/context.rs#L86) is the only channel into the engine. It
 is built fresh by the driver for each hook call and dropped immediately after, so a game cannot
 stash it across frames. Its whole surface is: the [`Scene`](../crates/kaman-scene/src/lib.rs#L141)
 (`scene`/`scene_mut`), the ECS world (`world`/`world_mut`, delegating to the scene), the render
@@ -50,7 +50,7 @@ the collision test, the difficulty ramp, and the game-side ECS components
 
 **Backend injection.** `kaman-core` must not depend on `metal`, so it does not construct the
 renderer. The *game binary* does: `main.rs` calls
-[`run_with_backend`](../crates/kaman-core/src/app.rs#L137) with a factory closure that builds a
+[`run_with_backend`](../crates/kaman-core/src/app.rs#L154) with a factory closure that builds a
 `kaman_render::MetalRenderer` and boxes it as `dyn Renderer`
 ([main.rs:109](../games/playable-demo/src/main.rs#L109)). `metal` therefore reaches the process
 through `kaman-render` and the game binary only, never through `kaman-core` (ARCHITECTURE §2).
@@ -68,7 +68,7 @@ with that constant — never a measured wall-clock delta.
 Each display frame, the driver banks the real elapsed time in the
 [`Accumulator`](../crates/kaman-core/src/timestep.rs#L72), which returns the whole number of
 fixed steps to run and keeps the sub-step remainder. Both drivers then run the same
-[`drive_frame`](../crates/kaman-core/src/driver.rs#L140): `update × k`, then `render` once.
+[`drive_frame`](../crates/kaman-core/src/driver.rs#L218): `update × k`, then `render` once.
 `k` may be 0 (a display faster than the sim rate) or several (a slow frame catching up), capped
 at [`MAX_STEPS_PER_FRAME = 5`](../crates/kaman-core/src/timestep.rs#L63) so a stall slows the
 simulation instead of wedging the loop.
@@ -236,7 +236,7 @@ the point of shipping them as examples — `image` and `fontdue` stay **dev-depe
 ([Cargo.toml:18](../games/playable-demo/Cargo.toml#L18)), so the shipped binary gains neither an
 image codec nor a font parser. At runtime the embedded road/skyline PNGs are decoded by
 `kaman-assets`, and `font.bin` is a self-contained `KFNT` blob of metrics plus a single-channel
-distance field that [`load_font`](../games/playable-demo/src/hud.rs#L92) parses by hand.
+distance field that [`load_font`](../games/playable-demo/src/hud.rs#L101) parses by hand.
 
 ---
 
@@ -245,9 +245,9 @@ distance field that [`load_font`](../games/playable-demo/src/hud.rs#L92) parses 
 ### Recording a frame
 
 The seam is two traits in `kaman-render-api`, bundled for the game as one
-`&mut dyn Renderer` ([context.rs:44](../crates/kaman-core/src/context.rs#L44)):
+`&mut dyn Renderer` ([context.rs:45](../crates/kaman-core/src/context.rs#L45)):
 
-- [`RenderDevice`](../crates/kaman-render-api/src/device.rs#L77) — load-time resource ownership:
+- [`RenderDevice`](../crates/kaman-render-api/src/device.rs#L78) — load-time resource ownership:
   `create_mesh` / `create_texture` / `create_pipeline` (and their `destroy_*`), plus
   `surface_size` and `safe_area_insets`. Every call returns an **opaque handle** — a newtype over
   an id. No GPU type crosses the seam in either direction.
@@ -324,7 +324,7 @@ The seam is the **2D overlay** (KE-0404,
 `draw_overlay_quad`, and the backend batches them and flushes them at `submit` in its own
 orthographic, depth-disabled, alpha-blended pass **after** every 3D draw. So the HUD composites
 on top regardless of record order — which is why
-[`draw_hud`](../games/playable-demo/src/hud.rs#L164) can simply be the last thing
+[`draw_hud`](../games/playable-demo/src/hud.rs#L173) can simply be the last thing
 `render_frame` records. Coordinates are pixels with the origin top-left. A quad's fill is
 `Solid`, `Textured`, or `Sdf`.
 
@@ -337,16 +337,16 @@ centering. Because the metrics are in em units, one atlas serves any pixel size 
 the score at 30 px and the banner headline at 64 px from the same texture.
 
 **Allocation-free.** `layout` allocates nothing, and the demo formats its numbers into
-[`StackStr`](../games/playable-demo/src/hud.rs#L43), a fixed-capacity `fmt::Write` buffer on the
+[`StackStr`](../games/playable-demo/src/hud.rs#L52), a fixed-capacity `fmt::Write` buffer on the
 stack (overflow is dropped rather than panicking — HUD text is short and cosmetic). So the whole
 per-frame HUD path is heap-free (KR1.2).
 
 **Safe area.** Positions are derived from `surface_size` shrunk by
-[`safe_area_insets`](../crates/kaman-render-api/src/device.rs#L146) (`[top, right, bottom, left]`
+[`safe_area_insets`](../crates/kaman-render-api/src/device.rs#L147) (`[top, right, bottom, left]`
 in pixels), so the HUD stays clear of notches, rounded corners and home indicators. A desktop
 window reports zeros; the iOS path reports real insets. The score sits at
 `inset + HUD_MARGIN`, and the game-over banner is centered in the *safe* rectangle, not the raw
-drawable ([hud.rs:244](../games/playable-demo/src/hud.rs#L244)).
+drawable ([hud.rs:258](../games/playable-demo/src/hud.rs#L258)).
 
 The HUD also carries the demo's full-screen washes, recorded first so everything composites over
 them: opaque black on `Ready` (the title screen), that black retiring over `HUD_FADE_SECONDS`
@@ -419,7 +419,7 @@ continuous oracle: CI runs it on every push with Metal API Validation enabled
 (`.github/workflows/ci.yml`), and two unit tests pin both the run and the exact stdout contract
 line ([main.rs:156](../games/playable-demo/src/main.rs#L156)).
 
-**The headless harness.** [`Headless`](../crates/kaman-core/src/headless.rs#L92) is what makes
+**The headless harness.** [`Headless`](../crates/kaman-core/src/headless.rs#L93) is what makes
 gameplay testable at all. It owns the engine state a `Game` runs against — scene, input, perf,
 accumulator, a `NullRenderer`, and a **silent** `Audio` layer — runs `init` once, and steps frames on
 the synthetic clock. A test can seed input before a run (`input_mut`), step in chunks, and afterwards
@@ -505,6 +505,12 @@ cargo run -p playable-demo -- --smoke # headless oracle: 120 frames, prints "smo
 Controls are handled at [game.rs:239](../games/playable-demo/src/game.rs#L239) (lanes) and
 [game.rs:633](../games/playable-demo/src/game.rs#L633) (`Space`, per state); `Escape` is handled
 by the engine's windowed entry.
+
+The **Graphics** menu in the macOS menu bar adjusts shadows, shadow distance, draw distance and
+resolution (KE-0408). It comes from the engine's windowed entry, not the demo. The only demo-side
+code is the HUD's UI scale in [hud.rs](../games/playable-demo/src/hud.rs), which keeps the text the
+same size at every resolution. Draw distance scales the demo's 180-unit reach and its fog together
+(0.5× / 0.75× / 1×). See [GETTING_STARTED.md](GETTING_STARTED.md#graphics-settings-the-built-in-menu-or-your-own-ui).
 
 ---
 

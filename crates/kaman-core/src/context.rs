@@ -27,6 +27,7 @@ use kaman_perf::PerfSnapshot;
 use kaman_render_api::{FrameRecorder, RenderDevice};
 use kaman_scene::Scene;
 
+use crate::graphics::{GraphicsSettings, GraphicsState};
 use crate::input::InputState;
 
 /// The combined render seam: a type that is both a [`RenderDevice`] (load-time
@@ -75,6 +76,10 @@ impl<T: RenderDevice + FrameRecorder> Renderer for T {}
 ///   audio device and never fails, so it is called unconditionally.
 /// - Frame timing — [`perf`](Self::perf), a [`PerfSnapshot`] for the previous
 ///   frame.
+/// - Graphics settings (KE-0408) —
+///   [`graphics_settings`](Self::graphics_settings) /
+///   [`set_graphics_settings`](Self::set_graphics_settings), the same model the
+///   built-in settings menu drives.
 ///
 /// There is deliberately no accessor for anything else: no window, no platform
 /// handle, no Metal device, and no game state.
@@ -84,6 +89,7 @@ pub struct EngineCtx<'a> {
     camera: &'a mut Camera,
     input: &'a InputState,
     audio: &'a mut Audio,
+    graphics: &'a mut GraphicsState,
     perf: PerfSnapshot,
     alpha: f32,
 }
@@ -98,12 +104,14 @@ impl<'a> EngineCtx<'a> {
     /// `alpha` is the fixed-timestep interpolation factor (see
     /// [`alpha`](Self::alpha)); it is meaningful on the render path and `0.0` for
     /// `update`/`init` contexts, where interpolation does not apply.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         scene: &'a mut Scene,
         renderer: &'a mut dyn Renderer,
         camera: &'a mut Camera,
         input: &'a InputState,
         audio: &'a mut Audio,
+        graphics: &'a mut GraphicsState,
         perf: PerfSnapshot,
         alpha: f32,
     ) -> Self {
@@ -113,6 +121,7 @@ impl<'a> EngineCtx<'a> {
             camera,
             input,
             audio,
+            graphics,
             perf,
             alpha,
         }
@@ -225,6 +234,37 @@ impl<'a> EngineCtx<'a> {
     #[must_use]
     pub fn audio(&mut self) -> &mut Audio {
         self.audio
+    }
+
+    /// The [`GraphicsSettings`] currently in effect (KE-0408).
+    ///
+    /// A request made with [`set_graphics_settings`](Self::set_graphics_settings)
+    /// is not visible here until it has been applied, at the start of the next
+    /// frame.
+    #[must_use]
+    pub fn graphics_settings(&self) -> GraphicsSettings {
+        self.graphics.current()
+    }
+
+    /// Request new [`GraphicsSettings`] (KE-0408). This is the entry point for a
+    /// game's **own** settings UI; the built-in macOS menu queues through the same
+    /// path.
+    ///
+    /// The change is queued and applied at the start of the next frame, before
+    /// any `update`:
+    ///
+    /// 1. The renderer gets the new shadow quality, shadow range and draw-distance
+    ///    fog.
+    /// 2. The scene's streaming reach is rescaled.
+    /// 3. [`Game::graphics_settings_changed`](crate::Game::graphics_settings_changed)
+    ///    runs.
+    /// 4. A windowed run then resizes the drawable for the render scale and saves
+    ///    the settings for the next launch (unless the game opted out).
+    ///
+    /// A request equal to the current settings is a no-op. Several requests in one
+    /// frame collapse to the last.
+    pub fn set_graphics_settings(&mut self, settings: GraphicsSettings) {
+        self.graphics.request(settings);
     }
 
     /// The [`PerfSnapshot`] describing recent frame timing.

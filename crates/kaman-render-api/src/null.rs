@@ -12,6 +12,7 @@ use crate::device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
 use crate::handles::{MeshHandle, PipelineHandle, TextureHandle};
 use crate::overlay::OverlayQuad;
 use crate::recorder::FrameRecorder;
+use crate::settings::RenderSettings;
 use crate::sun::SunSky;
 
 /// A single recorded draw, captured by [`NullRenderer`] for later assertion.
@@ -93,6 +94,17 @@ pub struct NullRenderer {
     /// push, then sticky, so a headless test can assert *which sun* a game asked
     /// for without a GPU.
     sun_sky: Option<SunSky>,
+    /// The most recent render settings pushed via
+    /// [`set_render_settings`](RenderDevice::set_render_settings) (KE-0408). `None`
+    /// until the first push, then sticky.
+    render_settings: Option<RenderSettings>,
+    /// The drawable size last requested via
+    /// [`resize_surface`](RenderDevice::resize_surface), or `None` for the fixed
+    /// [`NULL_SURFACE_WIDTH`] × [`NULL_SURFACE_HEIGHT`] default.
+    surface_size: Option<(u32, u32)>,
+    /// The UI scale last passed to [`resize_surface`](RenderDevice::resize_surface);
+    /// `None` reports `1.0`.
+    surface_scale: Option<f32>,
 }
 
 impl NullRenderer {
@@ -233,6 +245,15 @@ impl NullRenderer {
     pub fn sun_sky(&self) -> Option<SunSky> {
         self.sun_sky
     }
+
+    /// The most recent [`RenderSettings`] pushed via
+    /// [`set_render_settings`](RenderDevice::set_render_settings) (KE-0408), or
+    /// `None` if none was. Sticky, so a headless test can assert which shadow
+    /// quality, shadow range and draw-distance scale the engine asked for.
+    #[must_use]
+    pub fn render_settings(&self) -> Option<RenderSettings> {
+        self.render_settings
+    }
 }
 
 impl RenderDevice for NullRenderer {
@@ -270,13 +291,28 @@ impl RenderDevice for NullRenderer {
     }
 
     fn surface_size(&self) -> (u32, u32) {
-        // A fixed, GPU-less drawable size so headless HUD layout is deterministic.
-        (NULL_SURFACE_WIDTH, NULL_SURFACE_HEIGHT)
+        // A fixed, GPU-less drawable size so headless HUD layout is deterministic,
+        // unless a test resized it.
+        self.surface_size
+            .unwrap_or((NULL_SURFACE_WIDTH, NULL_SURFACE_HEIGHT))
     }
 
     fn safe_area_insets(&self) -> [f32; 4] {
         // No notches or rounded corners off-device.
         [0.0; 4]
+    }
+
+    fn resize_surface(&mut self, width: u32, height: u32, pixels_per_point: f32) {
+        self.surface_size = Some((width.max(1), height.max(1)));
+        self.surface_scale = Some(pixels_per_point);
+    }
+
+    fn surface_scale(&self) -> f32 {
+        self.surface_scale.unwrap_or(1.0)
+    }
+
+    fn set_render_settings(&mut self, settings: &RenderSettings) {
+        self.render_settings = Some(*settings);
     }
 }
 

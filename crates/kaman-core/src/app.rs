@@ -36,6 +36,25 @@
 //! never touch audio hardware; and since the device-bound constructor falls back
 //! to silence when there is no output, even this path cannot fail on that account.
 //!
+//! # Graphics settings and the built-in menu (KE-0408)
+//!
+//! By default the windowed entry installs a native **Graphics** menu in the
+//! macOS menu bar (Shadows, Shadow Distance, Draw Distance, Resolution, Enter Full
+//! Screen, Reset to Defaults). It also restores the player's graphics settings
+//! from the last launch and saves them on every change (`NSUserDefaults`). Both
+//! are on by default and can each be turned off with [`RunConfig`] via
+//! [`run_with_config`]. A game with its own settings UI turns the menu off and
+//! drives the same [`GraphicsSettings`](crate::GraphicsSettings) through
+//! [`EngineCtx::set_graphics_settings`](crate::EngineCtx::set_graphics_settings).
+//!
+//! Whatever made the change, this runner reacts to it the same way:
+//!
+//! - it resizes the drawable for the render scale;
+//! - it refreshes the menu's checkmarks;
+//! - it persists the new value.
+//!
+//! The headless driver never touches the menu bar or stored preferences.
+//!
 //! # macOS isolation
 //!
 //! The window-creation and event-translation helpers are kept as small free
@@ -47,9 +66,9 @@ use std::time::Instant;
 
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton as WinitMouseButton, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{Window, WindowId};
+use winit::window::{Fullscreen, Window, WindowId};
 
 use kaman_render_api::NullRenderer;
 
@@ -57,6 +76,8 @@ use crate::context::Renderer;
 use crate::driver::{drive_frame, Loop};
 use crate::game::Game;
 use crate::input::{Key, MouseButton};
+use crate::platform::{self, SettingsMenu};
+use crate::settings_menu::MenuCommand;
 
 /// A factory that constructs the render backend for a freshly-created window.
 ///
@@ -97,11 +118,7 @@ pub type BackendFactory<'f> = Box<dyn FnOnce(&Window, u32, u32) -> Box<dyn Rende
 /// run(&mut MyGame);
 /// ```
 pub fn run<G: Game>(game: &mut G) {
-    let event_loop = EventLoop::new().expect("failed to create winit event loop");
-    let mut app: EngineApp<'_, '_, G> = EngineApp::new(game, None);
-    event_loop
-        .run_app(&mut app)
-        .expect("winit event loop failed");
+    run_with_config(game, None, RunConfig::default());
 }
 
 /// Open a window and run `game`, constructing the render backend from `factory`.
@@ -135,11 +152,88 @@ pub fn run<G: Game>(game: &mut G) {
 /// }));
 /// ```
 pub fn run_with_backend<G: Game>(game: &mut G, factory: BackendFactory<'_>) {
-    let event_loop = EventLoop::new().expect("failed to create winit event loop");
-    let mut app: EngineApp<'_, '_, G> = EngineApp::new(game, Some(factory));
+    run_with_config(game, Some(factory), RunConfig::default());
+}
+
+/// Options for the windowed entry (KE-0408). [`run`] and [`run_with_backend`] use
+/// [`RunConfig::default`], where everything is on.
+///
+/// # Example
+///
+/// A game that ships its own graphics-settings UI turns the built-in menu off.
+/// It keeps persistence, and drives the settings through
+/// [`EngineCtx::set_graphics_settings`](crate::EngineCtx::set_graphics_settings):
+///
+/// ```no_run
+/// use kaman_core::{run_with_config, EngineCtx, Game, RunConfig};
+///
+/// struct MyGame;
+/// impl Game for MyGame {
+///     fn init(&mut self, _: &mut EngineCtx) {}
+///     fn update(&mut self, _: &mut EngineCtx, _dt: f32) {}
+///     fn render(&mut self, _: &mut EngineCtx) {}
+/// }
+///
+/// run_with_config(
+///     &mut MyGame,
+///     None, // or Some(backend factory), as with `run_with_backend`
+///     RunConfig {
+///         native_settings_menu: false,
+///         ..RunConfig::default()
+///     },
+/// );
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunConfig {
+    /// Install the built-in **Graphics** menu in the macOS menu bar. Default
+    /// `true`. Turn it off when the game provides its own settings UI.
+    pub native_settings_menu: bool,
+    /// Restore the graphics settings from the previous launch at start-up and
+    /// save them whenever they change (in `NSUserDefaults` on macOS). Default
+    /// `true`. This covers every change, whether it came from the built-in menu
+    /// or from the game's own UI.
+    pub persist_graphics_settings: bool,
+}
+
+impl Default for RunConfig {
+    fn default() -> Self {
+        Self {
+            native_settings_menu: true,
+            persist_graphics_settings: true,
+        }
+    }
+}
+
+/// Open a window and run `game` with explicit [`RunConfig`] options (KE-0408).
+///
+/// `factory` is the render backend factory, exactly as for [`run_with_backend`].
+/// `None` runs against the headless [`NullRenderer`], as [`run`] does.
+///
+/// # Panics
+///
+/// Panics if the platform event loop cannot be created (no display available).
+pub fn run_with_config<G: Game>(
+    game: &mut G,
+    factory: Option<BackendFactory<'_>>,
+    config: RunConfig,
+) {
+    let event_loop = EventLoop::<EngineEvent>::with_user_event()
+        .build()
+        .expect("failed to create winit event loop");
+    let proxy = event_loop.create_proxy();
+    let mut app: EngineApp<'_, '_, G> = EngineApp::new(game, factory, config, proxy);
     event_loop
         .run_app(&mut app)
         .expect("winit event loop failed");
+}
+
+/// Events posted into the winit loop from outside it: today, a click on the
+/// built-in Graphics menu, sent from the menu's action target through an
+/// [`EventLoopProxy`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum EngineEvent {
+    /// A Graphics menu item was chosen.
+    Menu(MenuCommand),
 }
 
 /// Window title used by the windowed entry.
@@ -164,10 +258,24 @@ struct EngineApp<'g, 'f, G: Game> {
     renderer: Box<dyn Renderer>,
     factory: Option<BackendFactory<'f>>,
     last_frame: Option<Instant>,
+    /// Runner options (KE-0408).
+    config: RunConfig,
+    /// Where the built-in menu posts clicks; handed to the menu when it is
+    /// installed.
+    proxy: EventLoopProxy<EngineEvent>,
+    /// The built-in Graphics menu, once installed (and only if enabled).
+    menu: Option<SettingsMenu>,
+    /// The graphics-settings revision this runner last reacted to.
+    seen_graphics_revision: u64,
 }
 
 impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
-    fn new(game: &'g mut G, factory: Option<BackendFactory<'f>>) -> Self {
+    fn new(
+        game: &'g mut G,
+        factory: Option<BackendFactory<'f>>,
+        config: RunConfig,
+        proxy: EventLoopProxy<EngineEvent>,
+    ) -> Self {
         // A fresh `Loop` is silent (it opens no audio device, which is what keeps
         // headless runs and tests quiet). The windowed entry is the one place that
         // *wants* speakers, so bind the mixer to the system's default output here —
@@ -180,6 +288,14 @@ impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
         let mut lp = Loop::new();
         lp.audio = kaman_audio::Audio::with_output_device();
 
+        // Restore last launch's graphics settings (KE-0408). Queued, so they take
+        // effect before `Game::init` (see `Loop::init_once`).
+        if config.persist_graphics_settings {
+            if let Some(saved) = platform::load_settings() {
+                lp.graphics.request(saved);
+            }
+        }
+
         Self {
             game,
             window: None,
@@ -187,6 +303,66 @@ impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
             renderer: Box::new(NullRenderer::new()),
             factory,
             last_frame: None,
+            config,
+            proxy,
+            menu: None,
+            seen_graphics_revision: 0,
+        }
+    }
+
+    /// Size the drawable for the window's native pixels and the current render
+    /// scale (KE-0408), and report the matching UI scale.
+    fn resize_surface(&mut self) {
+        let Some(window) = &self.window else {
+            return;
+        };
+        let size = window.inner_size();
+        let (width, height, pixels_per_point) = self
+            .lp
+            .graphics
+            .current()
+            .render_scale
+            .surface_for(size.width, size.height, window.scale_factor());
+        self.renderer
+            .resize_surface(width, height, pixels_per_point);
+    }
+
+    /// Refresh the built-in menu's checkmarks, enabled states and full-screen
+    /// title.
+    fn sync_menu(&self) {
+        if let Some(menu) = &self.menu {
+            let fullscreen = self
+                .window
+                .as_ref()
+                .is_some_and(|w| w.fullscreen().is_some());
+            menu.sync(&self.lp.graphics.current(), fullscreen);
+        }
+    }
+
+    /// React to applied graphics-settings changes, whatever made them (the menu,
+    /// or the game through `EngineCtx`): resize the drawable, refresh the menu,
+    /// and persist.
+    fn after_graphics_change(&mut self) {
+        let revision = self.lp.graphics.revision();
+        if revision == self.seen_graphics_revision {
+            return;
+        }
+        self.seen_graphics_revision = revision;
+        self.resize_surface();
+        self.sync_menu();
+        if self.config.persist_graphics_settings {
+            platform::save_settings(&self.lp.graphics.current());
+        }
+    }
+
+    /// Enter or leave (borderless, native-Space) full screen.
+    fn toggle_fullscreen(&self) {
+        if let Some(window) = &self.window {
+            let next = match window.fullscreen() {
+                Some(_) => None,
+                None => Some(Fullscreen::Borderless(None)),
+            };
+            window.set_fullscreen(next);
         }
     }
 
@@ -211,7 +387,7 @@ impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
     }
 }
 
-impl<G: Game> ApplicationHandler for EngineApp<'_, '_, G> {
+impl<G: Game> ApplicationHandler<EngineEvent> for EngineApp<'_, '_, G> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let window = create_window(event_loop);
@@ -236,6 +412,43 @@ impl<G: Game> ApplicationHandler for EngineApp<'_, '_, G> {
         // First activation: run the game's one-time init against the live seam
         // through the shared loop (idempotent).
         self.lp.init_once(self.game, self.renderer.as_mut());
+
+        // Size the drawable for the settings now in effect (KE-0408), then add the
+        // built-in Graphics menu next to winit's application menu.
+        self.resize_surface();
+        if self.config.native_settings_menu && self.menu.is_none() {
+            self.menu = SettingsMenu::install(self.proxy.clone());
+        }
+        self.sync_menu();
+        self.seen_graphics_revision = self.lp.graphics.revision();
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: EngineEvent) {
+        match event {
+            EngineEvent::Menu(command) => {
+                // Build on a request still in flight, so two quick choices compose.
+                let base = self
+                    .lp
+                    .graphics
+                    .pending()
+                    .unwrap_or_else(|| self.lp.graphics.current());
+                match command.apply(base) {
+                    Some(settings) => {
+                        // Apply right away, between frames, through the same path a
+                        // game's own request takes.
+                        self.lp.graphics.request(settings);
+                        self.lp
+                            .apply_pending_graphics(self.game, self.renderer.as_mut());
+                        self.after_graphics_change();
+                    }
+                    None => self.toggle_fullscreen(),
+                }
+                // AppKit's menu tracking held the main thread while the menu was
+                // open. Restart the frame clock so that time is not simulated in
+                // one catch-up burst.
+                self.last_frame = None;
+            }
+        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -275,9 +488,21 @@ impl<G: Game> ApplicationHandler for EngineApp<'_, '_, G> {
                 // aspect is maintained here on the engine-owned `Camera`.
                 let aspect = size.width as f32 / size.height.max(1) as f32;
                 self.lp.camera.set_aspect_ratio(aspect);
+                // Keep the drawable matched to the window (KE-0408). The window may
+                // also have entered or left full screen, so refresh the menu's
+                // full-screen title.
+                self.resize_surface();
+                self.sync_menu();
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                // Moved to a display with a different pixel density.
+                self.resize_surface();
             }
             WindowEvent::RedrawRequested => {
                 self.drive_frame();
+                // A change the game requested through `EngineCtx` was applied at the
+                // start of that frame; resize / refresh / persist for it.
+                self.after_graphics_change();
                 // Request the next frame to keep the loop pumping.
                 if let Some(window) = &self.window {
                     window.request_redraw();

@@ -23,8 +23,17 @@
 //! by [`RenderDevice::safe_area_insets`][insets], so the HUD stays clear of notches and
 //! rounded corners. On macOS the insets are zero; the iOS path reports real ones.
 //!
+//! # UI scale
+//!
+//! Font sizes and margins are authored in **points** (the `HUD_*` constants) and
+//! multiplied by [`RenderDevice::surface_scale`][scale], the drawable pixels per
+//! window point. The HUD therefore keeps the same on-screen size at every render
+//! resolution the Graphics menu offers (KE-0408). At 100% on Retina the text is
+//! drawn with twice the pixels, not at half the size.
+//!
 //! [surface_size]: kaman_render_api::RenderDevice::surface_size
 //! [insets]: kaman_render_api::RenderDevice::safe_area_insets
+//! [scale]: kaman_render_api::RenderDevice::surface_scale
 
 use std::fmt::Write as _;
 
@@ -170,6 +179,14 @@ impl CarRunner {
         let (screen_w, screen_h) = (surface_w as f32, surface_h as f32);
         let [inset_top, inset_right, inset_bottom, inset_left] = renderer.safe_area_insets();
         let _ = inset_right;
+        // Point-authored sizes to drawable pixels (see "UI scale" above).
+        let ui = renderer.surface_scale();
+        let (margin, score_px, title_px, banner_px) = (
+            HUD_MARGIN * ui,
+            HUD_SCORE_PX * ui,
+            HUD_TITLE_PX * ui,
+            HUD_BANNER_PX * ui,
+        );
 
         // Background wash, drawn FIRST so everything else composites over it
         // (overlay quads blend in record order):
@@ -203,11 +220,8 @@ impl CarRunner {
             let _ = write!(score_text, "SCORE {}", self.score());
             font.layout(
                 score_text.as_str(),
-                [
-                    inset_left + HUD_MARGIN,
-                    inset_top + HUD_MARGIN + HUD_SCORE_PX,
-                ],
-                HUD_SCORE_PX,
+                [inset_left + margin, inset_top + margin + score_px],
+                score_px,
                 HUD_TEXT_COLOR,
                 |quad| renderer.draw_overlay_quad(&quad),
             );
@@ -220,17 +234,17 @@ impl CarRunner {
         let banner: &[(&str, f32)] = match self.state {
             GameState::Playing => &[],
             GameState::Ready => &[
-                ("KAMAN RUNNER", HUD_TITLE_PX),
-                ("PRESS SPACE TO START", HUD_BANNER_PX),
+                ("KAMAN RUNNER", title_px),
+                ("PRESS SPACE TO START", banner_px),
             ],
             GameState::GameOver => {
                 let _ = write!(final_text, "SCORE {}", self.score());
                 let _ = write!(best_text, "BEST {}", self.best_score());
                 &[
-                    ("GAME OVER", HUD_TITLE_PX),
-                    (final_text.as_str(), HUD_BANNER_PX),
-                    (best_text.as_str(), HUD_BANNER_PX),
-                    ("PRESS SPACE TO REPLAY", HUD_BANNER_PX),
+                    ("GAME OVER", title_px),
+                    (final_text.as_str(), banner_px),
+                    (best_text.as_str(), banner_px),
+                    ("PRESS SPACE TO REPLAY", banner_px),
                 ]
             }
         };
@@ -470,6 +484,34 @@ mod tests {
             quads.len() > 1,
             "the title screen records a wash plus glyph quads, not nothing",
         );
+    }
+
+    #[test]
+    fn hud_keeps_its_on_screen_size_at_every_render_scale() {
+        // KE-0408: at 2 drawable pixels per point (100% on Retina) the drawable is
+        // twice as large and every glyph must be too, so the title covers the
+        // same fraction of the window as at 1 pixel per point.
+        let glyph_heights = |scale: f32| -> Vec<f32> {
+            let (mut game, mut h) = booted();
+            let (w, ht) = h.renderer().surface_size();
+            h.renderer_mut().resize_surface(
+                (w as f32 * scale) as u32,
+                (ht as f32 * scale) as u32,
+                scale,
+            );
+            hud_frame(&mut game, &mut h)
+                .iter()
+                .filter(|q| q.fill.is_sdf())
+                .map(|q| q.rect[3])
+                .collect()
+        };
+        let one = glyph_heights(1.0);
+        let two = glyph_heights(2.0);
+        assert!(!one.is_empty());
+        assert_eq!(one.len(), two.len(), "the same glyphs are drawn");
+        for (a, b) in one.iter().zip(&two) {
+            assert!((b - 2.0 * a).abs() < 1e-3, "glyph {a}px became {b}px");
+        }
     }
 
     #[test]

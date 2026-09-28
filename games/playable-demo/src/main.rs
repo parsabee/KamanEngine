@@ -32,6 +32,9 @@
 //! - **Space** — start the run from the title screen, and replay after a crash.
 //!   It is ignored mid-run, so a stray press cannot throw away a good score.
 //! - **Escape** — quit (handled by the engine's windowed entry).
+//! - **Graphics menu** (menu bar) — shadows, shadow distance, draw distance,
+//!   resolution, full screen. The engine's windowed entry provides it and saves
+//!   the choices for the next launch; the demo adds no code for it (KE-0408).
 //!
 //! # Module map
 //!

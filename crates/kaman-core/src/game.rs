@@ -13,6 +13,7 @@
 //! game.
 
 use crate::context::EngineCtx;
+use crate::graphics::GraphicsSettings;
 
 /// A KamanEngine game: implement this to be driven by the engine loop.
 ///
@@ -125,4 +126,19 @@ pub trait Game {
     /// Phase 2 game may ignore it. This hook may be a no-op in Phase 1. Do not
     /// mutate game state here.
     fn render(&mut self, ctx: &mut EngineCtx);
+
+    /// Called after new [`GraphicsSettings`] take effect (KE-0408), whether they
+    /// came from the built-in settings menu or from
+    /// [`EngineCtx::set_graphics_settings`](crate::EngineCtx::set_graphics_settings).
+    ///
+    /// By the time this runs the engine has already pushed the render settings
+    /// across the seam and rescaled the scene's streaming reach. Override it only
+    /// to adapt game-owned content (e.g. a game-side LOD). The default does
+    /// nothing. It runs between frames, never inside `update` or `render`. It is
+    /// not called for the settings in effect at start-up: read those with
+    /// [`EngineCtx::graphics_settings`](crate::EngineCtx::graphics_settings) in
+    /// [`init`](Self::init).
+    fn graphics_settings_changed(&mut self, ctx: &mut EngineCtx, settings: &GraphicsSettings) {
+        let _ = (ctx, settings);
+    }
 }

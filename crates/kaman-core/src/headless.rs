@@ -39,6 +39,7 @@ use kaman_scene::Scene;
 
 use crate::driver::{drive_frame, Loop};
 use crate::game::Game;
+use crate::graphics::{GraphicsSettings, GraphicsState};
 use crate::input::InputState;
 
 pub use crate::timestep::FIXED_DT;
@@ -162,6 +163,13 @@ impl Headless {
         &self.renderer
     }
 
+    /// Mutable access to the [`NullRenderer`], so a test can set up the render
+    /// seam before a [`run`](Self::run). For example, it can resize the surface
+    /// to check how a HUD scales (KE-0408).
+    pub fn renderer_mut(&mut self) -> &mut NullRenderer {
+        &mut self.renderer
+    }
+
     /// The [`Audio`] layer the game played through (KE-0405).
     ///
     /// A headless harness holds a **silent** layer and opens no output device, so
@@ -173,6 +181,23 @@ impl Headless {
     #[must_use]
     pub fn audio(&self) -> &Audio {
         &self.lp.audio
+    }
+
+    /// Queue new graphics settings (KE-0408), exactly as the built-in menu or
+    /// [`EngineCtx::set_graphics_settings`](crate::EngineCtx::set_graphics_settings)
+    /// would. They are applied at the start of the next frame (or before `init`,
+    /// if the game has not been initialized yet). A headless run has no drawable,
+    /// so the render scale is recorded but resizes nothing, and nothing is
+    /// persisted.
+    pub fn set_graphics_settings(&mut self, settings: GraphicsSettings) {
+        self.lp.graphics.request(settings);
+    }
+
+    /// The engine's graphics-settings state (KE-0408): the applied settings, any
+    /// queued change, and the revision counter.
+    #[must_use]
+    pub fn graphics(&self) -> &GraphicsState {
+        &self.lp.graphics
     }
 
     /// Total number of frames driven so far across all [`run`](Self::run) calls.

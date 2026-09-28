@@ -138,6 +138,9 @@ cargo run -p playable-demo -- --smoke  # headless oracle: 120 frames, prints "sm
 | `Space` | Start the run from the title screen; replay after a crash |
 | `Escape` | Quit |
 
+Graphics settings (shadows, shadow distance, draw distance, resolution, full screen) are in the
+**Graphics** menu in the macOS menu bar, and are remembered between launches.
+
 - [docs/PLAYABLE_DEMO.md](docs/PLAYABLE_DEMO.md): how the demo is built. Covers the
   `Game`/`EngineCtx` boundary, the fixed-timestep loop, streaming + floating-origin rebase, asset
   loading, the render seam, the HUD, and determinism/testing.

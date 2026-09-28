@@ -151,14 +151,15 @@ use kaman_math::glam::{Mat4, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::{
     FrameRecorder, MaterialParams, MeshData, MeshHandle, OverlayFill, OverlayQuad,
-    PipelineDescriptor, PipelineHandle, RenderDevice, SunSky, TextureData, TextureHandle,
-    VertexFormat, VertexLayout,
+    PipelineDescriptor, PipelineHandle, RenderDevice, RenderSettings, SunSky, TextureData,
+    TextureHandle, VertexFormat, VertexLayout,
 };
 
 use crate::frame_sync::FrameSemaphore;
 use crate::registry::Registry;
 use crate::shadow::{
-    fit_shadow_frustum, resolve_shadow_distance, shadow_distance_for_fog, SHADOW_MAP_SIZE,
+    fit_shadow_frustum, resolve_shadow_distance, shadow_distance_for_fog, shadow_map_size_for,
+    SHADOW_MAP_SIZE,
 };
 use crate::vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
 
@@ -177,6 +178,31 @@ pub const SHADOW_MAP_STORE_ACTION: metal::MTLStoreAction = metal::MTLStoreAction
 /// tile memory for the duration of one pass and cannot be sampled by a later one.
 fn shadow_map_storage_mode() -> metal::MTLStorageMode {
     metal::MTLStorageMode::Private
+}
+
+/// Create a `size`² shadow map (KE-0407): `Depth32Float`, `Private`, usable as a
+/// render target and for shader reads. Asserted so a future storage-mode
+/// "optimisation" (memoryless, as the MSAA targets are on iOS) fails loudly
+/// instead of sampling garbage. Called once at build and again only when the
+/// shadow quality changes the size (KE-0408).
+fn new_shadow_map(device: &Device, size: u32) -> metal::Texture {
+    let desc = metal::TextureDescriptor::new();
+    desc.set_texture_type(metal::MTLTextureType::D2);
+    desc.set_pixel_format(MTLPixelFormat::Depth32Float);
+    desc.set_width(u64::from(size));
+    desc.set_height(u64::from(size));
+    desc.set_usage(metal::MTLTextureUsage::RenderTarget | metal::MTLTextureUsage::ShaderRead);
+    desc.set_storage_mode(shadow_map_storage_mode());
+    let tex = device.new_texture(&desc);
+    assert_ne!(
+        tex.storage_mode(),
+        metal::MTLStorageMode::Memoryless,
+        "the shadow map is sampled after its pass ends; it cannot be memoryless"
+    );
+    assert!(tex
+        .usage()
+        .contains(metal::MTLTextureUsage::RenderTarget | metal::MTLTextureUsage::ShaderRead));
+    tex
 }
 
 /// Point a render pass's depth attachment at the shadow map: clear to the far
@@ -504,11 +530,12 @@ pub struct MetalRenderer {
     overlay_buffer: Option<metal::Buffer>,
     overlay_buffer_capacity: usize,
 
-    // Shadow map (KE-0407). A `SHADOW_MAP_SIZE`² `Depth32Float` texture, `Private`
+    // Shadow map (KE-0407). A `shadow_map_size`² `Depth32Float` texture, `Private`
     // and stored (never memoryless — it is sampled by the pass after the one that
-    // writes it), created once at build. Two depth-only caster pipelines share the
-    // minimal `shadow_vertex_main`; they differ only in the vertex stride of the
-    // layout they read the position out of (untextured 36, textured 32).
+    // writes it), re-created only when the shadow quality setting changes its size
+    // (KE-0408). Two depth-only caster pipelines share the minimal
+    // `shadow_vertex_main`; they differ only in the vertex stride of the layout
+    // they read the position out of (untextured 36, textured 32).
     shadow_map: metal::Texture,
     shadow_pipeline_state: metal::RenderPipelineState,
     shadow_textured_pipeline_state: metal::RenderPipelineState,
@@ -521,6 +548,19 @@ pub struct MetalRenderer {
     // default). Resolved against the fog every frame in `write_light_to_ring`,
     // so it can never push shadows past what the fog leaves visible.
     shadow_distance_override: Option<f32>,
+    // Render quality settings (KE-0408), as last pushed through the seam. The
+    // shadow tier decides whether the shadow pass runs at all and the map's size;
+    // the draw-distance scale is applied to the fog below.
+    render_settings: RenderSettings,
+    // The shadow map's current edge length, in texels (follows the shadow tier).
+    shadow_map_size: u32,
+    // The fog's `(start, density)` look defaults, captured at build. The
+    // draw-distance setting scales from these rather than compounding on the live
+    // values.
+    base_fog: (f32, f32),
+    // Drawable pixels per logical window point (KE-0408): the HUD's UI scale.
+    // Reported by `surface_scale`, set by `resize_surface`.
+    surface_scale: f32,
     // This frame's recorded draws (KE-0407 deferred encoding), replayed by
     // `submit` into the shadow pass and then the scene pass. Cleared, never
     // shrunk, each frame, so a steady-state frame does not allocate.
@@ -948,27 +988,7 @@ impl MetalRenderer {
         // The shadow map itself: created once, `Private`, render target + shader
         // read. Asserted so a future storage-mode "optimisation" (memoryless, as the
         // MSAA targets are on iOS) fails loudly instead of sampling garbage.
-        let shadow_map = {
-            let desc = metal::TextureDescriptor::new();
-            desc.set_texture_type(metal::MTLTextureType::D2);
-            desc.set_pixel_format(MTLPixelFormat::Depth32Float);
-            desc.set_width(u64::from(SHADOW_MAP_SIZE));
-            desc.set_height(u64::from(SHADOW_MAP_SIZE));
-            desc.set_usage(
-                metal::MTLTextureUsage::RenderTarget | metal::MTLTextureUsage::ShaderRead,
-            );
-            desc.set_storage_mode(shadow_map_storage_mode());
-            let tex = device.new_texture(&desc);
-            assert_ne!(
-                tex.storage_mode(),
-                metal::MTLStorageMode::Memoryless,
-                "the shadow map is sampled after its pass ends; it cannot be memoryless"
-            );
-            assert!(tex.usage().contains(
-                metal::MTLTextureUsage::RenderTarget | metal::MTLTextureUsage::ShaderRead
-            ));
-            tex
-        };
+        let shadow_map = new_shadow_map(&device, SHADOW_MAP_SIZE);
 
         // The light is uploaded per frame (KE-0406), so this buffer is a ring of
         // one slot per in-flight frame rather than a single blob written once at
@@ -1008,6 +1028,10 @@ impl MetalRenderer {
             shadow_textured_pipeline_state,
             shadows_enabled: true,
             shadow_distance_override: None,
+            render_settings: RenderSettings::default(),
+            shadow_map_size: SHADOW_MAP_SIZE,
+            base_fog: (light.fog_start, light.fog_density),
+            surface_scale: 1.0,
             draws: Vec::new(),
             light,
             light_ring,
@@ -1396,7 +1420,7 @@ impl MetalRenderer {
                 shadow_distance_for_fog(self.light.fog_start, self.light.fog_density),
                 self.shadow_distance_override,
             ),
-            SHADOW_MAP_SIZE,
+            self.shadow_map_size,
         );
         self.light.apply_shadow_fit(&fit);
 
@@ -1540,8 +1564,11 @@ impl MetalRenderer {
     ///   fog could never be seen.
     ///
     /// A backend-level knob below the render seam, like
-    /// [`set_shadows_enabled`](Self::set_shadows_enabled); how a game's graphics
-    /// settings reach it is not designed yet. Takes effect from the next frame.
+    /// [`set_shadows_enabled`](Self::set_shadows_enabled). Games reach it through
+    /// the seam's [`RenderSettings::shadow_distance`] (KE-0408), which
+    /// [`set_render_settings`](RenderDevice::set_render_settings) resolves to world
+    /// units and writes here, replacing any earlier value. Takes effect from the
+    /// next frame.
     pub fn set_shadow_distance(&mut self, distance: Option<f32>) {
         self.shadow_distance_override = distance;
     }
@@ -1553,6 +1580,22 @@ impl MetalRenderer {
     #[must_use]
     pub fn shadow_distance(&self) -> Option<f32> {
         self.shadow_distance_override
+    }
+
+    /// The shadow map's current edge length in texels (KE-0408): 4096 for
+    /// [`ShadowQuality::High`](kaman_render_api::ShadowQuality::High), 2048 for
+    /// [`ShadowQuality::Low`](kaman_render_api::ShadowQuality::Low). Off keeps the last
+    /// map (the pass is skipped, so it costs no fill). Test/diagnostic aid.
+    #[must_use]
+    pub fn shadow_map_size(&self) -> u32 {
+        self.shadow_map_size
+    }
+
+    /// The render settings last applied through
+    /// [`set_render_settings`](RenderDevice::set_render_settings) (KE-0408).
+    #[must_use]
+    pub fn render_settings(&self) -> RenderSettings {
+        self.render_settings
     }
 
     /// Encode the depth-only **shadow pass** (KE-0407): every recorded draw, as a
@@ -1782,6 +1825,69 @@ impl RenderDevice for MetalRenderer {
         // macOS windows have no notch/home-indicator intrusions; the iOS path
         // (Phase 3) reports the real `UIView.safeAreaInsets` here.
         [0.0; 4]
+    }
+
+    fn resize_surface(&mut self, width: u32, height: u32, pixels_per_point: f32) {
+        // KE-0408: the drawable is sized explicitly (a `CAMetalLayer` does not
+        // track its view once `drawableSize` has been set), and CoreAnimation
+        // scales it to fill the layer, so a drawable smaller than the window's
+        // native pixels is a cheap render-scale upscale. The MSAA color and depth
+        // attachments follow the drawable's size lazily (`msaa_color_for` /
+        // `depth_texture_for`), so nothing else is re-created here. An offscreen
+        // target keeps its fixed size.
+        if let RenderTarget::Surface { layer } = &self.target {
+            layer.set_drawable_size(CGSize::new(
+                f64::from(width.max(1)),
+                f64::from(height.max(1)),
+            ));
+        }
+        if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+            self.surface_scale = pixels_per_point;
+        }
+    }
+
+    fn surface_scale(&self) -> f32 {
+        self.surface_scale
+    }
+
+    fn set_render_settings(&mut self, settings: &RenderSettings) {
+        // Draw distance: scale the fog from its look defaults. Start and opaque
+        // depth (`start + 2 / density`) both scale by exactly `scale`, so the fog
+        // keeps hiding a streamed world whose reach the engine scaled alike.
+        let scale =
+            if settings.draw_distance_scale.is_finite() && settings.draw_distance_scale > 0.0 {
+                settings.draw_distance_scale
+            } else {
+                1.0
+            };
+        let (base_start, base_density) = self.base_fog;
+        self.light.fog_start = base_start * scale;
+        self.light.fog_density = base_density / scale;
+
+        // Shadow range: a fraction of that (new) draw distance, resolved to world
+        // units for the existing override (which clamps it to the fog each frame).
+        let draw_distance = shadow_distance_for_fog(self.light.fog_start, self.light.fog_density);
+        self.shadow_distance_override = settings
+            .shadow_distance
+            .map(|fraction| fraction.clamp(0.0, 1.0) * draw_distance);
+
+        // Shadow tier: off zeroes the strength (the lit shaders then skip the map
+        // and `submit` skips the pass); on re-creates the map only if the size
+        // changes. Command buffers retain the textures they reference, so dropping
+        // the old map here cannot pull it out from under a frame in flight.
+        self.light.shadow_strength = if settings.shadows.casts_shadows() {
+            1.0
+        } else {
+            0.0
+        };
+        if let Some(size) = shadow_map_size_for(settings.shadows) {
+            if size != self.shadow_map_size {
+                self.shadow_map = new_shadow_map(&self.device, size);
+                self.shadow_map_size = size;
+            }
+        }
+
+        self.render_settings = *settings;
     }
 
     fn destroy_pipeline(&mut self, handle: PipelineHandle) {
@@ -2026,7 +2132,11 @@ impl FrameRecorder for MetalRenderer {
         // KE-0407 pass order: the depth-only shadow pass first (every recorded
         // draw as a caster, into the stored shadow map), then the scene pass
         // (sky, lit draws sampling that map, and the 2D overlay on top).
-        self.encode_shadow_pass(&frame);
+        // With shadows off (KE-0408) the pass is skipped outright: the light block's
+        // zero `shadow_strength` makes the lit shaders ignore the map.
+        if self.render_settings.shadows.casts_shadows() {
+            self.encode_shadow_pass(&frame);
+        }
         self.encode_scene_pass(&frame);
 
         // Frames-in-flight release (KE-0105): register a completion handler that

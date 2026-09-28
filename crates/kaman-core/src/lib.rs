@@ -74,13 +74,19 @@ pub mod app;
 pub mod context;
 pub mod driver;
 pub mod game;
+pub mod graphics;
 pub mod headless;
 pub mod input;
+mod platform;
+mod settings_menu;
 pub mod timestep;
 
-pub use app::{run, run_with_backend, BackendFactory};
+pub use app::{run, run_with_backend, run_with_config, BackendFactory, RunConfig};
 pub use context::{EngineCtx, Renderer};
 pub use game::Game;
+pub use graphics::{
+    DrawDistance, GraphicsSettings, GraphicsState, RenderScale, ShadowDistance, ShadowQuality,
+};
 pub use input::{InputState, Key, MouseButton};
 // Re-exported for the same reason `Scene` is: these are the types a game names
 // when it uses `EngineCtx::audio`, so it should not have to add a second
@@ -115,6 +121,10 @@ mod boundary_tests {
             ("context.rs", include_str!("context.rs")),
             ("driver.rs", include_str!("driver.rs")),
             ("game.rs", include_str!("game.rs")),
+            ("graphics.rs", include_str!("graphics.rs")),
+            ("settings_menu.rs", include_str!("settings_menu.rs")),
+            ("platform/mod.rs", include_str!("platform/mod.rs")),
+            ("platform/macos.rs", include_str!("platform/macos.rs")),
             ("headless.rs", include_str!("headless.rs")),
             ("input.rs", include_str!("input.rs")),
             ("timestep.rs", include_str!("timestep.rs")),

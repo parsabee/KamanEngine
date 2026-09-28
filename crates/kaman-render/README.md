@@ -134,7 +134,7 @@ texels (a 142-unit sphere); that is ~1.5× softer than the 2048², 55-unit fit i
 `MetalRenderer::set_shadow_distance(None)` (the default) matches the draw distance, and
 `Some(d)` fixes a shorter slab (smaller texels, so sharper shadows). The slab is clamped
 to at most the fog's distance and at least 1 unit. Like `set_shadows_enabled`, it sits
-below the render seam, and how a game's graphics settings reach it is not designed yet.
+below the render seam. Games reach it through the seam's `RenderSettings` (see below).
 The slab is enclosed in a
 bounding sphere (whose size does not change as the camera turns), its radius rounded
 up to 0.5 units, and its centre **snapped to whole shadow texels** in a light space
@@ -152,6 +152,26 @@ at the demo's fit, so under half a texel. It moves a contact shadow only ~3 cm u
 32° sun, also under half a texel. The filter is tent-weighted PCF over 4×4 texels (a
 ~4-texel, ~28 cm penumbra). Full
 reasoning in `src/shadow.rs`.
+
+## Graphics settings through the seam (KE-0408)
+
+`RenderDevice::set_render_settings(&RenderSettings)` is how the engine's graphics settings (the
+built-in Graphics menu, or a game's own UI) reach the backend. Every field is relative to the
+backend's own look defaults:
+
+- **`shadows: ShadowQuality`**. `High` is the 4096² map. `Low` re-creates it at 2048²
+  (`SHADOW_MAP_SIZE_LOW`); only a size change allocates. `Off` skips the shadow pass in `submit` and
+  zeroes `shadow_strength`, so the lit shaders ignore the map. Command buffers retain what they
+  reference, so replacing the map cannot disturb a frame in flight.
+- **`shadow_distance: Option<f32>`** is a fraction of the draw distance, resolved to world units
+  into `set_shadow_distance`. `None` matches the draw distance.
+- **`draw_distance_scale`** multiplies the fog's start and its opaque depth (`start × s`,
+  `density ÷ s`), always from the defaults captured at build, so repeated changes never compound.
+
+`RenderDevice::resize_surface(width, height, pixels_per_point)` sizes the `CAMetalLayer`'s drawable
+explicitly for the render-scale setting; CoreAnimation scales it to the window. The MSAA color and
+depth targets follow the drawable's size lazily. `surface_scale()` reports `pixels_per_point`,
+which is the HUD's UI scale. Tested in `tests/render_settings.rs`.
 
 ## Wiring: metal stays out of `kaman-core`
 

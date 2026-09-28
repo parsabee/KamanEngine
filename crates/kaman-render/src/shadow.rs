@@ -113,6 +113,7 @@
 //! override it is a gentle ramp in clear air.
 
 use kaman_math::glam::{Mat4, Vec3, Vec4};
+use kaman_render_api::ShadowQuality;
 
 /// Edge length, in texels, of the square shadow map.
 ///
@@ -123,6 +124,22 @@ use kaman_math::glam::{Mat4, Vec3, Vec4};
 /// (~4.7 cm texels); following the 3× deeper draw distance with one bigger map,
 /// rather than cascades, costs ~1.5× softer shadow edges near the car.
 pub const SHADOW_MAP_SIZE: u32 = 4096;
+
+/// Edge length, in texels, of the shadow map at [`ShadowQuality::Low`] (KE-0408):
+/// 2048², 16 MiB, texels twice the size of [`SHADOW_MAP_SIZE`]'s at the same fit.
+pub const SHADOW_MAP_SIZE_LOW: u32 = 2048;
+
+/// The shadow map edge length a [`ShadowQuality`] tier uses (KE-0408):
+/// [`SHADOW_MAP_SIZE`] for `High`, [`SHADOW_MAP_SIZE_LOW`] for `Low`, and `None`
+/// for `Off`, which renders no shadow pass and so needs no particular map.
+#[must_use]
+pub fn shadow_map_size_for(quality: ShadowQuality) -> Option<u32> {
+    match quality {
+        ShadowQuality::Off => None,
+        ShadowQuality::Low => Some(SHADOW_MAP_SIZE_LOW),
+        ShadowQuality::High => Some(SHADOW_MAP_SIZE),
+    }
+}
 
 /// How far (world units) the light-space projection extends **toward the sun**
 /// beyond the fitted sphere, so casters outside the visible slab — a building
@@ -542,12 +559,34 @@ mod tests {
 
     #[test]
     fn snapping_keeps_every_world_point_on_the_same_subtexel_position() {
+        assert_snapping_is_subtexel_stable(SHADOW_MAP_SIZE);
+    }
+
+    #[test]
+    fn snapping_is_equally_stable_on_the_low_quality_map() {
+        // KE-0408: the Low shadow tier fits the same slab into a 2048² map; the
+        // texel grid halves, and the anti-shimmer guarantee must still hold.
+        assert_snapping_is_subtexel_stable(SHADOW_MAP_SIZE_LOW);
+    }
+
+    #[test]
+    fn shadow_tiers_map_to_their_sizes() {
+        assert_eq!(shadow_map_size_for(ShadowQuality::High), Some(4096));
+        assert_eq!(shadow_map_size_for(ShadowQuality::Low), Some(2048));
+        assert_eq!(shadow_map_size_for(ShadowQuality::Off), None);
+        assert_eq!(
+            shadow_map_size_for(ShadowQuality::default()),
+            Some(SHADOW_MAP_SIZE),
+            "the default tier is the map the renderer is built with"
+        );
+    }
+
+    fn assert_snapping_is_subtexel_stable(size: u32) {
         // The anti-shimmer guarantee: as the fit slides with the camera by
         // arbitrary (sub-texel) amounts, a fixed world point's position measured in
         // texels changes only by whole texels, so static geometry rasterises into
         // the map identically every frame and its shadow edge cannot crawl.
         let sun = demo_sun();
-        let size = SHADOW_MAP_SIZE;
         let points = [
             Vec3::new(0.0, 0.0, -20.0),
             Vec3::new(-7.3, 4.2, -31.9),

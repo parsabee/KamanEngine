@@ -84,4 +84,24 @@ objc = "0.2"
 cocoa = "0.25"
 core-graphics-types = "0.1"
 raw-window-handle = "0.6"
+# Native platform UI in `kaman-core` (KE-0408): the built-in Graphics menu and
+# settings persistence. Pinned to the objc2 generation winit 0.30 already uses
+# (so no duplicate AppKit bindings are built), with only the AppKit/Foundation
+# classes the menu and `NSUserDefaults` need; no Metal/QuartzCore features.
+objc2 = "0.5.2"
+objc2-foundation = { version = "0.2.2", default-features = false, features = [
+    "std",
+    "NSString",
+    "NSThread",
+    "NSUserDefaults",
+] }
+objc2-app-kit = { version = "0.2.2", default-features = false, features = [
+    "std",
+    "NSApplication",
+    "NSCell",
+    "NSEvent",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+] }
 clap = { version = "4.5", features = ["derive"] }

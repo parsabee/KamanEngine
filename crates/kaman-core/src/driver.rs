@@ -15,11 +15,12 @@
 use kaman_audio::Audio;
 use kaman_camera::Camera;
 use kaman_perf::PerfTracker;
-use kaman_scene::Scene;
+use kaman_scene::{Scene, StreamingConfig};
 use std::time::Duration;
 
 use crate::context::{EngineCtx, Renderer};
 use crate::game::Game;
+use crate::graphics::{GraphicsSettings, GraphicsState};
 use crate::input::InputState;
 use crate::timestep::{Accumulator, FIXED_DT};
 
@@ -59,6 +60,12 @@ pub struct Loop {
     pub accumulator: Accumulator,
     /// Whether [`Game::init`] has already run.
     pub initialized: bool,
+    /// The graphics settings in effect, plus any queued change (KE-0408). Games
+    /// reach it through [`EngineCtx::graphics_settings`](crate::EngineCtx::graphics_settings)
+    /// / [`set_graphics_settings`](crate::EngineCtx::set_graphics_settings); a
+    /// platform layer (the built-in menu) queues changes with
+    /// [`GraphicsState::request`] and watches [`GraphicsState::revision`].
+    pub graphics: GraphicsState,
 }
 
 impl Loop {
@@ -78,6 +85,7 @@ impl Loop {
             perf: PerfTracker::new(),
             accumulator: Accumulator::new(),
             initialized: false,
+            graphics: GraphicsState::default(),
         }
     }
 
@@ -91,8 +99,18 @@ impl Loop {
     /// Idempotent: the first call inits and latches; later calls are no-ops. Both
     /// drivers call this before their first frame (the windowed driver on first
     /// `resumed`, headless on the first `run`).
+    ///
+    /// Graphics settings (KE-0408): a change queued before init (e.g. settings a
+    /// windowed run restored from the last launch) takes effect *before*
+    /// [`Game::init`], so the game reads the real value there. Right after init
+    /// the loop records the scene's streaming reach as the 100% draw distance and
+    /// applies the settings to the scene and the renderer. That initial apply
+    /// does not call [`Game::graphics_settings_changed`] or bump the revision.
     pub fn init_once<G: Game>(&mut self, game: &mut G, renderer: &mut dyn Renderer) {
         if !self.initialized {
+            if let Some(settings) = self.graphics.take_pending() {
+                self.graphics.set_current(settings);
+            }
             let snapshot = self.perf.snapshot();
             let mut ctx = EngineCtx::new(
                 &mut self.scene,
@@ -100,11 +118,71 @@ impl Loop {
                 &mut self.camera,
                 &self.input,
                 &mut self.audio,
+                &mut self.graphics,
                 snapshot,
                 0.0,
             );
             game.init(&mut ctx);
             self.initialized = true;
+            self.graphics
+                .set_base_spawn_ahead(self.scene.config().spawn_ahead);
+            self.push_graphics(renderer);
+        }
+    }
+
+    /// Apply a queued graphics-settings change, if there is one and it differs
+    /// from the current value (KE-0408).
+    ///
+    /// Pushes the renderer half across the seam, rescales the scene's streaming
+    /// reach, bumps [`GraphicsState::revision`], and calls
+    /// [`Game::graphics_settings_changed`]. Returns the newly applied settings, or
+    /// `None` if nothing changed. [`drive_frame`] calls this at the start of every
+    /// frame; a driver may also call it between frames. Before
+    /// [`init_once`](Self::init_once) it does nothing, and the request stays queued
+    /// for init.
+    pub fn apply_pending_graphics<G: Game>(
+        &mut self,
+        game: &mut G,
+        renderer: &mut dyn Renderer,
+    ) -> Option<GraphicsSettings> {
+        if !self.initialized {
+            return None;
+        }
+        let settings = self.graphics.take_pending()?;
+        if settings == self.graphics.current() {
+            return None;
+        }
+        self.graphics.set_current(settings);
+        self.graphics.bump_revision();
+        self.push_graphics(renderer);
+
+        let snapshot = self.perf.snapshot();
+        let mut ctx = EngineCtx::new(
+            &mut self.scene,
+            renderer,
+            &mut self.camera,
+            &self.input,
+            &mut self.audio,
+            &mut self.graphics,
+            snapshot,
+            0.0,
+        );
+        game.graphics_settings_changed(&mut ctx, &settings);
+        Some(settings)
+    }
+
+    /// Push the current graphics settings to the renderer and the scene.
+    fn push_graphics(&mut self, renderer: &mut dyn Renderer) {
+        let settings = self.graphics.current();
+        renderer.set_render_settings(&settings.render_settings());
+        if let Some(base) = self.graphics.base_spawn_ahead() {
+            // Only the reach changes; axis and spacing are untouched, which is
+            // what `Scene::set_config` allows mid-stream.
+            let config = StreamingConfig {
+                spawn_ahead: base * settings.draw_distance.scale(),
+                ..self.scene.config()
+            };
+            self.scene.set_config(config);
         }
     }
 }
@@ -143,6 +221,10 @@ pub fn drive_frame<G: Game>(
     renderer: &mut dyn Renderer,
     elapsed: Duration,
 ) -> u32 {
+    // A graphics-settings change queued last frame (by the game or a settings
+    // UI) lands here, between frames, before any simulation (KE-0408).
+    lp.apply_pending_graphics(game, renderer);
+
     lp.perf.begin_frame();
     let snapshot = lp.perf.snapshot();
 
@@ -158,6 +240,7 @@ pub fn drive_frame<G: Game>(
                 &mut lp.camera,
                 &lp.input,
                 &mut lp.audio,
+                &mut lp.graphics,
                 snapshot,
                 0.0,
             );
@@ -191,6 +274,7 @@ pub fn drive_frame<G: Game>(
             &mut lp.camera,
             &lp.input,
             &mut lp.audio,
+            &mut lp.graphics,
             snapshot,
             alpha,
         );

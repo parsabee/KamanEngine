@@ -44,6 +44,17 @@ descriptors (`MeshData`, `TextureData`, `PipelineDescriptor`), handing back
 opaque handles. The device owns the GPU resources; handles are non-owning
 references valid until the matching `destroy_*`.
 
+It also owns the surface and the quality settings (KE-0408):
+
+- `surface_size` / `safe_area_insets` describe the drawable.
+- `resize_surface(width, height, pixels_per_point)` sizes it for the window and the render-scale
+  setting.
+- `surface_scale` reports drawable pixels per window point, the UI scale a HUD multiplies its
+  point sizes by.
+- `set_render_settings(&RenderSettings)` applies a `ShadowQuality` tier, a shadow range (a fraction
+  of the draw distance), and a draw-distance scale. All of them are relative to the backend's own
+  look defaults.
+
 ### `FrameRecorder` — per-frame command recording
 
 `begin_frame` → `set_pipeline` (≥1, before the first draw) → any mix of
@@ -65,6 +76,8 @@ compared above the seam. The backend translates them into native objects.
 handles and **records** every call so scene/game code can be unit-tested
 headlessly:
 
+- Settings: `render_settings()` returns the last `RenderSettings` pushed (KE-0408). A
+  `resize_surface` is reflected in `surface_size()` / `surface_scale()`.
 - Resources: `created_meshes()`, `created_textures()`, `created_pipelines()`,
   `destroyed_*()`, and `live_*_count()`.
 - Frames: `draws()` / `draw_count()` (each `RecordedDraw` captures the mesh plus

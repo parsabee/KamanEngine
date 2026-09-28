@@ -21,3 +21,12 @@ kaman-scene.workspace = true
 kaman-render-api.workspace = true
 kaman-perf.workspace = true
 winit.workspace = true
+
+# Native platform UI (KE-0408): the built-in Graphics menu (`NSMenu`) and settings
+# persistence (`NSUserDefaults`). Same objc2 versions winit 0.30 already builds,
+# so no new crates enter the build; AppKit's Metal/QuartzCore features stay off,
+# so `metal` stays out of this crate's tree.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-app-kit.workspace = true
