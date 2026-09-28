@@ -12,7 +12,7 @@ for authoring gameplay.
   portable backend without touching engine logic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Cargo workspace** of focused `kaman-*` crates + a `games/playable-demo` consumer that only
   ever touches the engine's public API.
-- **hecs** (ECS) · **rapier3d** (physics, v1) · **glam** (math) · **kira** (audio, later).
+- **hecs** (ECS) · **rapier3d** (physics, v1) · **glam** (math) · **kira** (audio).
   Physics uses rapier now; a custom arcade-physics/spatial-query layer replaces it later.
 
 ## How this project is built
@@ -119,11 +119,18 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
 ## Status
 
-**Phases 0–2 complete.** Phase 0 (workspace, CI oracle, math/perf/ecs migrated, render seam);
-Phase 1 (raw-Metal renderer behind the seam, persistent buffers + uniform ring + triple-
-buffered frames-in-flight; `.metallib` precompile gated on full Xcode); Phase 2 (fixed-timestep
-loop, physics + removal API, world streaming, and a playable box-car runner). **Phase 3 — iOS
-bring-up** is next (needs full Xcode). See the ticket board for live status.
+**31 / 38 tickets done.** Live per-phase progress: `python3 scripts/check-tickets.py`.
+
+| Phase | State |
+|---|---|
+| 0 — Foundation & migration harness | ✅ Complete |
+| 1 — Renderer foundation | ✅ Complete except KE-0107 (precompiled `.metallib`) — blocked on full Xcode |
+| 2 — Gameplay core | ✅ Complete |
+| 3 — iOS bring-up | ⏳ Not started — needs full Xcode + iOS rustup targets |
+| 4 — Look & feel + content | 🟡 6 / 7 — glTF import, textures, modern-look stack, 2D HUD/SDF text, audio (kira), sun/sky seam landed; **KE-0407 real shadow maps** next |
+| 5 — KamanScript | ⏳ Not started |
+| 6 — Release | ⏳ Not started |
+| 7 — Playable Demo *(pulled forward)* | ✅ Complete — 3-lane freeway runner with real CC0 cars, buildings, road and skyline, HUD, title/game-over/replay, music + SFX |
 
 ## License
 

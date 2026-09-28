@@ -98,7 +98,7 @@ font's full licence text is committed alongside it as `assets/font-OFL.txt`.
 | `asphalt_src.jpg` (baked into `road.gltf`) | **Poly Haven** [`asphalt_02`](https://polyhaven.com/a/asphalt_02) diffuse | CC0 1.0 — public domain, no attribution required |
 | `skyline_src.jpg` (baked into `skyline.gltf`) | New York City skyline photo, **Wikimedia Commons** | CC0 1.0 / public domain |
 | `font.ttf` (baked into `font.bin`) | **Roboto**, © 2011 The Roboto Project Authors | SIL Open Font License 1.1 — see `assets/font-OFL.txt` |
-| `runner_loop.wav` (music), `car_crash_impact_only.wav` (impact) | **Provenance not yet recorded** | **Unconfirmed — see note below** |
+| `runner_loop.wav` (music), `car_crash_impact_only.wav` (impact) | Generated for this project with **Claude** (Anthropic) | CC0 1.0 — public domain, no attribution required |
 
 `cube.gltf` is no longer imported by the demo — it was the placeholder player mesh
 before the real car models landed (KE-0703). Do not delete it: it is still a live
@@ -111,10 +111,11 @@ The credits above are given as courtesy; the CC0 assets impose no attribution
 requirement. Only the OFL font ships with a licence file, because only the OFL
 requires one.
 
-The two `.wav` files (KE-0405) are the exception: their source and licence have not
-been established, so the table records that rather than guessing. Establish them
-before this repository is distributed or released — unlike the CC0 assets, silence
-here is not the same as "no attribution required".
+The two `.wav` files (KE-0405) are original to this project: they were generated with
+Claude at the project author's direction, contain no third-party samples, and are
+dedicated to the public domain under
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) — to the extent any
+copyright exists in them, it is waived.
 
 ---
 

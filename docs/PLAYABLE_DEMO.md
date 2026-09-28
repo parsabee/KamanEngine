@@ -207,8 +207,8 @@ hold regardless of the process working directory.
 | `road.gltf` | textured asphalt road tile | baked by `gen_asphalt` from `asphalt_src.jpg` (Poly Haven `asphalt_02`, CC0) |
 | `skyline.gltf` | distant skyline billboard | baked by `gen_skyline` from `skyline_src.jpg` (Wikimedia Commons, CC0) |
 | `font.bin` | SDF font atlas for the HUD | baked by `gen_font` from `font.ttf` (Roboto, SIL OFL 1.1 — licence text in `assets/font-OFL.txt`) |
-| `runner_loop.wav` | the looping driving music | 16-bit stereo PCM, ~27 s |
-| `car_crash_impact_only.wav` | the impact one-shot played when a run ends | 16-bit mono PCM, ~2.3 s |
+| `runner_loop.wav` | the looping driving music | generated with Claude for this project, CC0 (16-bit stereo PCM, ~27 s) |
+| `car_crash_impact_only.wav` | the impact one-shot played when a run ends | generated with Claude for this project, CC0 (16-bit mono PCM, ~2.3 s) |
 
 ### Derived assets are baked by `examples/`, not at runtime
 

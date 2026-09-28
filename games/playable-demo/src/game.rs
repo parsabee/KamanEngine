@@ -132,8 +132,8 @@ pub(crate) struct CarRunner {
     /// to zero on replay, so every run starts at the base speed.
     run_time: f32,
     /// Whether the floating-origin rebase shifted the world on the most recent
-    /// step. Reported in the game-over diagnostic, since a crash that coincides
-    /// with a rebase points at the world moving under the collision test.
+    /// step. Lets tests assert behaviour on the exact frames the world moved
+    /// under the camera and the collision test.
     rebased_last_step: bool,
 }
 
@@ -309,33 +309,16 @@ impl CarRunner {
     /// thousand frames plays the impact once, not a thousand times — a test pins
     /// that, because "trigger a sound from a state instead of from the transition
     /// into it" is the classic way to get a machine-gun sound effect.
-    fn game_over(&mut self, ctx: &mut EngineCtx, hit: Vec3) {
+    fn game_over(&mut self, ctx: &mut EngineCtx) {
         if let Some(impact) = self.impact {
             ctx.audio().play_once(impact, config::IMPACT_VOLUME);
         }
         self.best = self.best.max(self.distance);
         self.state = GameState::GameOver;
-        let player = self.player_position();
         println!(
             "GAME OVER — score {} — best {}. Press Space to replay.",
             self.score(),
             self.best as u64
-        );
-        // Diagnostic: exactly what was hit, and where we were. A game-over the
-        // player did not see coming shows up here as an implausible separation
-        // (e.g. a car that was never in our lane, or one spawned on top of us).
-        println!(
-            "  hit: player=({:.2}, {:.2}) obstacle=({:.2}, {:.2}) dx={:.2} dz={:.2} \
-travel={:.1} speed={:.1} rebased_last_step={}",
-            player.x,
-            player.z,
-            hit.x,
-            hit.z,
-            (player.x - hit.x).abs(),
-            (player.z - hit.z).abs(),
-            self.travel,
-            self.current_speed(),
-            self.rebased_last_step,
         );
     }
 
@@ -474,17 +457,11 @@ travel={:.1} speed={:.1} rebased_last_step={}",
     /// An obstacle is any streamed entity with `PhysicsBodyComponent` (only
     /// obstacles get one — road tiles do not), so this reads their transforms and
     /// runs the game-side overlap test.
-    fn hit_any_obstacle(&self, ctx: &EngineCtx) -> Option<Vec3> {
-        for (_e, (t, _body)) in ctx
-            .world()
+    fn hit_any_obstacle(&self, ctx: &EngineCtx) -> bool {
+        ctx.world()
             .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
             .iter()
-        {
-            if self.overlaps(t.transform.position) {
-                return Some(t.transform.position);
-            }
-        }
-        None
+            .any(|(_e, (t, _body))| self.overlaps(t.transform.position))
     }
 }
 
@@ -738,10 +715,9 @@ impl Game for CarRunner {
         // Collision → game over (freeze the run; the player replays with Space).
         //
         // Nothing follows: the score needs no stdout milestone, because since
-        // KE-0707 the HUD draws it live on screen every frame. The one line the
-        // demo still prints on a crash is a diagnostic, not a readout.
-        if let Some(hit) = self.hit_any_obstacle(ctx) {
-            self.game_over(ctx, hit);
+        // KE-0707 the HUD draws it live on screen every frame.
+        if self.hit_any_obstacle(ctx) {
+            self.game_over(ctx);
         }
     }
 
