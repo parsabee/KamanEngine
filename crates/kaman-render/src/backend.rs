@@ -157,7 +157,9 @@ use kaman_render_api::{
 
 use crate::frame_sync::FrameSemaphore;
 use crate::registry::Registry;
-use crate::shadow::{fit_shadow_frustum, shadow_distance_for_fog, SHADOW_MAP_SIZE};
+use crate::shadow::{
+    fit_shadow_frustum, resolve_shadow_distance, shadow_distance_for_fog, SHADOW_MAP_SIZE,
+};
 use crate::vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
 
 /// Store action for the shadow map's depth attachment (KE-0407): **`Store`**.
@@ -515,6 +517,10 @@ pub struct MetalRenderer {
     // into it, so nothing is shadowed. A diagnostic/test knob: the shadow
     // pixel-hash test flips it to prove the occlusion comes from the pass.
     shadows_enabled: bool,
+    // Fixed shadow slab depth, or `None` to follow the fog's draw distance (the
+    // default). Resolved against the fog every frame in `write_light_to_ring`,
+    // so it can never push shadows past what the fog leaves visible.
+    shadow_distance_override: Option<f32>,
     // This frame's recorded draws (KE-0407 deferred encoding), replayed by
     // `submit` into the shadow pass and then the scene pass. Cleared, never
     // shrunk, each frame, so a steady-state frame does not allocate.
@@ -1001,6 +1007,7 @@ impl MetalRenderer {
             shadow_pipeline_state,
             shadow_textured_pipeline_state,
             shadows_enabled: true,
+            shadow_distance_override: None,
             draws: Vec::new(),
             light,
             light_ring,
@@ -1380,11 +1387,15 @@ impl MetalRenderer {
         // Refit the sun's shadow projection to this frame's camera (KE-0407). The
         // light direction is the light block's own — i.e. `SunSky::direction()` as
         // applied by `set_sun_sky` — so shading, sun disc and shadows share one
-        // vector. The slab depth follows the fog, which decides what is visible.
+        // vector. The slab depth follows the fog, which decides what is visible,
+        // unless `set_shadow_distance` fixed a shorter one.
         let fit = fit_shadow_frustum(
             self.view_projection,
             Vec3::from(self.light.direction),
-            shadow_distance_for_fog(self.light.fog_start, self.light.fog_density),
+            resolve_shadow_distance(
+                shadow_distance_for_fog(self.light.fog_start, self.light.fog_density),
+                self.shadow_distance_override,
+            ),
             SHADOW_MAP_SIZE,
         );
         self.light.apply_shadow_fit(&fit);
@@ -1513,6 +1524,35 @@ impl MetalRenderer {
     #[must_use]
     pub fn shadows_enabled(&self) -> bool {
         self.shadows_enabled
+    }
+
+    /// Set the **shadow draw distance**: how far (view depth, world units) from the
+    /// camera shadows are drawn before they fade out.
+    ///
+    /// - `None` (the default) — **match the draw distance**: the shadow map covers
+    ///   everything the distance fog leaves visible (`fog_start + 2 / fog_density`,
+    ///   165 units with the default fog) and shadows fade out inside the fog.
+    /// - `Some(d)` — a fixed, shorter range of `d` units. The same map then covers
+    ///   less ground, so its texels and shadow edges are proportionally smaller.
+    ///   Each frame `d` is clamped to between
+    ///   [`MIN_SHADOW_DISTANCE`](crate::shadow::MIN_SHADOW_DISTANCE) and the fog's
+    ///   draw distance (see [`resolve_shadow_distance`]), because shadows past the
+    ///   fog could never be seen.
+    ///
+    /// A backend-level knob below the render seam, like
+    /// [`set_shadows_enabled`](Self::set_shadows_enabled); how a game's graphics
+    /// settings reach it is not designed yet. Takes effect from the next frame.
+    pub fn set_shadow_distance(&mut self, distance: Option<f32>) {
+        self.shadow_distance_override = distance;
+    }
+
+    /// The shadow draw distance override as last set (see
+    /// [`set_shadow_distance`](Self::set_shadow_distance)): `None` when shadows
+    /// follow the draw distance. This is the value as requested, before it is
+    /// clamped to the fog each frame.
+    #[must_use]
+    pub fn shadow_distance(&self) -> Option<f32> {
+        self.shadow_distance_override
     }
 
     /// Encode the depth-only **shadow pass** (KE-0407): every recorded draw, as a

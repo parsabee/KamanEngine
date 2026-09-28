@@ -103,8 +103,8 @@ darkened a fixed circle around the world origin; it is deleted, uniforms and all
 
 **Pass order.** Every frame is two render passes on one command buffer:
 
-1. **Shadow pass** — depth-only, from the sun, into a 2048² `Depth32Float` shadow
-   map. Every draw the frame recorded is a caster, rendered through a dedicated
+1. **Shadow pass** — depth-only, from the sun, into a 4096² `Depth32Float` shadow
+   map (64 MiB, allocated once). Every draw the frame recorded is a caster, rendered through a dedicated
    position-only vertex function (`shadow_vertex_main`) with no fragment stage.
    Depth is clamped rather than clipped, so casters nearer the sun than the near
    plane still cast.
@@ -124,12 +124,18 @@ store action. Getting this wrong is silent — the scene would sample garbage �
 texture's storage/usage is asserted at creation and the store action every time the
 pass descriptor is built.
 
-**Frustum fit and stability.** One map, not cascades: the fit covers only the camera
-frustum cut at `fog_start + 2 / fog_density` view-depth units (where ground-level fog is
-~98% opaque), capped at `MAX_SHADOW_DISTANCE` = 55. With the default fog (clear to 105,
-density 1/30) the fog distance is 165, so the cap binds: shadows stay as sharp as they
-were tuned (~4.7 cm texels) and fade out over the last 11 units of the slab instead of
-spreading the map over ground three times as deep. The slab is enclosed in a
+**Frustum fit and stability.** One map, not cascades: by default the fit covers the
+camera frustum cut at the draw distance, `fog_start + 2 / fog_density` view-depth units
+(where ground-level fog is ~98% opaque): 165 with the default fog (clear to 105, density
+1/30). Shadows therefore reach as far as the visible world and fade out over the last 20%
+of the slab (132 to 165), inside the fog. The map is 4096² so that slab still gets ~6.9 cm
+texels (a 142-unit sphere); that is ~1.5× softer than the 2048², 55-unit fit it replaced.
+**Shadow draw distance** is its own backend setting:
+`MetalRenderer::set_shadow_distance(None)` (the default) matches the draw distance, and
+`Some(d)` fixes a shorter slab (smaller texels, so sharper shadows). The slab is clamped
+to at most the fog's distance and at least 1 unit. Like `set_shadows_enabled`, it sits
+below the render seam, and how a game's graphics settings reach it is not designed yet.
+The slab is enclosed in a
 bounding sphere (whose size does not change as the camera turns), its radius rounded
 up to 0.5 units, and its centre **snapped to whole shadow texels** in a light space
 anchored at the world origin — so as the fit slides with the camera every world
@@ -141,9 +147,10 @@ truth — so turning the sun turns the shadows.
 **Bias and filtering.** Each map texel the filter reads is compared against the
 depth the **receiver's own triangle** has at that texel's centre (the plane is
 reconstructed from screen-space derivatives), so a lit surface never shadows itself,
-plus a constant **0.02 world units (2 cm)** for float error: under half a texel at the
-demo's fit, and it moves a contact shadow only ~3 cm under a 32° sun, below one
-texel. The filter is tent-weighted PCF over 4×4 texels (a ~4-texel penumbra). Full
+plus a constant **0.02 world units (2 cm)** for float error: ~0.29 of a ~6.9 cm texel
+at the demo's fit, so under half a texel. It moves a contact shadow only ~3 cm under a
+32° sun, also under half a texel. The filter is tent-weighted PCF over 4×4 texels (a
+~4-texel, ~28 cm penumbra). Full
 reasoning in `src/shadow.rs`.
 
 ## Wiring: metal stays out of `kaman-core`

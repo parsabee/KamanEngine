@@ -647,7 +647,29 @@ fn reference_sun_matches_committed_hash() {
 ///   instead — the guard is live, not decorative.
 /// - **The other baselines behave.** The same blessing run reprinted
 ///   `OVERLAY_REFERENCE_HASH` and `SUN_REFERENCE_HASH` unchanged.
-const SHADOW_REFERENCE_HASH: u64 = 0xfeea97900d873f0a;
+///
+/// # Re-blessed: shadow distance follows the draw distance (4096² map)
+///
+/// `0xfeea97900d873f0a` → `0xb5efe2dbd7e0de08`, an intended resampling of the
+/// same shadow. Two things changed: the map grew from 2048² to 4096², and the
+/// slab stopped being capped at 55 units, so it now reaches this camera's far
+/// plane (100; the default fog's 165 lies beyond it). The fitted sphere grew from
+/// r = 37.5 to r = 68, so a texel went from ~3.66 cm to ~3.32 cm. Checked before
+/// accepting it:
+///
+/// - **Only the shadow's outline moved.** Rendering the scene with a 2048² map
+///   and a fixed 55-unit slab reproduces the old `0xfeea97900d873f0a` exactly,
+///   so nothing else changed. Against that frame, 65 of 4096 pixels differ (at
+///   most 35/255, mean 9), all along the shadow's penumbra edges; each factor
+///   alone also moves the hash (4096² at 55 units: `0xef4a92ef2245bf02`; 2048² at
+///   full distance: `0x5e4b6097480f7b1c`).
+/// - **The shadow is still there and still comes from the pass.** The predicted
+///   shadow points still read 217 → 132 (textured) and 204 → 111 (untextured),
+///   the lit points are unchanged, and with casters disabled the frame still
+///   hashes to `0xe105de70657b1d19`, as before. So the bias still adds no acne.
+/// - **The other baselines behave.** `REFERENCE_HASH`, `OVERLAY_REFERENCE_HASH`
+///   and `SUN_REFERENCE_HASH` pass unchanged.
+const SHADOW_REFERENCE_HASH: u64 = 0xb5efe2dbd7e0de08;
 
 /// The sun the shadow reference is lit by: 50° up at `azimuth_deg` (the reference
 /// uses `270`, due **west**, so the light travels toward `+X` and the caster's

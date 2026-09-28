@@ -300,9 +300,11 @@ from the west-northwest, shadows fall east and a little toward the camera: the r
 the left throw long bands across the road, the guardrail posts stripe the asphalt beside them, and
 the cars shade the road to their right and their own bodywork. The demo does nothing to get this:
 every mesh it draws is a caster and every lit surface a receiver, and the renderer fits its single
-shadow map to the first 55 units of what the chase camera can see (`MAX_SHADOW_DISTANCE`; shadows
-fade out over the last 11 of them). The slab is capped rather than following the fog out to 165,
-which would make every shadow texel — and every shadow edge — three times blurrier. Change
+shadow map to everything the chase camera can see before the fog closes in, out to 165 units, the
+same draw distance as the fog. Shadows fade out inside the fog over the last 33 units, so distant
+traffic and buildings cast shadows too. The 4096² map gives ~6.9 cm shadow texels over that range.
+A shorter, sharper shadow range is available below the seam through
+`MetalRenderer::set_shadow_distance(Some(d))`, the hook a future Graphics menu will use. Change
 `SUN_ELEVATION_DEG` / `SUN_AZIMUTH_DEG` and the shadows swing and stretch with the lighting.
 
 The sun *disc* the sky pass draws is not visible in the demo: the chase camera pitches down to

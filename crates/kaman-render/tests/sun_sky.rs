@@ -140,6 +140,56 @@ fn light_upload_rotates_one_slot_per_in_flight_frame() {
 }
 
 #[test]
+fn shadow_distance_follows_the_draw_distance_unless_overridden() {
+    use kaman_math::glam::Mat4;
+    use kaman_render::shadow::{shadow_distance_for_fog, MIN_SHADOW_DISTANCE};
+
+    let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
+        eprintln!("skipping: no Metal device (GPU-less runner)");
+        return;
+    };
+    // The playable demo's chase camera (0.3..300 clip), so the far plane never
+    // cuts the slab short of the fog.
+    r.set_view_projection(
+        Mat4::perspective_rh(45f32.to_radians(), 16.0 / 9.0, 0.3, 300.0)
+            * Mat4::look_at_rh(Vec3::new(0.0, 6.0, 12.0), Vec3::new(0.0, 1.5, 0.0), Vec3::Y),
+    );
+    let fog = {
+        let l = r.light_for_test();
+        shadow_distance_for_fog(l.fog_start, l.fog_density)
+    };
+    // The slab depth a frame actually fits (folded into the light block as the
+    // frame opens).
+    let frame_shadow_distance = |r: &mut MetalRenderer| {
+        r.begin_frame();
+        let d = r.light_for_test().shadow_distance;
+        r.submit();
+        d
+    };
+
+    // Default: "match draw distance" — the slab is the fog's 165 units.
+    assert_eq!(r.shadow_distance(), None);
+    assert!((fog - 165.0).abs() < 1e-3, "default draw distance {fog}");
+    assert_eq!(frame_shadow_distance(&mut r), fog);
+
+    // A shorter fixed range is what the frame fits...
+    r.set_shadow_distance(Some(40.0));
+    assert_eq!(r.shadow_distance(), Some(40.0));
+    assert_eq!(frame_shadow_distance(&mut r), 40.0);
+    // ...a longer one is clamped to the fog (the getter keeps the request)...
+    r.set_shadow_distance(Some(1000.0));
+    assert_eq!(r.shadow_distance(), Some(1000.0));
+    assert_eq!(frame_shadow_distance(&mut r), fog);
+    // ...a degenerate one to the minimum...
+    r.set_shadow_distance(Some(0.0));
+    assert_eq!(frame_shadow_distance(&mut r), MIN_SHADOW_DISTANCE);
+    // ...and `None` goes back to following the draw distance.
+    r.set_shadow_distance(None);
+    assert_eq!(r.shadow_distance(), None);
+    assert_eq!(frame_shadow_distance(&mut r), fog);
+}
+
+#[test]
 fn per_frame_light_upload_allocates_nothing() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
         eprintln!("skipping: no Metal device (GPU-less runner)");

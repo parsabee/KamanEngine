@@ -103,12 +103,12 @@ the seam. The two 3D pixel-hash baselines were re-blessed; the screen-space over
 unchanged, which is the proof the change stayed in the 3D passes.
 
 **Real shadows (KE-0407).** The fake blob shadow is gone. Each frame now runs a **depth-only shadow
-pass** from the sun into a 2048² `Depth32Float` map *before* the scene pass, and both lit pipelines
+pass** from the sun into a 4096² `Depth32Float` map *before* the scene pass, and both lit pipelines
 (untextured and textured) sample it. To know every caster before the scene pass starts, the backend
 records draws during the frame and encodes both passes at `submit` — invisible above the seam, where
 a game still just draws meshes and sets a `SunSky`. The light's orthographic projection is refitted
-every frame to the slab of camera frustum the fog leaves visible (capped at 55 units so a far fog
-does not blur the shadows), enclosed in a sphere and **snapped
+every frame to the slab of camera frustum the fog leaves visible (the draw distance, 165 units by
+default; a backend-level shadow-distance override may shorten it), enclosed in a sphere and **snapped
 to whole shadow texels** so it follows the camera without shimmering, and its direction is the
 KE-0406 sun's — one source of truth for shading, sun disc and shadows. On a TBDR GPU the map is the
 one depth attachment that must be **stored** (the MSAA scene targets are resolved in-tile and
