@@ -15,7 +15,7 @@ code path across both targets, not two, and it gives direct access to TBDR featu
 We deliberately give up portability to Windows/Linux/Android/Web. For an App Store product
 this is the correct trade. If portability is ever required, the `kaman-render-api` trait
 seam (below) is the single insertion point for an additional backend (e.g. wgpu) without
-touching ECS, physics, scene, or scripting code.
+touching ECS, physics, scene, or game code.
 
 ## 2. The render seam (blast-radius firewall)
 
@@ -132,8 +132,7 @@ kaman-engine/
 │   ├── kaman-render        # raw-Metal impl of kaman-render-api      (refactor)
 │   ├── kaman-core          # app/lifecycle + platform (#[cfg])       (refactor)
 │   ├── kaman-assets        # glTF + textures                         (new)
-│   ├── kaman-audio         # kira wrapper: sounds/one-shots/loops    (new)
-│   └── kaman-script        # KamanScript lexer/parser/interpreter    (new)
+│   └── kaman-audio         # kira wrapper: sounds/one-shots/loops    (new)
 ├── games/
 │   └── playable-demo          # first title; only uses engine public API
 ├── shaders/                # MSL source → precompiled .metallib
@@ -161,7 +160,7 @@ API today — see [PLAYABLE_DEMO.md](PLAYABLE_DEMO.md); for standing up a new ga
 | Physics | `rapier3d` **now**, custom arcade/spatial-query **later** | v1 keeps rapier + adds a removal API; arcade feel migrates to a custom query layer post-v1 |
 | Audio | `kira` | behind `kaman-audio`; see §4b |
 | Assets | `gltf` + `image` | static meshes only for v1 |
-| Scripting | KamanScript (custom) | frozen 20-construct spec → tree-walk interpreter → bytecode VM later; `mlua` is the fallback behind an `Interpreter` trait |
+| Tooling | Scene editor: native AppKit app, Apple Silicon (planned, Phase 5) | hosts the engine's Metal viewport through the render seam; scope is draft (see [ROADMAP.md](ROADMAP.md) Phase 5) |
 
 ### 4a. Fixed-timestep loop (KE-0201)
 
@@ -217,7 +216,7 @@ policy: the engine takes a handle and a level.
 rapier3d is retained for v1 because it is already integrated and gets us to the "is it fun?"
 gate fastest. v1 adds the missing **body/collider removal API** (required to despawn
 obstacles in an infinite runner). The car's lateral/lane motion is **kinematic and
-script-owned**, not solver-driven. A custom arcade-physics + spatial-query layer replaces
+game-owned**, not solver-driven. A custom arcade-physics + spatial-query layer replaces
 rapier on the shipping path in a later release; the `kaman-physics` wrapper hides rapier so
 that swap does not ripple.
 

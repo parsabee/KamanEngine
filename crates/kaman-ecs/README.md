@@ -1,7 +1,7 @@
 # kaman-ecs
 
 The ECS component vocabulary for KamanEngine — the stable surface that the
-Phase-1 `Game` trait and the Phase-5 KamanScript runtime bind against.
+Phase-1 `Game` trait and any other engine consumer bind against.
 
 ## Responsibility
 
@@ -15,7 +15,7 @@ non-owning [`rapier3d`] rigid-body handle for the physics link.
 
 ## The component model (binding surface)
 
-This is the vocabulary a `Game` or a `.kaman` script composes to describe a
+This is the vocabulary a `Game` composes to describe a
 scene. Everything here is deliberately **generic** — there are no game concepts
 (no car, road, score, obstacle, or lane). Game meaning is built by *composing*
 these primitives in the game crate, never by adding types here.

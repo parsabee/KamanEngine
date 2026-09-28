@@ -39,6 +39,7 @@ lane, obstacle, score) live **only in `games/car-runner`**, never in engine crat
 ## Out of scope
 - Real car/obstacle meshes + textures (Phase 4, glTF). HUD/SDF text + audio (Phase 4).
 - Authoring gameplay in KamanScript (Phase 5 — this logic is Rust for now and ports later).
+  (KamanScript was dropped from the roadmap on 2026-09-27; Phase 5 is now the scene editor.)
 - iOS/touch controls (Phase 3).
 
 ## Test gate

@@ -5,7 +5,7 @@
 //! Entity Component System (ECS) components and tags for KamanEngine.
 //!
 //! This crate is the stable component vocabulary that the Phase-1 `Game` trait
-//! and the Phase-5 KamanScript runtime bind against. It defines the
+//! and any other engine consumer bind against. It defines the
 //! engine-generic components stored in an [`hecs`] [`World`](hecs::World):
 //!
 //! - [`TransformComponent`] — spatial transform (position, rotation, scale).
@@ -16,7 +16,7 @@
 //!
 //! Everything here is **engine-generic**: there are deliberately no game-specific
 //! components (no vehicle, track, tally, hazard, or gameplay-lattice types). Games
-//! and scripts compose these primitives; game concepts live in the game crate,
+//! compose these primitives; game concepts live in the game crate,
 //! not here. A unit test enforces this by scanning the crate source for the
 //! forbidden concept words.
 //!

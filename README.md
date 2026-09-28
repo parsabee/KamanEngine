@@ -35,8 +35,8 @@ backend-agnostic render seam keeps the door open for a future portable backend w
 engine logic.
 
 Its first title is an **infinite car runner** (static meshes, no animation rigs, arcade physics).
-The engine will also ship a custom high-level scripting language, **KamanScript**, for authoring
-gameplay (planned, [Phase 5](docs/ROADMAP.md)).
+A native scene editor for macOS on Apple Silicon is planned as
+[Phase 5](docs/ROADMAP.md#phase-5--scene-editor-native-macos-apple-silicon).
 
 > [!NOTE]
 > KamanEngine is **pre-release and under active development**. There are no tagged releases yet,
@@ -163,7 +163,7 @@ provenance is recorded in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 2 — Gameplay core | ✅ Complete |
 | 3 — iOS bring-up | ⏳ Not started; needs full Xcode + iOS rustup targets |
 | 4 — Look & feel + content | ✅ Complete: glTF import, textures, modern-look stack, 2D HUD/SDF text, audio (kira), sun/sky seam, and real fitted shadow maps (KE-0407) |
-| 5 — KamanScript | ⏳ Not started |
+| 5 — Scene editor (native macOS, Apple Silicon) | ⏳ Not started; Key Results are draft |
 | 6 — Release | ⏳ Not started |
 | 7 — Playable Demo *(pulled forward)* | ✅ Complete: 3-lane freeway runner with real CC0 cars, buildings, road and skyline, HUD, title/game-over/replay, music + SFX |
 

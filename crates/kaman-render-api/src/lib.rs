@@ -7,7 +7,7 @@
 //! This crate is the **blast-radius firewall** described in `docs/ARCHITECTURE.md` §2. It
 //! defines *only* a contract — opaque resource handles plus two traits — and never depends on
 //! `metal`. A concrete renderer (`kaman-render`, KE-0102) implements these traits below the
-//! seam; every crate above the seam (ECS, scene, physics, scripting, game code) talks to the
+//! seam; every crate above the seam (ECS, scene, physics, game code) talks to the
 //! contract and therefore never imports a Metal type. A full renderer rewrite is provably
 //! contained to the implementing crate.
 //!

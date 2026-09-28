@@ -126,13 +126,10 @@ targets (`./scripts/preflight.sh --ios`). Tickets below are intentionally rough 
 Mostly macOS/CLT-friendly (the runner uses real meshes/textures/HUD/audio on macOS); ASTC + iOS
 audio-session/safe-area specifics finish alongside Phase 3.
 
-### Phase 5 — KamanScript *(planned; may start after Phase 2 API freeze)*
-| # | Title | Pri | Int | Size |
-|---|---|---|---|---|
-| KE-0501 | Spec freeze — 20-construct language | P0 | New | S · A0 |
-| KE-0502 | Lexer (logos) + recursive-descent parser + AST | P0 | New | L · A1 |
-| KE-0503 | Tree-walking interpreter + ECS host bindings | P0 | New | L · A2 |
-| KE-0504 | Hot-reload + port runner logic to `.kaman` | P1 | New | M · A1 |
+### Phase 5 — Scene Editor (native macOS, Apple Silicon) *(planned; KRs are draft)*
+No tickets yet. The draft Key Results are in [ROADMAP.md](../docs/ROADMAP.md) (Phase 5); tickets
+are written once they are refined. Phase 5 was previously KamanScript; its draft backlog
+(KE-0501–KE-0504, never started) was dropped from the roadmap on 2026-09-27.
 
 ### Phase 6 — Release *(planned)*
 | # | Title | Pri | Int | Size |

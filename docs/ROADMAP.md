@@ -15,7 +15,7 @@ phase does not start until the previous phase's OKRs are green.
 ```
 
 "Functioning engine" is reached at the end of **Phase 3** (a real game running on both
-targets). Phases 4–6 turn it into a shippable product.
+targets). Phases 4 and 6 turn it into a shippable product; Phase 5 adds a native scene editor.
 
 ---
 
@@ -67,14 +67,17 @@ seam, with provably identical output.
 - **KR4.2** Static glTF import + base-color/normal/roughness textures + ASTC; runner uses real meshes.
 - **KR4.3** 2D HUD/SDF text overlay (safe-area aware) + audio (SFX/music) on device.
 
-## Phase 5 — KamanScript
+## Phase 5 — Scene Editor (native macOS, Apple Silicon)
 
-**Objective:** Game-specific behavior authored in the custom language, not compiled Rust.
-(May start once the ECS public API is stable — end of Phase 2 — and run parallel to Phase 4.)
+**Objective:** Build and test scenes in a native macOS editor that runs the engine itself.
+Phase 5 was previously KamanScript; that language was dropped from the roadmap on 2026-09-27.
 
-- **KR5.1** KamanScript v1 (frozen 20-construct spec): logos lexer + recursive-descent parser + tree-walking interpreter with line/col errors.
-- **KR5.2** ECS host bindings (spawn/despawn/get/set/query, input, time, physics, audio); example-script corpus asserted end-to-end.
-- **KR5.3** Hot-reload on macOS; runner gameplay ported to `.kaman`; engine crates contain only bootstrap.
+*Draft Key Results, pending refinement:*
+
+- **KR5.1** Native AppKit editor app for Apple Silicon (`aarch64-apple-darwin`) hosting the engine's Metal viewport through the render seam.
+- **KR5.2** Open/save scenes in a documented on-disk scene format that the runtime loads unchanged; round-trip (load → save → load) covered by tests.
+- **KR5.3** Place, select and transform entities from the asset library with viewport gizmos, and edit their components in an inspector.
+- **KR5.4** Play-in-editor: run the scene through the same `Game` / `EngineCtx` loop the shipped game uses, then return to the edited state.
 
 ## Phase 6 — Release
 
@@ -103,5 +106,6 @@ engine grows.
 
 ## Critical path
 
-`P0 → P1 → P2 → P3` is strictly sequential (each gates the next). `P5 (KamanScript)` may run
-parallel to `P4` once the Phase 2 ECS API is frozen. `P6` requires `P3`+`P4`.
+`P0 → P1 → P2 → P3` is strictly sequential (each gates the next). `P5 (Scene Editor)` can start
+once the render seam and the scene/asset APIs are stable, and may run parallel to other phases.
+`P6` requires `P3`+`P4`. Current assumption: `P6` does not depend on `P5`.

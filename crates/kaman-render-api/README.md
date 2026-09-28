@@ -7,7 +7,7 @@ renderer implements, so no crate above it ever touches a GPU type.
 
 `docs/ARCHITECTURE.md` §2 makes the render backend a swappable implementation
 detail. KamanEngine renders with **raw Metal**, but ECS, scene, physics, and
-scripting must not depend on that choice. This crate is the single insertion
+game code must not depend on that choice. This crate is the single insertion
 point between them: it defines *only* a contract, and the Metal renderer
 (`kaman-render`, KE-0102) implements the contract rather than exporting Metal
 types.

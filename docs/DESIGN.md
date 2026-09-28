@@ -6,7 +6,7 @@ live in [ARCHITECTURE.md](ARCHITECTURE.md); this document shows how the pieces f
 Diagrams are [Mermaid](https://mermaid.js.org/) (rendered inline by GitHub).
 
 > Scope: reflects the engine through Phase 4 (KE-0401). `kaman-assets`/`kaman-render` texturing
-> and the look stack are included; `kaman-script` (Phase 5) is not yet built.
+> and the look stack are included; the Phase 5 scene editor is not yet built.
 
 ---
 

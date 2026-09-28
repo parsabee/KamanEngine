@@ -13,7 +13,8 @@ Serves:        KR0.3
 ## Problem / Motivation
 Migrate the `hecs`-based component definitions and helpers. This crate becomes the stable API
 that the `Game` trait (Phase 1) and KamanScript (Phase 5) bind against, so its public surface
-matters more than most.
+matters more than most. (KamanScript was dropped from the roadmap on 2026-09-27; Phase 5 is
+now the scene editor.)
 
 ## Scope & Acceptance
 - [x] **Move commit:** relocate `ecs.rs` into `crates/kaman-ecs`; depend on `kaman-math`; re-export `hecs`.

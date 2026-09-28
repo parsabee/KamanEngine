@@ -26,7 +26,7 @@ later. CI runs the oracle on every commit.
 ### 2.2 Migration order — leaves before roots
 
 ```
-math → perf → ecs → physics → camera → scene → render-api → render → core/platform → assets → script
+math → perf → ecs → physics → camera → scene → render-api → render → core/platform → assets → audio
 ```
 
 Pure, zero-coupling modules first: they prove the workspace split at near-zero risk. The
@@ -50,7 +50,7 @@ renderer (highest risk) comes only after the seam and golden-hash net exist.
 
 - **Reuse-as-is** (math, perf, ecs): keep existing tests green; add characterization where none exist; no coverage regression.
 - **Refactor** (renderer, physics, scene, camera, core): golden/characterization net *before* the change; raise unit coverage on touched public API to **≥ 80% lines**.
-- **New** (assets, script, later spatial queries): **test-first (TDD)**, **≥ 80%** on logic; KamanScript adds an example-script corpus asserted end-to-end.
+- **New** (assets, audio, later spatial queries): **test-first (TDD)**, **≥ 80%** on logic.
 
 ### 2.5 No-breakage mechanisms
 
