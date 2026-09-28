@@ -43,6 +43,8 @@
 //!   sun/sky, audio mix).
 //! - [`rng`] — the seeded lane-obstacle PRNG and the independent per-slot
 //!   scenery hash.
+//! - [`asset_root`] — where `assets/` lives at runtime (`$KAMAN_DEMO_ASSETS`, an
+//!   installed `share/kaman-engine/assets`, or the source checkout), resolved once.
 //! - [`assets`] — glTF import through `kaman-assets`, fit transforms, and the
 //!   vertex-layout helpers.
 //! - [`scenery`] — procedural geometry (guardrails, hill terrain) built once and
@@ -73,6 +75,7 @@
 
 use clap::Parser;
 
+mod asset_root;
 mod assets;
 mod components;
 mod config;
@@ -96,10 +99,28 @@ struct Cli {
     /// Requires no GPU/Metal device — safe on headless CI runners.
     #[arg(long)]
     smoke: bool,
+
+    /// Print the resolved assets directory and exit (see `KAMAN_DEMO_ASSETS`).
+    #[arg(long)]
+    print_assets_dir: bool,
 }
 
 fn main() {
     let cli = Cli::parse();
+
+    // Find `assets/` once, up front, so an installed binary with a missing or
+    // misplaced asset dir says so plainly instead of panicking mid-boot.
+    let assets = match asset_root::init() {
+        Ok(root) => root,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    };
+    if cli.print_assets_dir {
+        println!("{}", assets.display());
+        return;
+    }
 
     if cli.smoke {
         run_smoke(SMOKE_FRAMES);

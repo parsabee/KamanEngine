@@ -39,14 +39,16 @@ A native scene editor for macOS on Apple Silicon is planned as
 [Phase 5](docs/ROADMAP.md#phase-5--scene-editor-native-macos-apple-silicon).
 
 > [!NOTE]
-> KamanEngine is **pre-release and under active development**. The first alpha,
-> [`v0.1.0-alpha.1`](https://github.com/parsabee/KamanEngine/releases), is a source release; the
-> public API may change between releases (see [CHANGELOG.md](CHANGELOG.md)). macOS is the supported
+> KamanEngine is **pre-release and under active development**. Releases start at
+> [`v0.1.0-alpha.1`](https://github.com/parsabee/KamanEngine/releases) (source only); from
+> `v0.1.0-alpha.2` each release also ships a prebuilt Apple Silicon build, installable with
+> [Homebrew](#install-with-homebrew). The public API may change between releases (see [CHANGELOG.md](CHANGELOG.md)). macOS is the supported
 > platform today; iOS bring-up is planned (Phase 3).
 
 ## Table of contents
 
 - [Features](#features)
+- [Install with Homebrew](#install-with-homebrew)
 - [Quick start](#quick-start)
 - [The playable demo](#the-playable-demo)
 - [Project status](#project-status)
@@ -78,6 +80,41 @@ A native scene editor for macOS on Apple Silicon is planned as
   tests that pin the renderer's output.
 - **Fully documented API:** every engine crate compiles under `#![deny(missing_docs)]`, and the
   rustdoc is [published online](https://parsabee.github.io/KamanEngine/).
+
+## Install with Homebrew
+
+On an **Apple Silicon** Mac (arm64; Intel Macs are not supported and Homebrew refuses the
+install), install the prebuilt demo and the engine source, with no Rust toolchain needed:
+
+```sh
+brew install parsabee/kaman/kaman-engine
+kaman-demo            # play the demo (Metal window)
+kaman-demo --smoke    # headless check: 120 frames, prints "smoke: 120 frames OK"
+```
+
+What gets installed:
+
+| Path | Contents |
+|---|---|
+| `$(brew --prefix)/bin/kaman-demo` | The playable demo (the `playable-demo` binary) |
+| `$(brew --prefix kaman-engine)/share/kaman-engine/assets/` | The demo's runtime assets |
+| `$(brew --prefix kaman-engine)/share/kaman-engine/src/` | The engine source: the workspace `Cargo.toml` / `Cargo.lock` / `rust-toolchain.toml`, `crates/`, `games/`, `docs/`, `LICENSE`, `NOTICE` |
+
+To build your own game against the installed engine, use the crates as Cargo path dependencies
+(building needs Rust 1.91 or newer):
+
+```toml
+[dependencies]
+kaman-core = { path = "/opt/homebrew/opt/kaman-engine/share/kaman-engine/src/crates/kaman-core" }
+kaman-math = { path = "/opt/homebrew/opt/kaman-engine/share/kaman-engine/src/crates/kaman-math" }
+```
+
+`brew info kaman-engine` prints these paths for your prefix. The tarball Homebrew downloads is
+attached to each [GitHub release](https://github.com/parsabee/KamanEngine/releases) as
+`kaman-engine-<version>-aarch64-apple-darwin.tar.gz`, with a `.sha256`; it is built by
+[`.github/workflows/release.yml`](.github/workflows/release.yml) via
+[`scripts/package-release.sh`](scripts/package-release.sh), and the formula lives in
+[`packaging/homebrew/kaman-engine.rb`](packaging/homebrew/kaman-engine.rb).
 
 ## Quick start
 

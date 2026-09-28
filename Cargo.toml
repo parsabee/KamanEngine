@@ -18,8 +18,8 @@ members = [
 # Shared package metadata. Individual crates inherit these via `field.workspace = true`.
 [workspace.package]
 # Pre-release SemVer: cargo accepts `-alpha.N` suffixes. Bump the whole workspace
-# together; the release tag is `v` + this string (e.g. `v0.1.0-alpha.1`).
-version = "0.1.0-alpha.1"
+# together; the release tag is `v` + this string (e.g. `v0.1.0-alpha.2`).
+version = "0.1.0-alpha.2"
 edition = "2021"
 # Minimum supported Rust version. Enforced by cargo on build (a required project
 # dependency), matched to the channel pinned in rust-toolchain.toml, and re-checked

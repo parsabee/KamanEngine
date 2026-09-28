@@ -8,6 +8,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - YYYY-MM-DD
+
+### Added
+
+- **Homebrew install (Apple Silicon).** `brew install parsabee/kaman/kaman-engine` installs a
+  prebuilt `kaman-demo` (the playable demo), its assets, and the engine source under
+  `share/kaman-engine/src` for use as Cargo path dependencies. The formula
+  (`packaging/homebrew/kaman-engine.rb`) requires arm64 macOS and refuses Intel Macs.
+- **Release workflow.** `.github/workflows/release.yml` runs on every `v*` tag (or by hand for an
+  existing tag): it builds `playable-demo` in release mode with the pinned toolchain, checks the
+  binary is arm64 and passes `--smoke`, packages
+  `kaman-engine-<version>-aarch64-apple-darwin.tar.gz` plus a `.sha256` with
+  `scripts/package-release.sh`, and attaches both to the GitHub release.
+- **`kaman-demo --print-assets-dir`** prints where the demo found its assets.
+
+### Changed
+
+- **The demo finds its assets at runtime** instead of through compile-time `CARGO_MANIFEST_DIR`
+  paths, so an installed binary works without a source checkout. It tries, in order,
+  `$KAMAN_DEMO_ASSETS`, `<exe dir>/../share/kaman-engine/assets` (Homebrew and the release
+  tarball), `<exe dir>/assets`, then the crate's own `assets/` (so `cargo run` is unchanged). If
+  none exists it prints what it tried and exits 1.
+
 ## [0.1.0-alpha.1] - 2026-09-27
 
 The first public pre-release: a source release of the engine workspace and its reference game,
@@ -96,5 +119,6 @@ workspace version and are not published to crates.io.
   crash WAVs were generated for this project and dedicated CC0 1.0. The HUD font is OFL. See
   `games/playable-demo/README.md`.
 
-[Unreleased]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-alpha.1...HEAD
+[Unreleased]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/parsabee/KamanEngine/releases/tag/v0.1.0-alpha.1

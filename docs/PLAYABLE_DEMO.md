@@ -205,9 +205,11 @@ they are robust to whatever scale and orientation a model was authored at.
 ### Committed assets
 
 All of these live in [`games/playable-demo/assets/`](../games/playable-demo/assets) and are
-committed, so a clean checkout runs with no asset build step. Paths are resolved against
-`CARGO_MANIFEST_DIR` ([config.rs:92](../games/playable-demo/src/config.rs#L92) onward) so they
-hold regardless of the process working directory.
+committed, so a clean checkout runs with no asset build step. `config.rs` names them relative to
+an asset root that [`asset_root.rs`](../games/playable-demo/src/asset_root.rs) resolves once at
+startup (`$KAMAN_DEMO_ASSETS`, an installed `share/kaman-engine/assets` beside the binary, or this
+directory for `cargo run`), so the paths hold regardless of the process working directory or where
+the binary is installed.
 
 | Asset | Role | Provenance |
 |---|---|---|

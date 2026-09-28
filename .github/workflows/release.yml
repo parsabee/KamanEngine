@@ -1,0 +1,89 @@
+name: Release
+
+# Build the prebuilt Apple Silicon tarball for a release tag and attach it (plus its .sha256) to
+# the GitHub release. The Homebrew formula (packaging/homebrew/kaman-engine.rb, published in the
+# parsabee/homebrew-kaman tap) downloads this asset. Packaging lives in
+# scripts/package-release.sh so it can be run and checked locally.
+#
+# Runs on every `v*` tag push, or by hand for an existing tag:
+#   gh workflow run release.yml -f tag=v0.1.0-alpha.2
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and upload (e.g. v0.1.0-alpha.2)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: package aarch64-apple-darwin
+    # macos-latest is Apple Silicon (arm64), so the native build is the arm64 artefact.
+    runs-on: macos-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Resolve version
+        id: version
+        run: |
+          case "$TAG" in
+            v*) ;;
+            *) echo "tag '$TAG' does not start with v"; exit 1 ;;
+          esac
+          version="${TAG#v}"
+          ws=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          [ "$version" = "$ws" ] || { echo "tag $TAG does not match workspace version $ws"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Same as ci.yml: install exactly the toolchain pinned in rust-toolchain.toml, and fail if
+      # the pin is ignored.
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        run: |
+          rustup toolchain install --no-self-update
+          pinned=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustc --version
+          rustc --version | grep -q " $pinned " || { echo "rustc is not the pinned $pinned"; exit 1; }
+
+      - name: Build release binary
+        run: cargo build --release -p playable-demo --locked
+
+      - name: Verify binary (arm64, smoke)
+        run: |
+          file target/release/playable-demo
+          [ "$(lipo -archs target/release/playable-demo)" = "arm64" ] || { echo "not arm64"; exit 1; }
+          target/release/playable-demo --smoke
+
+      # Stages bin/ + share/, tars it, writes the .sha256, then re-runs --smoke from an unpacked
+      # copy to prove the packaged assets resolve.
+      - name: Package
+        run: ./scripts/package-release.sh "${{ steps.version.outputs.version }}" dist
+
+      - name: Upload to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          asset="dist/kaman-engine-${VERSION}-aarch64-apple-darwin.tar.gz"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$asset" "$asset.sha256" --clobber
+          else
+            # SemVer pre-releases (anything with a `-`, e.g. -alpha.2) are marked as such.
+            pre=()
+            case "$VERSION" in *-*) pre=(--prerelease) ;; esac
+            gh release create "$TAG" "$asset" "$asset.sha256" \
+              "${pre[@]}" --verify-tag --title "$TAG" \
+              --notes "Prebuilt Apple Silicon build of $TAG. See CHANGELOG.md for what changed."
+          fi

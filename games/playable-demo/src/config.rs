@@ -124,32 +124,36 @@ pub(crate) const CAR_YAW: f32 = std::f32::consts::PI;
 // ---------------------------------------------------------------------------
 // Asset paths
 // ---------------------------------------------------------------------------
+//
+// File names **relative to the asset root**, which is resolved once at startup
+// (`$KAMAN_DEMO_ASSETS`, an installed `share/kaman-engine/assets`, or this crate's
+// `assets/` — see `asset_root`). Join with `asset_root::asset_path`, so the paths
+// hold regardless of the process working directory or where the binary lives.
 
 /// The committed **player** car model, imported at startup (KE-0703): the CC0
-/// Quaternius Sports Car (`.glb`, public domain). Resolved against this crate's
-/// dir so the path holds regardless of the process working directory.
-pub(crate) const PLAYER_CAR_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sports_car.glb");
+/// Quaternius Sports Car (`.glb`, public domain).
+pub(crate) const PLAYER_CAR_ASSET: &str = "sports_car.glb";
 
 /// The committed **traffic** car models (CC0 Quaternius, public domain). Each
 /// obstacle draws one of these, chosen per streaming slot by
 /// [`variant_for_slot`](crate::rng::variant_for_slot).
 pub(crate) const TRAFFIC_CAR_ASSETS: [&str; 3] = [
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/car.glb"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/car2.glb"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/police_car.glb"),
+    "car.glb",
+    "car2.glb",
+    "police_car.glb",
 ];
 
 /// The committed roadside **building** prefabs (CC0 Kenney City Kit, public
 /// domain), imported at startup (KE-0706). Order matches [`BUILDING_WEIGHTS`].
 pub(crate) const BUILDING_ASSETS: [&str; 8] = [
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/skyscraper_a.glb"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/skyscraper_b.glb"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/large_a.glb"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/large_b.glb"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/large_c.glb"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/small_a.glb"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/small_b.glb"),
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/low_a.glb"),
+    "skyscraper_a.glb",
+    "skyscraper_b.glb",
+    "large_a.glb",
+    "large_b.glb",
+    "large_c.glb",
+    "small_a.glb",
+    "small_b.glb",
+    "low_a.glb",
 ];
 
 /// Spawn weights per prefab (out of 100), parallel to [`BUILDING_ASSETS`]:
@@ -159,22 +163,19 @@ pub(crate) const BUILDING_WEIGHTS: [u32; 8] = [4, 4, 18, 18, 19, 12, 12, 13];
 
 /// The committed asphalt road-tile glTF (KE-0704), imported at startup: a flat
 /// textured quad carrying the tiling UVs plus an embedded asphalt base-color PNG.
-pub(crate) const ROAD_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/road.gltf");
+pub(crate) const ROAD_ASSET: &str = "road.gltf";
 
 /// The committed city skyline backdrop glTF (KE-0705): a vertical billboard quad
 /// with an embedded skyline base-color PNG cropped from a CC0 photo.
-pub(crate) const SKYLINE_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/skyline.gltf");
+pub(crate) const SKYLINE_ASSET: &str = "skyline.gltf";
 
 /// The committed driving-music track (KE-0405): a ~27 s 16-bit stereo PCM WAV,
-/// looped seamlessly for the whole session once a run starts. Resolved against this
-/// crate's dir, like every other asset path here, so it holds regardless of the
-/// process working directory.
-pub(crate) const MUSIC_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/runner_loop.wav");
+/// looped seamlessly for the whole session once a run starts.
+pub(crate) const MUSIC_ASSET: &str = "runner_loop.wav";
 
 /// The committed impact one-shot (KE-0405): a ~2.3 s 16-bit mono PCM WAV, played
 /// once at the moment a run ends.
-pub(crate) const IMPACT_ASSET: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/car_crash_impact_only.wav");
+pub(crate) const IMPACT_ASSET: &str = "car_crash_impact_only.wav";
 
 // ---------------------------------------------------------------------------
 // Buildings
@@ -279,7 +280,7 @@ pub(crate) const BACKDROP_Y: f32 = 1.5;
 
 /// The committed SDF font atlas the HUD draws with, baked by the `gen_font`
 /// example from the OFL-licensed `assets/font.ttf`.
-pub(crate) const FONT_ASSET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/font.bin");
+pub(crate) const FONT_ASSET: &str = "font.bin";
 
 /// Padding, in points, between the safe-area edge and the HUD's live score. Like
 /// every HUD size here it is multiplied by the renderer's `surface_scale` (drawable

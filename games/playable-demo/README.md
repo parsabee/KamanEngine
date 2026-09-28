@@ -28,6 +28,31 @@ GPU and no Metal device**, prints `smoke: 120 frames OK`, and exits 0 — so it 
 headless CI runners. Headless input is empty after the opening start tap, so the car
 runs straight down the middle lane: a fully deterministic run.
 
+### Where the assets come from
+
+The demo loads its models, textures, sounds and font from an `assets/` directory that it finds
+**once, at startup** ([`asset_root.rs`](src/asset_root.rs)). The first of these that exists wins:
+
+1. `$KAMAN_DEMO_ASSETS`, if set (point it at any directory holding the files below);
+2. `<exe dir>/../share/kaman-engine/assets`: the Homebrew / release-tarball layout, where
+   `bin/kaman-demo` sits beside `share/`. Symlinks to the binary are resolved first, so
+   Homebrew's `$(brew --prefix)/bin/kaman-demo` finds the keg's own `share/`;
+3. `<exe dir>/assets`: a flat layout, assets beside the binary;
+4. this crate's [`assets/`](assets) at build time, which is what `cargo run` and `cargo test`
+   use.
+
+If none exists the binary prints every path it tried and exits 1. To see which one was chosen:
+
+```sh
+cargo run -p playable-demo -- --print-assets-dir
+kaman-demo --print-assets-dir                        # the Homebrew install
+KAMAN_DEMO_ASSETS=/path/to/assets kaman-demo --smoke
+```
+
+Only the files the demo loads ship in an installed `assets/` (the models, `road.gltf`,
+`skyline.gltf`, the two WAVs, `font.bin` and its licence `font-OFL.txt`); the baker sources
+(`*_src.jpg`, `font.ttf`) and the `cube.gltf` test fixture stay in the source tree.
+
 ### Controls
 
 | Key | Action |
@@ -57,7 +82,8 @@ One line per module in [`src/`](src), and what it owns:
 | Module | Owns |
 | --- | --- |
 | [`main.rs`](src/main.rs) | The binary: CLI parsing, the windowed entry (builds the Metal backend and injects it via a factory), and the `--smoke` oracle. |
-| [`config.rs`](src/config.rs) | Every tuning constant, grouped by area — lanes/speed/camera, car fit, asset paths, buildings, guardrail, terrain, backdrop, HUD, sun/sky, audio mix. No logic. |
+| [`asset_root.rs`](src/asset_root.rs) | Finds the `assets/` directory once at startup (`$KAMAN_DEMO_ASSETS`, an installed `share/kaman-engine/assets`, or the checkout) and joins asset names onto it. |
+| [`config.rs`](src/config.rs) | Every tuning constant, grouped by area — lanes/speed/camera, car fit, asset file names, buildings, guardrail, terrain, backdrop, HUD, sun/sky, audio mix. No logic. |
 | [`rng.rs`](src/rng.rs) | Deterministic randomness: the seeded SplitMix64 lane PRNG, and the independent per-slot hash that picks cosmetic variants without perturbing it. |
 | [`assets.rs`](src/assets.rs) | glTF import through `kaman-assets` (load once, share by handle), the fit transforms that place a model on the road, and the vertex-layout helpers. |
 | [`scenery.rs`](src/scenery.rs) | Procedural geometry built once in `init`: the guardrail segment and the hill-terrain sheet, packed as raw `[pos,normal,color]` vertex bytes. |

@@ -26,6 +26,7 @@ use kaman_render_api::{
 };
 use kaman_scene::{Scene, StreamingConfig};
 
+use crate::asset_root::asset_path;
 use crate::assets::{building_fit, color_layout, fit_transform, load_model, load_textured_mesh, textured_layout, CarPart};
 use crate::components::{BuildingVariant, GuardrailTag, TrafficVariant};
 use crate::config;
@@ -500,8 +501,8 @@ impl Game for CarRunner {
         // `--smoke` these calls are silent no-ops that still hand back valid handles.
         let audio = ctx.audio();
         audio.set_master_volume(config::MASTER_VOLUME);
-        self.music = Some(audio.load(config::MUSIC_ASSET));
-        self.impact = Some(audio.load(config::IMPACT_ASSET));
+        self.music = Some(audio.load(asset_path(config::MUSIC_ASSET)));
+        self.impact = Some(audio.load(asset_path(config::IMPACT_ASSET)));
 
         // The cars are **imported** through `kaman-assets` (KE-0402/KE-0703) from
         // committed CC0 `.glb` models (Quaternius, public domain): the player drives
@@ -558,21 +559,26 @@ impl Game for CarRunner {
         // is packed on the textured layout (its material has a base-color texture),
         // so `AssetCache::load` uploads it as a textured mesh. Its decoded asphalt
         // base-color PNG becomes the bound texture.
-        let (road_mesh, asphalt) = load_textured_mesh(&mut cache, renderer, config::ROAD_ASSET);
+        let (road_mesh, asphalt) = load_textured_mesh(&mut cache, renderer, &asset_path(config::ROAD_ASSET));
         self.road_mesh = Some(road_mesh);
         self.asphalt = Some(asphalt);
 
         // Distant city skyline backdrop (KE-0705): a textured billboard quad,
         // uploaded once and drawn far ahead, locked to the camera's XZ.
         let (backdrop_mesh, backdrop_texture) =
-            load_textured_mesh(&mut cache, renderer, config::SKYLINE_ASSET);
+            load_textured_mesh(&mut cache, renderer, &asset_path(config::SKYLINE_ASSET));
         self.backdrop_mesh = Some(backdrop_mesh);
         self.backdrop_texture = Some(backdrop_texture);
 
-        self.player_car = load_model(&mut cache, renderer, config::PLAYER_CAR_ASSET, fit_transform);
+        self.player_car = load_model(
+            &mut cache,
+            renderer,
+            &asset_path(config::PLAYER_CAR_ASSET),
+            fit_transform,
+        );
         self.traffic_cars = config::TRAFFIC_CAR_ASSETS
             .iter()
-            .map(|path| load_model(&mut cache, renderer, path, fit_transform))
+            .map(|name| load_model(&mut cache, renderer, &asset_path(name), fit_transform))
             .collect();
 
         // Roadside building prefabs (KE-0706): imported + uploaded once each, fit to
@@ -580,12 +586,12 @@ impl Game for CarRunner {
         // spawn transform drops each onto the ground plane below the road.
         self.buildings = config::BUILDING_ASSETS
             .iter()
-            .map(|path| load_model(&mut cache, renderer, path, building_fit))
+            .map(|name| load_model(&mut cache, renderer, &asset_path(name), building_fit))
             .collect();
 
         // HUD font atlas (KE-0404/KE-0707): the committed SDF atlas, uploaded
         // once so the HUD can draw text every frame by handle.
-        self.font = Some(crate::hud::load_font(renderer, config::FONT_ASSET));
+        self.font = Some(crate::hud::load_font(renderer, &asset_path(config::FONT_ASSET)));
 
         // Guardrail segment mesh (KE-0706): built once (a rail + posts one
         // `spawn_interval` long) and streamed along both road edges.
@@ -1347,14 +1353,16 @@ mod tests {
             return;
         }
 
-        let music = audio.load(config::MUSIC_ASSET);
-        let impact = audio.load(config::IMPACT_ASSET);
+        let (music_path, impact_path) = (
+            crate::asset_root::asset_path(config::MUSIC_ASSET),
+            crate::asset_root::asset_path(config::IMPACT_ASSET),
+        );
+        let music = audio.load(&music_path);
+        let impact = audio.load(&impact_path);
         assert_eq!(
             audio.decode_count(),
             2,
-            "both committed WAVs decoded ({} and {})",
-            config::MUSIC_ASSET,
-            config::IMPACT_ASSET,
+            "both committed WAVs decoded ({music_path} and {impact_path})",
         );
 
         // Quiet enough to be inaudible, loud enough to exercise the real mixer.
