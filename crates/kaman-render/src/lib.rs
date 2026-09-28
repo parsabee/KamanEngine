@@ -35,8 +35,9 @@
 //!   records a triangle draw. A stale/freed handle is a defined no-op, never a
 //!   silent wrong-buffer draw (see [`RegistryError`]).
 //! - `begin_frame` acquires the color attachment (drawable or offscreen
-//!   texture) and opens a render encoder; `submit` ends encoding and presents
-//!   (windowed) or synchronizes for readback (offscreen).
+//!   texture) and uploads the frame's light; draws are *recorded* and `submit`
+//!   encodes the frame's two passes (shadow, then scene — see below), then
+//!   presents (windowed) or synchronizes for readback (offscreen).
 //!
 //! # Camera (via the seam)
 //!
@@ -66,6 +67,20 @@
 //! disc the sky pass draws, so they cannot disagree. Until something pushes one,
 //! the default is the `Default` impl of [`SunSky`](kaman_render_api::SunSky).
 //!
+//! # Shadows (KE-0407)
+//!
+//! The sun casts real shadows through a single fitted shadow map. Each frame is
+//! two render passes: a **depth-only shadow pass** from the sun (every recorded
+//! draw is a caster) into a stored `Depth32Float` map, then the **scene pass**,
+//! whose untextured and textured lit shaders both sample it. The light's
+//! orthographic projection is refitted every frame to the camera's visible slab
+//! and snapped to whole texels so it never shimmers, and it is derived from the
+//! same [`SunSky`](kaman_render_api::SunSky) direction the shading uses. The
+//! fitting, bias and filtering live (and are unit-tested, GPU-free) in
+//! [`shadow`]; the pass wiring and its TBDR store-action reasoning in
+//! [`backend`]. Nothing about shadows crosses the seam: a game gets them by
+//! drawing and setting a sun.
+//!
 //! # Ray tracer (feature-gated)
 //!
 //! The ray-tracing code that was entangled in the prototype renderer is behind
@@ -88,6 +103,7 @@
 pub mod backend;
 pub mod frame_sync;
 pub mod registry;
+pub mod shadow;
 pub mod vertex;
 
 #[cfg(all(feature = "raytracer", not(target_os = "ios")))]

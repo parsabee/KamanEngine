@@ -2,7 +2,7 @@
 
 Phase:         4
 Priority:      P1
-Status:        Todo
+Status:        Done
 Integration:   New
 Size:          L · A2
 Time:          L
@@ -27,24 +27,24 @@ horizon fog is fully opaque by ~35 world units, so the shadow-relevant slab is s
 fitted map spends its whole resolution where the player can actually see.
 
 ## Scope & Acceptance
-- [ ] A **depth-only render pass** from the sun's point of view into an offscreen depth texture,
+- [x] A **depth-only render pass** from the sun's point of view into an offscreen depth texture,
       recorded before the scene pass each frame. Everything that draws into the scene casts into it.
-- [ ] The light-space frustum is **fitted to the visible slab** each frame (not the whole world), so
+- [x] The light-space frustum is **fitted to the visible slab** each frame (not the whole world), so
       resolution follows the camera. Fit must be stable: document and test what keeps the map from
       shimmering as the fit slides (e.g. snapping the light-space origin to texel increments).
-- [ ] The scene pass samples the map and shadows both pipelines — untextured **and** textured — so
+- [x] The scene pass samples the map and shadows both pipelines — untextured **and** textured — so
       buildings shadow the road, the guardrail stripes the asphalt, and car bodies self-shadow.
-- [ ] Filtering that is soft at the demo's resolution rather than a hard aliased edge (PCF or
+- [x] Filtering that is soft at the demo's resolution rather than a hard aliased edge (PCF or
       equivalent), with acne and peter-panning controlled by a **documented, justified** bias — state
       what the bias is in world units and why that value.
-- [ ] Shadowing is driven by the **KE-0406 sun**: changing the sun's elevation/azimuth moves the
+- [x] Shadowing is driven by the **KE-0406 sun**: changing the sun's elevation/azimuth moves the
       shadows correspondingly, with no second source of truth for the light direction.
-- [ ] Shadows respect the receiver, not a hardcoded plane: the road deck, the hill terrain at its own
+- [x] Shadows respect the receiver, not a hardcoded plane: the road deck, the hill terrain at its own
       height, and building faces all receive correctly. (`ground_height`'s replacement, or its
       deletion — see KE-0406.)
-- [ ] The fake `ground_shadow` blob and its now-unused uniform fields are **removed**, not left
+- [x] The fake `ground_shadow` blob and its now-unused uniform fields are **removed**, not left
       alongside the real path.
-- [ ] Runs on a GPU-less CI runner without failing: the shadow pass must degrade or skip the same way
+- [x] Runs on a GPU-less CI runner without failing: the shadow pass must degrade or skip the same way
       the pixel-hash tests do, never panic.
 
 ## Technical notes

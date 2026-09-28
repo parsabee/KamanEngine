@@ -14,8 +14,11 @@
 //     its glow** (KE-0406) at the direction the light actually comes from.
 //   * Distance fog that blends far geometry into the sky/horizon color, hiding
 //     the streaming spawn edge (`apply_fog`).
-//   * A cheap directional contact-shadow "blob" projected onto the ground plane
-//     to ground the car (`ground_shadow` / the shadow term in the lit shaders).
+//   * Real sun shadows (KE-0407): a depth-only pass from the sun
+//     (`shadow_vertex_main`) renders every caster into a fitted shadow map
+//     *before* the scene pass, and both lit pipelines look themselves up in it
+//     with receiver-plane-biased, tent-filtered 4x4 PCF (`shadow_visibility`). The
+//     fitting, stability and bias reasoning live in `src/shadow.rs`.
 //
 // Bloom is deferred for this pass (see KE-0401 report): it needs several extra
 // half-res offscreen targets + ping-pong pipelines that could not be validated
@@ -56,16 +59,17 @@ struct VertexOut {
 /// Transformation matrices passed from CPU per draw call
 struct Uniforms {
     float4x4 modelViewProjection;      // Combined model-view-projection matrix
-    float4x4 model;                    // Model matrix (world-space pos/normal for fog + shadow)
+    float4x4 model;                    // Model matrix (world pos/normal for fog + shadow lookups; places casters)
 };
 
 /// Lighting parameters (directional light with Phong components) plus the
-/// KE-0401 look parameters (fog, sky, shadow) and the KE-0406 camera block.
-/// Mirrors the Rust `LightUniforms` **byte for byte** — 208 bytes.
+/// KE-0401 look parameters (fog, sky), the KE-0407 shadow-map parameters, the
+/// KE-0406 camera block and the KE-0407 light matrix.
+/// Mirrors the Rust `LightUniforms` **byte for byte** — 256 bytes.
 ///
 /// LAYOUT WARNING: an MSL `float3` occupies 16 bytes, so each one below sits at a
-/// 16-byte-aligned offset (0, 16, 48, 64, 96, 128) and the trailing `float4x4` at
-/// 144. The Rust side spells those pads out explicitly and asserts every offset;
+/// 16-byte-aligned offset (0, 16, 48, 64, 112) and the two trailing `float4x4`s at
+/// 128 and 192. The Rust side spells those pads out explicitly and asserts every offset;
 /// a mismatch here does not fail to compile, it silently shades with the wrong
 /// bytes (it has happened once — see the `REFERENCE_HASH` re-bless note).
 struct Light {
@@ -83,13 +87,19 @@ struct Light {
     float  fogStart;                   // View distance at which fog begins
     float  fogHeight;                  // World Y at/below which fog is full strength
     float  fogFalloff;                 // e-fold the fog thins over above fogHeight (0 = no falloff)
-    float3 shadowCenter;               // World-space point the car sits above (blob center)
-    float  shadowRadius;               // Blob shadow radius in world units
-    float  shadowStrength;             // 0..1 darkening under the car
+
+    // --- KE-0407 shadow map (see src/shadow.rs for the reasoning) ---
+    float  shadowDepthBias;            // Constant bias, map depth units (0.02 world / depth range)
+    float  shadowReceiverSlopeCap;     // Cap on the receiver plane's per-texel depth gradient, map depth units
+    float  shadowDistance;             // View depth the map covers; shadows fade out before it
+    float  shadowStrength;             // 1 = shadowed fragments keep only sky fill, 0 = off
 
     // --- KE-0406 camera block (the frame's camera, not its light) ---
     float3 cameraPosition;             // Camera world position -> view-dependent specular
     float4x4 inverseViewProjection;    // clip -> world, for the sky pass's view ray
+
+    // --- KE-0407 ---
+    float4x4 lightViewProjection;      // world -> shadow-map clip (fitted ortho * light view)
 };
 
 // ============================================================================
@@ -174,18 +184,121 @@ inline float3 apply_fog(float3 color, float viewDist, float worldY, constant Lig
     return mix(color, light.skyHorizonColor, fog);
 }
 
-/// Cheap directional contact shadow: darken a fragment that sits within
-/// `shadowRadius` of the car's ground-projected center. Used to ground the car
-/// without a full shadow-map pass. Returns a 0..1 multiplier (1 = fully lit).
-inline float ground_shadow(float3 worldPos, constant Light& light) {
-    if (light.shadowStrength <= 0.0 || light.shadowRadius <= 0.0) {
+// ============================================================================
+// Shadow map (KE-0407)
+// ============================================================================
+//
+// Pass order: `shadow_vertex_main` renders every caster depth-only into the map
+// first (its own render pass, stored — never memoryless — so it survives to be
+// sampled), then the scene pass samples it here. All tuning constants and their
+// justification live in `src/shadow.rs`; the per-frame values arrive in `Light`.
+
+/// Fraction of `shadowDistance` over which shadows fade out (mirrors
+/// `SHADOW_FADE_FRACTION` in `src/shadow.rs`).
+constant float SHADOW_FADE_FRACTION = 0.2;
+
+/// Depth-only caster input: the position is the only attribute the shadow pass
+/// reads, at location 0 in both the `[pos,normal,color]` and `[pos,normal,uv]`
+/// layouts (the pipeline's vertex descriptor supplies each layout's stride).
+struct ShadowVertexIn {
+    float3 position [[attribute(0)]];
+};
+
+/// Depth-only caster output: clip position only — there is no fragment stage.
+struct ShadowVertexOut {
+    float4 position [[position]];
+};
+
+/// The shadow pass's minimal vertex function: model -> world -> light clip. No
+/// normal, colour or UV plumbing, and no fragment function at all.
+vertex ShadowVertexOut shadow_vertex_main(ShadowVertexIn in [[stage_in]],
+                                          constant Uniforms& uniforms [[buffer(1)]],
+                                          constant Light& light [[buffer(2)]]) {
+    ShadowVertexOut out;
+    out.position = light.lightViewProjection * (uniforms.model * float4(in.position, 1.0));
+    return out;
+}
+
+/// How much of the sun reaches `worldPos`: 1 = fully lit, 0 = fully shadowed.
+///
+/// Filtering: tent-weighted PCF over the 4x4 texels around the lookup — the
+/// same weights as a 3x3 grid of bilinear taps one texel apart, i.e. a smooth
+/// ~4-texel penumbra — done as explicit per-texel compares so each texel can be
+/// compared at its own centre. Bias, per texel:
+///
+///  * **Receiver plane** — each texel is compared against the depth the
+///    receiver's own triangle has *at that texel's centre*, extrapolated along the
+///    triangle's plane. The plane comes from the screen-space derivatives of the
+///    shadow-map position (exact for a planar triangle), so a lit surface never
+///    shadows itself however steeply it faces away from the sun. The per-texel
+///    gradient is capped at `shadowReceiverSlopeCap` so an edge-on receiver (whose
+///    gradient is unbounded) cannot extrapolate absurdly.
+///  * **`shadowDepthBias`** — 2 cm of world, for float error.
+///
+/// Anything outside the map, or past `shadowDistance`, is lit.
+inline float shadow_visibility(float3 worldPos, float viewDepth, constant Light& light,
+                               depth2d<float> shadowMap) {
+    float4 lightClip = light.lightViewProjection * float4(worldPos, 1.0);
+    float3 ndc = lightClip.xyz / lightClip.w;          // orthographic: w == 1
+    // Shadow-map (u, v, depth). NDC +Y is up; texture v runs down.
+    float3 q = float3(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z);
+
+    // Derivatives first, in uniform control flow (before any per-pixel branch).
+    float3 qdx = dfdx(q);
+    float3 qdy = dfdy(q);
+
+    if (light.shadowStrength <= 0.0) {
         return 1.0;
     }
-    float2 d = worldPos.xz - light.shadowCenter.xz;
-    float dist = length(d) / light.shadowRadius;
-    // Soft falloff, strongest at the center.
-    float occ = 1.0 - smoothstep(0.0, 1.0, dist);
-    return 1.0 - light.shadowStrength * occ;
+    if (any(q.xy < 0.0) || any(q.xy > 1.0) || q.z > 1.0 || q.z < 0.0) {
+        return 1.0;
+    }
+
+    // Receiver plane in (u, v, depth): its normal is the cross of two in-plane
+    // screen derivatives; depth's gradient over (u, v) follows from it.
+    float size = float(shadowMap.get_width());
+    float3 n = cross(qdx, qdy);
+    float nLen = length(n);
+    float2 depthPerUv = float2(0.0);
+    if (nLen > 0.0) {
+        // Edge-on to the light, n.z -> 0 and the gradient explodes: floor the
+        // divisor, then cap the per-texel gradient.
+        float nz = n.z >= 0.0 ? max(n.z, 1e-6 * nLen) : min(n.z, -1e-6 * nLen);
+        depthPerUv = -n.xy / nz;
+    }
+    float capPerUv = light.shadowReceiverSlopeCap * size;
+    depthPerUv = clamp(depthPerUv, -capPerUv, capPerUv);
+    float reference = q.z - light.shadowDepthBias;
+
+    // Texel-centre space: texel k's centre sits at k + 0.5 texels.
+    float2 pos = q.xy * size - 0.5;
+    float2 base = floor(pos);
+    float2 f = pos - base;
+    // 1D weights of three bilinear taps at -1, 0, +1 texels over texels
+    // base-1 .. base+2 (each row sums to 3; the 2D total is 9).
+    float wx[4] = { 1.0 - f.x, 1.0, 1.0, f.x };
+    float wy[4] = { 1.0 - f.y, 1.0, 1.0, f.y };
+    int maxIndex = int(size) - 1;
+
+    float lit = 0.0;
+    for (int j = 0; j < 4; ++j) {
+        for (int i = 0; i < 4; ++i) {
+            float2 texelIndex = base + float2(i - 1, j - 1);
+            float2 centreUv = (texelIndex + 0.5) / size;
+            float receiver = reference + dot(depthPerUv, centreUv - q.xy);
+            uint2 coord = uint2(clamp(int2(texelIndex), int2(0), int2(maxIndex)));
+            float occluder = shadowMap.read(coord);
+            lit += wx[i] * wy[j] * (receiver <= occluder ? 1.0 : 0.0);
+        }
+    }
+    lit *= (1.0 / 9.0);
+
+    // Fade out over the last stretch of the fitted slab (inside the fog), so the
+    // map's far edge never shows as a line.
+    float fadeStart = light.shadowDistance * (1.0 - SHADOW_FADE_FRACTION);
+    lit = mix(lit, 1.0, smoothstep(fadeStart, light.shadowDistance, viewDepth));
+
+    return mix(1.0, lit, light.shadowStrength);
 }
 
 // ============================================================================
@@ -216,8 +329,10 @@ vertex VertexOut vertex_main(VertexIn in [[stage_in]],
 // ============================================================================
 
 /// Blinn-Phong lit color in LINEAR space, shared by the lit fragment shaders.
+/// `shadow` (from `shadow_visibility`) scales the sun's direct light only; the
+/// ambient sky fill reaches shadowed surfaces unchanged.
 inline float3 lit_linear(float3 albedo, float3 worldNormal, float3 worldPos,
-                         float viewDepth, constant Light& light) {
+                         float viewDepth, float shadow, constant Light& light) {
     float3 normal = normalize(worldNormal);
     float3 lightDir = normalize(-light.direction);
 
@@ -239,16 +354,17 @@ inline float3 lit_linear(float3 albedo, float3 worldNormal, float3 worldPos,
     spec *= step(1e-4, diff);
     float3 specular = light.specularIntensity * spec * light.color;
 
-    float shadow = ground_shadow(worldPos, light);
     float3 lit = (ambient + (diffuse + specular) * shadow) * albedo;
     return apply_fog(lit, viewDepth, worldPos.y, light);
 }
 
 /// Calculate per-pixel lighting using Blinn-Phong shading model (untextured).
 fragment float4 fragment_main(VertexOut in [[stage_in]],
-                              constant Light& light [[buffer(0)]]) {
+                              constant Light& light [[buffer(0)]],
+                              depth2d<float> shadowMap [[texture(1)]]) {
+    float shadow = shadow_visibility(in.worldPosition, in.viewDepth, light, shadowMap);
     float3 lit = lit_linear(in.color, in.worldNormal, in.worldPosition,
-                            in.viewDepth, light);
+                            in.viewDepth, shadow, light);
     return float4(present_color(lit), 1.0);
 }
 
@@ -334,7 +450,7 @@ fragment float4 sky_fragment_main(SkyOut in [[stage_in]],
 //
 // A second pipeline reading the `[pos,normal,uv]` layout. It samples the bound
 // base-color texture at the interpolated UV (trilinear, mipmapped) and runs the
-// same lighting + fog + shadow + present math as the untextured path.
+// same lighting + fog + shadow-map + present math as the untextured path.
 
 /// Textured vertex input: position, normal, and UV (no per-vertex color).
 struct TexturedVertexIn {
@@ -378,12 +494,14 @@ fragment float4 textured_fragment_main(TexturedVertexOut in [[stage_in]],
                                        constant Light& light [[buffer(0)]],
                                        constant MaterialUniforms& material [[buffer(2)]],
                                        texture2d<float> baseColor [[texture(0)]],
-                                       sampler baseColorSampler [[sampler(0)]]) {
+                                       sampler baseColorSampler [[sampler(0)]],
+                                       depth2d<float> shadowMap [[texture(1)]]) {
     float4 sampled = baseColor.sample(baseColorSampler, in.uv);
     float3 albedo = sampled.rgb * material.baseColorFactor.rgb;
 
+    float shadow = shadow_visibility(in.worldPosition, in.viewDepth, light, shadowMap);
     float3 lit = lit_linear(albedo, in.worldNormal, in.worldPosition,
-                            in.viewDepth, light);
+                            in.viewDepth, shadow, light);
     return float4(present_color(lit), sampled.a * material.baseColorFactor.a);
 }
 

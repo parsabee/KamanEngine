@@ -22,6 +22,11 @@
 //!    falloff, and the azimuth convention. The other two point *away* from the sun
 //!    on purpose, which is what makes reference 2 a useful canary but also left the
 //!    disc with no coverage until this one existed.
+//! 4. **The shadow map** ([`SHADOW_REFERENCE_HASH`], KE-0407) — a floating cube
+//!    casting onto a ground split between the textured and untextured pipelines.
+//!    Alongside it, two behavioural tests prove the shadow comes from the shadow
+//!    pass (disabling its casters removes it) and follows the sun (turning the sun
+//!    moves it).
 //!
 //! They are separate renders (separate offscreen backends) so a change to one
 //! cannot shift the other's pixels, and a failure names which pass regressed.
@@ -121,7 +126,17 @@ const HEIGHT: u32 = 64;
 // distinct values, the red box covering 1421 of 4096 pixels) — the failure mode
 // the KE-0401 note above describes is a low-variance frame fogged to the horizon
 // colour, which this is not.
-const REFERENCE_HASH: u64 = 0xc3bc162d10925b22;
+//
+// KE-0407: re-bless REQUIRED (intended look change): 0xc3bc162d10925b22 ->
+// 0xbb6d718f1804993d. The fake `ground_shadow` blob is deleted. It was centred on
+// the world origin (radius 1.2, strength 0.5) — exactly where this box sits — so it
+// was darkening the box's lit faces; without it they are brighter. The real shadow
+// map adds nothing to this frame: re-rendering it with the shadow pass's casters
+// disabled (`set_shadows_enabled(false)`) gives the *same* 0xbb6d718f1804993d, so
+// the box does not shadow itself anywhere (no acne) and the whole change is the blob
+// removal. Geometry, camera, sun and transform are untouched; OVERLAY_REFERENCE_HASH
+// and SUN_REFERENCE_HASH reprinted unchanged in the same run.
+const REFERENCE_HASH: u64 = 0xbb6d718f1804993d;
 
 /// Committed baseline hash of the **reference overlay**'s pixels (FNV-1a 64-bit).
 ///
@@ -601,4 +616,317 @@ fn reference_sun_matches_committed_hash() {
     };
 
     bless_or_assert(&pixels, SUN_REFERENCE_HASH, "SUN_REFERENCE_HASH");
+}
+
+// ---------------------------------------------------------------------------
+// Shadow reference (KE-0407)
+// ---------------------------------------------------------------------------
+
+/// Committed baseline hash of the **shadow reference**'s pixels (FNV-1a 64-bit).
+///
+/// Guards the KE-0407 shadow-map pass end to end — the depth-only caster pass, the
+/// fitted light projection, and the receiver lookup in *both* lit pipelines — with
+/// a scene built so a caster demonstrably darkens a receiver: see
+/// [`render_reference_shadow`]. [`reference_shadow_is_cast_by_the_shadow_pass`]
+/// renders the same scene with the shadow pass's casters disabled and requires the
+/// frame to change (and the predicted shadow to be where the darkening is), so the
+/// hash cannot be quietly guarding a frame with no shadow in it.
+///
+/// # KE-0407 first blessing
+///
+/// Blessed 2026-09-27 on this machine's Apple GPU. Checked before accepting it:
+///
+/// - **The shadow is really there, on both pipelines.** At the two predicted
+///   shadow points the 3x3 mean luminance drops from 217 → 132 on the textured
+///   (west) receiver and 204 → 111 on the untextured (east) receiver when the
+///   casters are switched on; points away from the shadow are unchanged. The frame
+///   was also inspected: one soft-edged shadow, east of the cube, crossing the
+///   textured/untextured seam.
+/// - **The hash depends on the pass.** With the shadow pass's casters disabled
+///   (`set_shadows_enabled(false)`) the same scene hashes to `0xe105de70657b1d19`
+///   instead — the guard is live, not decorative.
+/// - **The other baselines behave.** The same blessing run reprinted
+///   `OVERLAY_REFERENCE_HASH` and `SUN_REFERENCE_HASH` unchanged.
+const SHADOW_REFERENCE_HASH: u64 = 0xfeea97900d873f0a;
+
+/// The sun the shadow reference is lit by: 50° up at `azimuth_deg` (the reference
+/// uses `270`, due **west**, so the light travels toward `+X` and the caster's
+/// shadow falls to its east).
+fn reference_shadow_sun(azimuth_deg: f32) -> kaman_render_api::SunSky {
+    kaman_render_api::SunSky {
+        sun_elevation_deg: 50.0,
+        sun_azimuth_deg: azimuth_deg,
+        ..kaman_render_api::SunSky::default()
+    }
+}
+
+/// World position of the floating caster cube's centre (unit cube).
+const SHADOW_CASTER_CENTER: Vec3 = Vec3::new(-0.6, 1.0, 0.0);
+
+/// A full, closed unit cube (all six faces), untextured `[pos,normal,color]`.
+fn caster_cube() -> (Vec<[f32; 9]>, Vec<u32>) {
+    let c = [0.85, 0.75, 0.2];
+    // (normal, u axis, v axis) per face.
+    let faces: [([f32; 3], [f32; 3], [f32; 3]); 6] = [
+        ([1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
+        ([-1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
+        ([0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0]),
+        ([0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+        ([0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),
+        ([0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),
+    ];
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    for (n, u, v) in faces {
+        let base = vertices.len() as u32;
+        for (su, sv) in [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)] {
+            let p = [
+                n[0] * 0.5 + u[0] * su + v[0] * sv,
+                n[1] * 0.5 + u[1] * su + v[1] * sv,
+                n[2] * 0.5 + u[2] * su + v[2] * sv,
+            ];
+            vertices.push([p[0], p[1], p[2], n[0], n[1], n[2], c[0], c[1], c[2]]);
+        }
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+    (vertices, indices)
+}
+
+/// An untextured `[pos,normal,color]` ground quad at `y = 0` spanning `x0..x1`,
+/// `z -3..3`, facing up.
+fn untextured_ground(x0: f32, x1: f32) -> (Vec<[f32; 9]>, Vec<u32>) {
+    let c = [0.55, 0.6, 0.65];
+    let v = |x: f32, z: f32| [x, 0.0, z, 0.0, 1.0, 0.0, c[0], c[1], c[2]];
+    (
+        vec![v(x0, 3.0), v(x1, 3.0), v(x1, -3.0), v(x0, -3.0)],
+        vec![0, 1, 2, 0, 2, 3],
+    )
+}
+
+/// The `[pos,normal,uv]` layout of the textured pipeline (32-byte stride).
+fn textured_layout() -> VertexLayout {
+    VertexLayout::new(
+        32,
+        vec![
+            VertexAttribute {
+                location: 0,
+                offset: 0,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 1,
+                offset: 12,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                location: 2,
+                offset: 24,
+                format: VertexFormat::Float32x2,
+            },
+        ],
+    )
+}
+
+/// A textured ground quad at `y = 0` spanning `x0..x1`, `z -3..3`, facing up,
+/// packed `[pos,normal,uv]`.
+fn textured_ground(x0: f32, x1: f32) -> (Vec<u8>, Vec<u32>) {
+    let v = |x: f32, z: f32, uv: [f32; 2]| [x, 0.0, z, 0.0, 1.0, 0.0, uv[0], uv[1]];
+    let verts = [
+        v(x0, 3.0, [0.0, 1.0]),
+        v(x1, 3.0, [1.0, 1.0]),
+        v(x1, -3.0, [1.0, 0.0]),
+        v(x0, -3.0, [0.0, 0.0]),
+    ];
+    let mut bytes = Vec::new();
+    for vert in &verts {
+        for f in vert {
+            bytes.extend_from_slice(&f.to_ne_bytes());
+        }
+    }
+    (bytes, vec![0, 1, 2, 0, 2, 3])
+}
+
+/// The shadow reference's camera: above and in front, looking down at the origin.
+fn reference_shadow_camera() -> Camera {
+    let mut camera = Camera::new(WIDTH as f32 / HEIGHT as f32);
+    camera.set_position(Vec3::new(0.0, 4.0, 5.0));
+    camera.set_target(Vec3::new(0.0, 0.0, 0.0));
+    camera
+}
+
+/// Render the shadow reference offscreen, or `None` without a Metal device.
+///
+/// A floating cube (untextured pipeline) hangs over a ground split in two: the
+/// west half (`x < 0`) is drawn by the **textured** pipeline, the east half by the
+/// **untextured** one. Under the west sun of [`reference_shadow_sun`] the cube's
+/// shadow falls east across the seam, so one frame proves both pipelines receive.
+/// `shadows` toggles the shadow pass's casters; `azimuth_deg` turns the sun.
+fn render_reference_shadow(shadows: bool, azimuth_deg: f32) -> Option<Vec<u8>> {
+    let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
+    renderer.set_shadows_enabled(shadows);
+
+    let untextured = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor {
+        vertex_shader: "vertex_main".into(),
+        fragment_shader: "fragment_main".into(),
+        vertex_layout: vertex_layout(),
+    });
+    let textured = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor {
+        vertex_shader: "textured_vertex_main".into(),
+        fragment_shader: "textured_fragment_main".into(),
+        vertex_layout: textured_layout(),
+    });
+
+    let (cube_v, cube_i) = caster_cube();
+    let cube = renderer.create_mesh(&MeshData {
+        vertices: &pack_vertices(&cube_v),
+        indices: &cube_i,
+        layout: vertex_layout(),
+    });
+    let (east_v, east_i) = untextured_ground(0.0, 3.0);
+    let east = renderer.create_mesh(&MeshData {
+        vertices: &pack_vertices(&east_v),
+        indices: &east_i,
+        layout: vertex_layout(),
+    });
+    let (west_bytes, west_i) = textured_ground(-3.0, 0.0);
+    let west = renderer.create_mesh(&MeshData {
+        vertices: &west_bytes,
+        indices: &west_i,
+        layout: textured_layout(),
+    });
+    // A light, even base colour (2x2 so it has a real mip chain) — the shadow is
+    // what should vary across the west half, not the texture.
+    let texture = renderer.create_texture(&TextureData {
+        width: 2,
+        height: 2,
+        rgba8: &[210u8, 200, 190, 255].repeat(4),
+    });
+
+    let camera = reference_shadow_camera();
+    renderer.set_sun_sky(&reference_shadow_sun(azimuth_deg));
+    renderer.set_view_projection(camera.view_projection_matrix());
+    renderer.set_camera_position(camera.position());
+
+    renderer.begin_frame();
+    renderer.set_pipeline(textured);
+    renderer.bind_texture(texture);
+    renderer.draw_mesh(west, &Transform::identity(), &MaterialParams::default());
+    renderer.set_pipeline(untextured);
+    renderer.draw_mesh(east, &Transform::identity(), &MaterialParams::default());
+    renderer.draw_mesh(
+        cube,
+        &Transform::from_position(SHADOW_CASTER_CENTER),
+        &MaterialParams::default(),
+    );
+    renderer.submit();
+
+    renderer.read_pixels()
+}
+
+/// Mean luminance (0..255) of the 3x3 pixels around where `world` projects in the
+/// shadow reference's camera.
+fn luminance_at(pixels: &[u8], world: Vec3) -> f32 {
+    let clip = reference_shadow_camera().view_projection_matrix() * world.extend(1.0);
+    let ndc = clip.truncate() / clip.w;
+    let px = ((ndc.x * 0.5 + 0.5) * WIDTH as f32) as i32;
+    let py = ((0.5 - ndc.y * 0.5) * HEIGHT as f32) as i32;
+    let mut sum = 0.0;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let x = (px + dx).clamp(0, WIDTH as i32 - 1) as usize;
+            let y = (py + dy).clamp(0, HEIGHT as i32 - 1) as usize;
+            let i = (y * WIDTH as usize + x) * 4;
+            // BGRA8.
+            let (b, g, r) = (pixels[i] as f32, pixels[i + 1] as f32, pixels[i + 2] as f32);
+            sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        }
+    }
+    sum / 9.0
+}
+
+/// A ground point in the cube's shadow on the **textured** (west) half, under the
+/// west sun: the ray back toward the sun passes through the cube.
+const SHADOWED_TEXTURED: Vec3 = Vec3::new(-0.3, 0.0, 0.0);
+/// A ground point in the cube's shadow on the **untextured** (east) half.
+const SHADOWED_UNTEXTURED: Vec3 = Vec3::new(0.6, 0.0, 0.0);
+/// A ground point nowhere near the shadow on the textured half.
+const LIT_TEXTURED: Vec3 = Vec3::new(-2.2, 0.0, 1.8);
+/// A ground point nowhere near the shadow on the untextured half.
+const LIT_UNTEXTURED: Vec3 = Vec3::new(2.2, 0.0, 1.8);
+
+#[test]
+fn reference_shadow_matches_committed_hash() {
+    let Some(pixels) = render_reference_shadow(true, 270.0) else {
+        skip_no_gpu("reference-shadow");
+        return;
+    };
+
+    bless_or_assert(&pixels, SHADOW_REFERENCE_HASH, "SHADOW_REFERENCE_HASH");
+}
+
+#[test]
+fn reference_shadow_is_cast_by_the_shadow_pass() {
+    // The test gate's "verify by disabling it, not by assuming": the same scene
+    // with the shadow pass's casters switched off must differ, and the difference
+    // must be the predicted shadow darkening both receivers — not noise elsewhere.
+    let (Some(on), Some(off)) = (
+        render_reference_shadow(true, 270.0),
+        render_reference_shadow(false, 270.0),
+    ) else {
+        skip_no_gpu("reference-shadow");
+        return;
+    };
+
+    assert_ne!(
+        fnv1a_64(&on),
+        fnv1a_64(&off),
+        "disabling the shadow pass changed nothing: the reference has no shadow in it"
+    );
+    for (point, what) in [
+        (SHADOWED_TEXTURED, "textured"),
+        (SHADOWED_UNTEXTURED, "untextured"),
+    ] {
+        let (lit, shadowed) = (luminance_at(&off, point), luminance_at(&on, point));
+        assert!(
+            shadowed < lit * 0.75,
+            "the {what} receiver at {point:?} is not darkened by the cube's shadow \
+             (luminance {shadowed} with shadows vs {lit} without)"
+        );
+    }
+    for point in [LIT_TEXTURED, LIT_UNTEXTURED] {
+        let (a, b) = (luminance_at(&off, point), luminance_at(&on, point));
+        assert!(
+            (a - b).abs() < 1.0,
+            "{point:?} is far from the shadow but changed ({b} vs {a}) — acne or a leak"
+        );
+    }
+}
+
+#[test]
+fn turning_the_sun_moves_the_shadow() {
+    // Shadowing is driven by the KE-0406 sun, not a second light: swing the same
+    // 50° sun from due west to due east and the shadow must leave the east half and
+    // appear on the west half, mirrored about the cube.
+    let (Some(west_sun), Some(east_sun)) = (
+        render_reference_shadow(true, 270.0),
+        render_reference_shadow(true, 90.0),
+    ) else {
+        skip_no_gpu("reference-shadow");
+        return;
+    };
+    // Mirror of SHADOWED_UNTEXTURED about the cube centre (x = -0.6).
+    let mirrored = Vec3::new(
+        2.0 * SHADOW_CASTER_CENTER.x - SHADOWED_UNTEXTURED.x,
+        0.0,
+        0.0,
+    );
+    assert!(
+        luminance_at(&east_sun, SHADOWED_UNTEXTURED)
+            > luminance_at(&west_sun, SHADOWED_UNTEXTURED) * 1.3,
+        "with the sun in the east, the east-side point should be lit"
+    );
+    assert!(
+        luminance_at(&east_sun, mirrored) < luminance_at(&west_sun, mirrored) * 0.75,
+        "with the sun in the east, the shadow should fall west of the cube"
+    );
 }

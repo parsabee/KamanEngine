@@ -361,23 +361,34 @@ sequenceDiagram
 
 ---
 
-## 10. Render passes / look stack (KE-0401)
+## 10. Render passes / look stack (KE-0401, KE-0407)
 
 All below the seam in `kaman-render`. Lighting is computed in linear space; the final present is
-ACES-tonemapped + sRGB-encoded.
+ACES-tonemapped + sRGB-encoded. Each frame is **two render passes** on one command buffer: a
+depth-only shadow pass from the sun, then the scene pass that samples it. Draws are recorded during
+the frame and replayed into both passes at `submit`, so every caster is known before the scene
+pass starts.
 
 ```mermaid
 graph LR
-    A["Sky pass<br/>(fullscreen gradient, depth off)"] --> B
-    B["Scene pass<br/>4x MSAA color+depth<br/>Blinn-Phong · fog · blob shadow"] --> C
+    S["Shadow pass (KE-0407)<br/>depth-only from the sun<br/>2048² Depth32Float · store: Store"] --> A
+    A["Sky (fullscreen gradient + sun disc, depth off)"] --> B
+    B["Lit draws<br/>4x MSAA color+depth<br/>Blinn-Phong · shadow-map PCF · fog"] --> O
+    O["2D overlay (KE-0404)"] --> C
     C["MSAA resolve (in-tile)<br/>MultisampleResolve store"] --> D
     D["Present<br/>ACES tonemap → sRGB<br/>drawable / offscreen texture"]
     classDef msaa fill:#eef;
-    class B,C msaa;
+    class A,B,O,C msaa;
 ```
 
 MSAA/depth storage is behind one `cfg` hook (`msaa_storage_mode()`) so KE-0305 can make the
-attachments **memoryless** on iOS. Bloom is deferred.
+attachments **memoryless** on iOS. The shadow map is deliberately *not* behind it: it is sampled by
+the pass after the one that writes it, so it is `Private` with a `Store` store action on every
+platform (both asserted). The light's orthographic projection is refitted each frame to the camera
+frustum cut where the fog goes opaque, enclosed in a sphere and snapped to whole shadow texels, so it
+follows the camera without shimmering; its direction is the KE-0406 sun's. Receivers are biased by
+their own triangle's plane plus a constant 2 cm (see `kaman-render/src/shadow.rs`). Bloom is
+deferred.
 
 ---
 

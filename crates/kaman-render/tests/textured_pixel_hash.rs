@@ -50,7 +50,7 @@ const HEIGHT: u32 = 64;
 /// # KE-0401 re-bless (value CHANGES — intentional look change)
 ///
 /// The textured pipeline now runs the same KE-0401 present stack (ACES tonemap +
-/// sRGB encode), distance fog, blob shadow, and 4x MSAA resolve as the untextured
+/// sRGB encode), distance fog, blob shadow (deleted in KE-0407), and 4x MSAA resolve as the untextured
 /// path. The mesh, texture (checkerboard), camera, and transform are unchanged,
 /// so this is a pure look change — the non-uniformity assertion below still holds
 /// — but the pixel bytes shift, so the hash MUST be re-blessed:
@@ -73,7 +73,17 @@ const HEIGHT: u32 = 64;
 // unchanged; the sun disc is far outside this frame.
 //
 // Blessed 2026-09-26: 0xdb98efc9ab5028c9 -> 0x4aa6c2b1732c4ac7.
-const REFERENCE_HASH: u64 = 0x4aa6c2b1732c4ac7;
+//
+// KE-0407: re-bless REQUIRED (intended look change): 0x4aa6c2b1732c4ac7 ->
+// 0x95a7782d5aea44e4. The fake `ground_shadow` blob is deleted; it was centred on
+// the world origin (radius 1.2, strength 0.5), where this quad sits, so it was
+// darkening the middle of the quad. The quad now samples the real shadow map
+// (`[[texture(1)]]`), but nothing occludes it: rendering it with the shadow pass's
+// casters disabled gives the identical 0x95a7782d5aea44e4, i.e. the quad does not
+// shadow itself (no acne — an earlier bilinear-tap filter did leave 21 pixels 1 LSB
+// darker here, which is why the filter compares per texel centre) and the whole
+// change is the blob removal. Mesh, texture, camera and transform are unchanged.
+const REFERENCE_HASH: u64 = 0x95a7782d5aea44e4;
 
 /// FNV-1a 64-bit over a byte buffer (self-contained, no external crate).
 fn fnv1a_64(bytes: &[u8]) -> u64 {

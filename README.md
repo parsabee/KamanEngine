@@ -127,7 +127,7 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 | 1 — Renderer foundation | ✅ Complete except KE-0107 (precompiled `.metallib`) — blocked on full Xcode |
 | 2 — Gameplay core | ✅ Complete |
 | 3 — iOS bring-up | ⏳ Not started — needs full Xcode + iOS rustup targets |
-| 4 — Look & feel + content | 🟡 6 / 7 — glTF import, textures, modern-look stack, 2D HUD/SDF text, audio (kira), sun/sky seam landed; **KE-0407 real shadow maps** next |
+| 4 — Look & feel + content | ✅ Complete — glTF import, textures, modern-look stack, 2D HUD/SDF text, audio (kira), sun/sky seam, and real fitted shadow maps (KE-0407) landed |
 | 5 — KamanScript | ⏳ Not started |
 | 6 — Release | ⏳ Not started |
 | 7 — Playable Demo *(pulled forward)* | ✅ Complete — 3-lane freeway runner with real CC0 cars, buildings, road and skyline, HUD, title/game-over/replay, music + SFX |

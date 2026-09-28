@@ -12,6 +12,8 @@
 use kaman_math::glam::{Mat4, Vec3};
 use kaman_render_api::SunSky;
 
+use crate::shadow::ShadowFit;
+
 /// One interleaved vertex: position, normal, and per-vertex color.
 ///
 /// Matches `VertexIn` in `rasterization.metal` — three `float3`s, 36 bytes,
@@ -40,9 +42,11 @@ pub struct Vertex {
 /// - Rust `model_view_projection: [[f32; 4]; 4]` (column-major) ⇔ MSL
 ///   `float4x4 modelViewProjection`.
 /// - Rust `model: [[f32; 4]; 4]` ⇔ MSL `float4x4 model`. The **model matrix**
-///   is needed by the KE-0401 look stack: fog and the blob shadow are computed
-///   in world space, so the vertex shader must reconstruct the world position
-///   and normal from the un-projected model transform.
+///   is needed by the look stack: fog and shadow-map lookups (KE-0407) are
+///   computed in world space, so the vertex shaders must reconstruct the world
+///   position and normal from the un-projected model transform. The depth-only
+///   shadow caster pass also reads it, combining it with the light's
+///   view-projection instead of the camera's.
 /// - Size is **exactly 128 bytes** (asserted by `uniforms_is_128_bytes`).
 /// - When sub-allocated from the uniform ring the struct is written at a
 ///   [`UNIFORM_RING_STRIDE`]-byte-aligned offset so it satisfies the Apple GPU
@@ -54,7 +58,8 @@ pub struct Vertex {
 pub struct Uniforms {
     /// Combined model-view-projection matrix, column-major.
     pub model_view_projection: [[f32; 4]; 4],
-    /// Model (world) matrix, column-major — drives world-space fog + shadow.
+    /// Model (world) matrix, column-major — drives world-space fog + shadow lookups,
+    /// and places casters in the shadow pass.
     pub model: [[f32; 4]; 4],
 }
 
@@ -88,14 +93,17 @@ impl Default for MaterialUniforms {
     }
 }
 
-/// The frame's shared fragment uniforms: the directional sun + Phong parameters,
-/// the KE-0401 look parameters (gradient sky, distance fog, blob shadow), and the
-/// KE-0406 camera block. One of these is uploaded per frame and bound at fragment
-/// `[[buffer(0)]]` for **every** pass that shades (sky, untextured, textured).
+/// The frame's shared uniforms: the directional sun + Phong parameters, the
+/// KE-0401 look parameters (gradient sky, distance fog), the KE-0407 shadow-map
+/// parameters, the KE-0406 camera block, and the KE-0407 light view-projection. One
+/// of these is uploaded per frame and bound at fragment `[[buffer(0)]]` for
+/// **every** pass that shades (sky, untextured, textured), and at vertex
+/// `[[buffer(2)]]` for the depth-only shadow caster pass.
 ///
 /// Matches `Light` in `rasterization.metal`. Laid out to Metal's `constant`
 /// buffer alignment rules — every `float3` is 16-byte aligned/sized — for a
-/// total of **208 bytes** (asserted by `light_uniforms_is_208_bytes`, with the
+/// total of **256 bytes** (asserted by `light_uniforms_is_256_bytes` and at
+/// compile time, with the
 /// offset of every `float3`/`float4x4` field asserted alongside it). The explicit
 /// `_pad*` fields reproduce the padding the MSL compiler inserts, so the Rust
 /// bytes land on the exact offsets the shader reads.
@@ -117,7 +125,8 @@ impl Default for MaterialUniforms {
 ///
 /// # Camera block (KE-0406)
 ///
-/// The last two fields are the frame's *camera*, not its light. They live in this
+/// `camera_position` and `inverse_view_projection` are the frame's *camera*, not
+/// its light. They live in this
 /// struct because it is the one fragment buffer bound to every shading pass, and
 /// both consumers are lighting: `lit_linear` needs
 /// [`camera_position`](Self::camera_position) for view-dependent specular, and the
@@ -165,38 +174,45 @@ pub struct LightUniforms {
     /// units (an e-fold). `0` disables the height falloff (fog is uniform with
     /// height, the pre-KE-0706 behaviour). Offset 92.
     pub fog_falloff: f32,
-    /// World-space point the car sits above (blob-shadow center). Offset 96.
-    pub shadow_center: [f32; 3],
-    /// Padding: `shadow_center` is an MSL `float3` (16 bytes), so `shadow_radius`
-    /// must land at offset 112 to match the shader.
-    pub _padding_shadow: f32,
-    /// Blob shadow radius in world units. Offset 112.
-    pub shadow_radius: f32,
-    /// 0..1 darkening under the car. Offset 116.
+    /// Constant shadow-map depth bias, in **map depth units** (`0..1`), subtracted
+    /// from every receiver's lookup depth (KE-0407). Set per frame by
+    /// [`apply_shadow_fit`](Self::apply_shadow_fit) from the world-unit
+    /// [`SHADOW_DEPTH_BIAS_WORLD`](crate::shadow::SHADOW_DEPTH_BIAS_WORLD), divided by
+    /// the fit's depth range. Offset 96.
+    pub shadow_depth_bias: f32,
+    /// Cap on the receiver-plane depth gradient per map texel, in map depth units (KE-0407);
+    /// from [`SHADOW_RECEIVER_SLOPE_CAP_WORLD`](crate::shadow::SHADOW_RECEIVER_SLOPE_CAP_WORLD).
+    /// Offset 100.
+    pub shadow_receiver_slope_cap: f32,
+    /// View depth the shadow map covers (KE-0407); shadows fade out over the last
+    /// [`SHADOW_FADE_FRACTION`](crate::shadow::SHADOW_FADE_FRACTION) of it. Offset 104.
+    pub shadow_distance: f32,
+    /// How dark a fully shadowed fragment is, `0..=1` (KE-0407): `1` removes all of
+    /// the sun's direct light (only sky fill remains), `0` disables shadowing.
+    /// Offset 108.
     pub shadow_strength: f32,
-    /// Alignment padding so `camera_position` (a float3) lands 16-byte aligned at
-    /// 128. Was `ground_height`, deleted by KE-0406: it was declared on both sides
-    /// and read by no shader. KE-0407's shadow-map pass builds a real receiver.
-    pub _padding5: f32,
-    /// Alignment padding (pairs with [`_padding5`](Self::_padding5)).
-    pub _padding6: f32,
 
     /// Camera position in world space (KE-0406), so specular is view-dependent
-    /// instead of using a constant view vector. Offset 128.
+    /// instead of using a constant view vector. Offset 112.
     pub camera_position: [f32; 3],
     /// Padding: `camera_position` is an MSL `float3` (16 bytes), so the matrix
-    /// below must land at offset 144.
+    /// below must land at offset 128.
     pub _padding_camera: f32,
     /// Inverse of the frame's view-projection, column-major (KE-0406). The sky is a
     /// fullscreen pass with no geometry, so it unprojects its NDC through this to
-    /// recover the world-space view ray it needs to find the sun. Offset 144.
+    /// recover the world-space view ray it needs to find the sun. Offset 128.
     pub inverse_view_projection: [[f32; 4]; 4],
+    /// World → shadow-map clip space for the sun (KE-0407), column-major: the
+    /// fitted orthographic projection times the light view. The depth-only caster
+    /// pass renders with it, and the lit shaders look receivers up with it.
+    /// Offset 192.
+    pub light_view_projection: [[f32; 4]; 4],
 }
 
 impl LightUniforms {
     /// Overwrite the sun + sky fields from the engine-generic seam description
-    /// (KE-0406), leaving everything else (specular response, fog, blob shadow,
-    /// camera) untouched.
+    /// (KE-0406), leaving everything else (specular response, fog, shadow-map
+    /// parameters, camera) untouched.
     ///
     /// This is the **only** place a [`SunSky`] becomes GPU bytes, and the light
     /// direction is taken from [`SunSky::direction`] rather than rebuilt here — so
@@ -225,13 +241,37 @@ impl LightUniforms {
         self.camera_position = position.to_array();
         self.inverse_view_projection = view_projection.inverse().to_cols_array_2d();
     }
+
+    /// Fold this frame's fitted shadow projection into the uniforms (KE-0407): the
+    /// light view-projection, and the world-unit bias constants converted into map
+    /// depth units for this fit's depth range.
+    ///
+    /// The fit is computed from [`direction`](Self::direction) — the KE-0406 sun —
+    /// so there is no second light direction anywhere; see
+    /// [`fit_shadow_frustum`](crate::shadow::fit_shadow_frustum).
+    pub fn apply_shadow_fit(&mut self, fit: &ShadowFit) {
+        use crate::shadow::{SHADOW_DEPTH_BIAS_WORLD, SHADOW_RECEIVER_SLOPE_CAP_WORLD};
+        let range = fit.depth_range.max(f32::EPSILON);
+        self.light_view_projection = fit.light_view_projection.to_cols_array_2d();
+        self.shadow_depth_bias = SHADOW_DEPTH_BIAS_WORLD / range;
+        self.shadow_receiver_slope_cap = SHADOW_RECEIVER_SLOPE_CAP_WORLD / range;
+        self.shadow_distance = fit.shadow_distance;
+    }
 }
+
+// The layout contract, enforced at compile time as well as by the tests below: a
+// size change that is not mirrored in `rasterization.metal` must not build. 256
+// is also exactly one light-ring slot (`UNIFORM_RING_STRIDE`).
+const _: () = assert!(std::mem::size_of::<LightUniforms>() == 256);
+const _: () = assert!(std::mem::offset_of!(LightUniforms, camera_position) == 112);
+const _: () = assert!(std::mem::offset_of!(LightUniforms, inverse_view_projection) == 128);
+const _: () = assert!(std::mem::offset_of!(LightUniforms, light_view_projection) == 192);
 
 impl Default for LightUniforms {
     fn default() -> Self {
         // The sun/sky half of the defaults comes from the seam's own
         // `SunSky::default()` so there is exactly one default sun in the engine; the
-        // rest (specular response, fog, blob shadow) are backend look defaults with
+        // rest (specular response, fog, shadow strength) are backend look defaults with
         // no seam representation yet.
         let sun = SunSky::default();
         Self {
@@ -244,8 +284,7 @@ impl Default for LightUniforms {
             diffuse_intensity: sun.sun_intensity,
             specular_intensity: 0.5,
             shininess: 32.0,
-            // Look defaults: a calm blue gradient sky, a soft blob shadow centered at
-            // the origin, and **deep horizon fog**: the scene stays completely clear
+            // Look defaults: a calm blue gradient sky and **deep horizon fog**: the scene stays completely clear
             // out to `fog_start`, then the density ramps hard so everything near the
             // streaming spawn edge is fully blended into the horizon — which hides
             // content popping in at the spawn distance while leaving the mid-ground
@@ -260,17 +299,19 @@ impl Default for LightUniforms {
             // upward so the skyline backdrop and tall buildings stay readable.
             fog_height: 2.0,
             fog_falloff: 5.0,
-            shadow_center: [0.0, 0.0, 0.0],
-            _padding_shadow: 0.0,
-            shadow_radius: 1.2,
-            shadow_strength: 0.5,
-            _padding5: 0.0,
-            _padding6: 0.0,
+            // Shadow map (KE-0407): the bias and distance terms are refitted every
+            // frame by `apply_shadow_fit`; until the first fit, the defaults the
+            // default camera would get. A shadowed fragment keeps only sky fill.
+            shadow_depth_bias: 0.0,
+            shadow_receiver_slope_cap: 0.0,
+            shadow_distance: crate::shadow::shadow_distance_for_fog(35.0, 0.10),
+            shadow_strength: 1.0,
             // No camera pushed yet: the origin and an identity view-projection (whose
             // inverse is the identity), matching the backend's own default camera.
             camera_position: [0.0, 0.0, 0.0],
             _padding_camera: 0.0,
             inverse_view_projection: Mat4::IDENTITY.to_cols_array_2d(),
+            light_view_projection: Mat4::IDENTITY.to_cols_array_2d(),
         }
     }
 }
@@ -288,7 +329,7 @@ mod tests {
     #[test]
     fn uniforms_is_128_bytes() {
         // Two float4x4s (MVP + model). The model matrix drives world-space fog +
-        // blob shadow in the KE-0401 look stack.
+        // shadow-map lookups (KE-0407) in the look stack.
         assert_eq!(size_of::<Uniforms>(), 128);
     }
 
@@ -302,15 +343,17 @@ mod tests {
     }
 
     #[test]
-    fn light_uniforms_is_208_bytes() {
-        // Phong params (48 bytes) + KE-0401 sky/fog/shadow params (80) + the
-        // KE-0406 camera block (a float3 + a float4x4, 80), padded to Metal's
-        // constant-buffer alignment (every float3 is 16-byte aligned).
+    fn light_uniforms_is_256_bytes() {
+        // Phong params (48 bytes) + KE-0401 sky/fog params (48) + KE-0407 shadow
+        // params (16) + the KE-0406 camera block (a float3 + a float4x4, 80) + the
+        // KE-0407 light view-projection (64), padded to Metal's constant-buffer
+        // alignment (every float3 is 16-byte aligned).
         //
         // Grew from 128 in KE-0406, which added the camera block and deleted the
-        // dead `ground_height`. Update this deliberately and in lockstep with the
-        // MSL `Light` struct — never relax it to a bound.
-        assert_eq!(size_of::<LightUniforms>(), 208);
+        // dead `ground_height`; KE-0407 deleted the blob-shadow fields (32 bytes)
+        // and added the shadow params + light matrix (80). Update this deliberately
+        // and in lockstep with the MSL `Light` struct — never relax it to a bound.
+        assert_eq!(size_of::<LightUniforms>(), 256);
     }
 
     #[test]
@@ -333,11 +376,13 @@ mod tests {
         assert_eq!(offset_of!(LightUniforms, fog_start), 84);
         assert_eq!(offset_of!(LightUniforms, fog_height), 88);
         assert_eq!(offset_of!(LightUniforms, fog_falloff), 92);
-        assert_eq!(offset_of!(LightUniforms, shadow_center), 96);
-        assert_eq!(offset_of!(LightUniforms, shadow_radius), 112);
-        assert_eq!(offset_of!(LightUniforms, shadow_strength), 116);
-        assert_eq!(offset_of!(LightUniforms, camera_position), 128);
-        assert_eq!(offset_of!(LightUniforms, inverse_view_projection), 144);
+        assert_eq!(offset_of!(LightUniforms, shadow_depth_bias), 96);
+        assert_eq!(offset_of!(LightUniforms, shadow_receiver_slope_cap), 100);
+        assert_eq!(offset_of!(LightUniforms, shadow_distance), 104);
+        assert_eq!(offset_of!(LightUniforms, shadow_strength), 108);
+        assert_eq!(offset_of!(LightUniforms, camera_position), 112);
+        assert_eq!(offset_of!(LightUniforms, inverse_view_projection), 128);
+        assert_eq!(offset_of!(LightUniforms, light_view_projection), 192);
 
         // Every float3 / float4x4 must be 16-byte aligned or MSL reads it shifted.
         for offset in [
@@ -345,9 +390,9 @@ mod tests {
             offset_of!(LightUniforms, color),
             offset_of!(LightUniforms, sky_top_color),
             offset_of!(LightUniforms, sky_horizon_color),
-            offset_of!(LightUniforms, shadow_center),
             offset_of!(LightUniforms, camera_position),
             offset_of!(LightUniforms, inverse_view_projection),
+            offset_of!(LightUniforms, light_view_projection),
         ] {
             assert_eq!(offset % 16, 0, "offset {offset} is not 16-byte aligned");
         }
@@ -416,7 +461,7 @@ mod tests {
         // Untouched by the sun/sky: the fog + shadow look params keep their values.
         let base = LightUniforms::default();
         assert_eq!(l.fog_density, base.fog_density);
-        assert_eq!(l.shadow_radius, base.shadow_radius);
+        assert_eq!(l.shadow_strength, base.shadow_strength);
         assert_eq!(l.shininess, base.shininess);
     }
 
@@ -441,6 +486,31 @@ mod tests {
         {
             assert!((a - b).abs() < 1e-4, "{round_trip:?} is not vp⁻¹");
         }
+    }
+
+    #[test]
+    fn apply_shadow_fit_converts_the_world_unit_biases_to_map_depth() {
+        use crate::shadow::{
+            fit_shadow_frustum, SHADOW_DEPTH_BIAS_WORLD, SHADOW_MAP_SIZE,
+            SHADOW_RECEIVER_SLOPE_CAP_WORLD,
+        };
+        let vp = Mat4::perspective_rh(0.8, 1.6, 0.1, 100.0)
+            * Mat4::look_at_rh(Vec3::new(0.0, 6.0, 12.0), Vec3::ZERO, Vec3::Y);
+        let mut l = LightUniforms::default();
+        let fit = fit_shadow_frustum(vp, Vec3::from(l.direction), 55.0, SHADOW_MAP_SIZE);
+        l.apply_shadow_fit(&fit);
+        assert_eq!(
+            l.light_view_projection,
+            fit.light_view_projection.to_cols_array_2d()
+        );
+        // A world-unit bias becomes a map-depth bias by dividing by the depth range
+        // (the orthographic depth is linear in distance along the light).
+        assert!((l.shadow_depth_bias * fit.depth_range - SHADOW_DEPTH_BIAS_WORLD).abs() < 1e-6);
+        assert!(
+            (l.shadow_receiver_slope_cap * fit.depth_range - SHADOW_RECEIVER_SLOPE_CAP_WORLD).abs()
+                < 1e-6
+        );
+        assert_eq!(l.shadow_distance, 55.0);
     }
 
     #[test]

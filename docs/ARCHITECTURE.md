@@ -76,8 +76,8 @@ ACES filmic tonemap + sRGB encode in the fragment shaders (`present_color`), so 
 and not washed out even though both render targets are `*Unorm`; (2) a **gradient sky** fullscreen
 triangle replaces the flat clear, drawn depth-test/write-disabled; (3) **distance fog** blends far
 geometry into the sky horizon color, hiding the streaming spawn edge (pairs with KE-0203);
-(4) a cheap **directional blob shadow** projected onto the ground plane grounds the car (no shadow
-map). **MSAA** (4x) wraps all of it: the scene renders into a multisampled color + depth attachment
+(4) **real sun shadows** (KE-0407, which replaced KE-0401's fake blob shadow) — see below. **MSAA**
+(4x) wraps all of it: the scene renders into a multisampled color + depth attachment
 and resolves **in-tile** into the single-sample target via the `MultisampleResolve` store action, so
 the multisampled buffers never spill to system memory. The MSAA color/depth attachments are
 **memoryless-ready**: their storage mode is a single cfg hook (`MSAA_MEMORYLESS`, iOS ⇒
@@ -101,6 +101,20 @@ unlit faces at 43% of lit and read overcast). **Time of day is not an engine con
 playable demo's "summer 4pm" sun is a set of named constants in the *demo's* config, pushed through
 the seam. The two 3D pixel-hash baselines were re-blessed; the screen-space overlay baseline is
 unchanged, which is the proof the change stayed in the 3D passes.
+
+**Real shadows (KE-0407).** The fake blob shadow is gone. Each frame now runs a **depth-only shadow
+pass** from the sun into a 2048² `Depth32Float` map *before* the scene pass, and both lit pipelines
+(untextured and textured) sample it. To know every caster before the scene pass starts, the backend
+records draws during the frame and encodes both passes at `submit` — invisible above the seam, where
+a game still just draws meshes and sets a `SunSky`. The light's orthographic projection is refitted
+every frame to the slab of camera frustum the fog leaves visible, enclosed in a sphere and **snapped
+to whole shadow texels** so it follows the camera without shimmering, and its direction is the
+KE-0406 sun's — one source of truth for shading, sun disc and shadows. On a TBDR GPU the map is the
+one depth attachment that must be **stored** (the MSAA scene targets are resolved in-tile and
+discarded), which the backend asserts. Receivers are biased by their own triangle's plane plus a
+constant 2 cm, and filtered with 4×4 tent PCF. The fitting and bias math is GPU-free and unit-tested
+in `kaman-render/src/shadow.rs`; a new shadow pixel-hash proves occlusion by re-rendering with the
+casters disabled. A GPU-less runner never constructs the Metal backend, so it never reaches the pass.
 
 ## 3. Workspace layout
 

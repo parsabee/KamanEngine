@@ -285,6 +285,14 @@ The horizon colour is load-bearing beyond the sky: the ground-hugging distance f
 it, so it is also what the streaming spawn edge, the far hills and the skyline backdrop dissolve
 into.
 
+That same sun casts the demo's **shadows** (KE-0407) — there is no separate shadow light. At 32°
+from the west-northwest, shadows fall east and a little toward the camera: the roadside buildings on
+the left throw long bands across the road, the guardrail posts stripe the asphalt beside them, and
+the cars shade the road to their right and their own bodywork. The demo does nothing to get this:
+every mesh it draws is a caster and every lit surface a receiver, and the renderer fits its single
+shadow map to what the chase camera can see before the fog closes in (about 55 units out). Change
+`SUN_ELEVATION_DEG` / `SUN_AZIMUTH_DEG` and the shadows swing and stretch with the lighting.
+
 The sun *disc* the sky pass draws is not visible in the demo: the chase camera pitches down to
 frame the road, so the visible sky stops a couple of degrees above the horizon — well below a 32°
 sun. Turning the sun anywhere above that (or raising the camera) brings both the disc and the

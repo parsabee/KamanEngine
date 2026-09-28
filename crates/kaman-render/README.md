@@ -96,6 +96,53 @@ KE-0406 also rebalanced the ambient term as **sky fill** (0.6 → 0.2 against an
 unchanged diffuse 0.8): at the old balance an unlit face sat at 43% of a lit one and
 every scene read overcast. Both 3D pixel-hash baselines were re-blessed for it.
 
+## Shadows: a fitted shadow-map pass (KE-0407)
+
+The sun casts real shadows. (Until KE-0407 the only "shadow" was a fake blob that
+darkened a fixed circle around the world origin; it is deleted, uniforms and all.)
+
+**Pass order.** Every frame is two render passes on one command buffer:
+
+1. **Shadow pass** — depth-only, from the sun, into a 2048² `Depth32Float` shadow
+   map. Every draw the frame recorded is a caster, rendered through a dedicated
+   position-only vertex function (`shadow_vertex_main`) with no fragment stage.
+   Depth is clamped rather than clipped, so casters nearer the sun than the near
+   plane still cast.
+2. **Scene pass** — the gradient sky, every draw through the lit untextured and
+   textured pipelines (both sample the map at fragment `[[texture(1)]]`), then the 2D
+   overlay.
+
+To get every caster before the scene pass starts, the recorder **defers encoding**:
+`draw_mesh` writes its uniforms into the ring and records the draw in a retained
+list; `submit` replays that list into both passes. The list keeps its capacity, so
+the steady state still allocates nothing.
+
+**TBDR store actions.** The scene pass's MSAA attachments resolve in-tile and are
+discarded (memoryless on iOS). The shadow map is the opposite: written by one pass
+and sampled by the next, so it is `Private` (never `Memoryless`) with a `Store` depth
+store action. Getting this wrong is silent — the scene would sample garbage — so the
+texture's storage/usage is asserted at creation and the store action every time the
+pass descriptor is built.
+
+**Frustum fit and stability.** One map, not cascades: ground-level fog is ~98%
+opaque by `fog_start + 2 / fog_density` view-depth units (55 with the defaults), so
+the fit covers only the camera frustum cut at that depth. The slab is enclosed in a
+bounding sphere (whose size does not change as the camera turns), its radius rounded
+up to 0.5 units, and its centre **snapped to whole shadow texels** in a light space
+anchored at the world origin — so as the fit slides with the camera every world
+point stays on the same sub-texel position and static shadow edges cannot shimmer.
+Unit-tested GPU-free in `src/shadow.rs`. The light direction is the KE-0406
+`SunSky::direction()` already in the light block — there is no second source of
+truth — so turning the sun turns the shadows.
+
+**Bias and filtering.** Each map texel the filter reads is compared against the
+depth the **receiver's own triangle** has at that texel's centre (the plane is
+reconstructed from screen-space derivatives), so a lit surface never shadows itself,
+plus a constant **0.02 world units (2 cm)** for float error: under half a texel at the
+demo's fit, and it moves a contact shadow only ~3 cm under a 32° sun, below one
+texel. The filter is tent-weighted PCF over 4×4 texels (a ~4-texel penumbra). Full
+reasoning in `src/shadow.rs`.
+
 ## Wiring: metal stays out of `kaman-core`
 
 `kaman-core` does **not** depend on this crate. Instead, `kaman-core::run_with_backend`
@@ -145,12 +192,23 @@ texture, reads the pixels back, hashes it (FNV-1a 64-bit, no external crate), an
 asserts the hash equals a committed baseline. This is the golden net that pins the
 renderer's output so KE-0103/0104/0105 can prove they preserved behavior.
 
-Two independent references are pinned, each with its own baseline:
+Four independent references are pinned in it, each with its own baseline (plus
+`TEXTURED_REFERENCE_HASH`'s equivalent, `REFERENCE_HASH` in
+`tests/textured_pixel_hash.rs`, for the textured pipeline):
 
 | Constant | Guards |
 | --- | --- |
-| `REFERENCE_HASH` | The **3D reference scene**: a lit, rotated box through the Phong pipeline and the KE-0401 look stack (gradient sky, ACES tonemap, fog, blob shadow, 4x MSAA). |
+| `REFERENCE_HASH` | The **3D reference scene**: a lit, rotated box through the Phong pipeline and the look stack (gradient sky, ACES tonemap, fog, shadow-map lookup, 4x MSAA). |
 | `OVERLAY_REFERENCE_HASH` | The **2D overlay pass** (KE-0404): the pixel→NDC mapping and its `Y` flip, source-over blending in record order, and all three `OverlayFill` modes — solid, textured, and SDF. |
+| `SUN_REFERENCE_HASH` | The **sun disc** and glow (KE-0406), in an otherwise empty frame. |
+| `SHADOW_REFERENCE_HASH` | The **shadow map** (KE-0407): a floating cube casting onto a ground half drawn by the textured pipeline and half by the untextured one. Companion tests render it with the shadow pass's casters disabled (the frame must change, and darken exactly where the shadow is predicted) and with the sun turned (the shadow must move). |
+
+**KE-0407** re-blessed `REFERENCE_HASH` and the textured baseline: deleting the
+fake blob shadow (which was centred on the origin, where both reference meshes sit)
+brightened them. Neither frame gains a real shadow — both re-render byte-identically
+with the shadow pass's casters disabled, which is also the evidence that nothing
+self-shadows (no acne). `OVERLAY_REFERENCE_HASH` and `SUN_REFERENCE_HASH` came back
+unchanged.
 
 The committed values live next to each constant in `tests/pixel_hash.rs`, with the
 re-bless history and justification for every change — deliberately not duplicated
