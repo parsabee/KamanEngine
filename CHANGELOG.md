@@ -8,7 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ## [Unreleased]
 
-## [0.1.0-alpha.1] - YYYY-MM-DD
+## [0.1.0-alpha.1] - 2026-09-27
 
 The first public pre-release: a source release of the engine workspace and its reference game,
 the playable demo. macOS on Apple Silicon is the supported platform. All crates share the
