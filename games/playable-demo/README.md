@@ -76,7 +76,7 @@ a font parser.
 
 | Example | Produces | From |
 | --- | --- | --- |
-| [`gen_asphalt`](examples/gen_asphalt.rs) | `assets/road.gltf` — a road-tile quad with an embedded asphalt PNG and dashed lane lines | `assets/asphalt_src.jpg` |
+| [`gen_asphalt`](examples/gen_asphalt.rs) | `assets/road.gltf` — a road-tile quad with an embedded asphalt PNG, dashed white lane dividers and solid yellow edge lines | `assets/asphalt_src.jpg` |
 | [`gen_skyline`](examples/gen_skyline.rs) | `assets/skyline.gltf` — a billboard quad with an embedded skyline PNG | `assets/skyline_src.jpg` |
 | [`gen_font`](examples/gen_font.rs) | `assets/font.bin` — a self-contained `KFNT` SDF atlas (metrics + distance field) | `assets/font.ttf` |
 

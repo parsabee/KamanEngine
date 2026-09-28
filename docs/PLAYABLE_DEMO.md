@@ -214,7 +214,7 @@ hold regardless of the process working directory.
 | `sports_car.glb` | the player's car | Quaternius, CC0 |
 | `car.glb`, `car2.glb`, `police_car.glb` | traffic cars | Quaternius, CC0 |
 | `skyscraper_{a,b}.glb`, `large_{a,b,c}.glb`, `small_{a,b}.glb`, `low_a.glb` | roadside buildings | Kenney City Kit, CC0 |
-| `road.gltf` | textured asphalt road tile | baked by `gen_asphalt` from `asphalt_src.jpg` (Poly Haven `asphalt_02`, CC0) |
+| `road.gltf` | textured asphalt road tile (dashed white lane dividers, solid yellow edge lines) | baked by `gen_asphalt` from `asphalt_src.jpg` (Poly Haven `asphalt_02`, CC0) |
 | `skyline.gltf` | distant skyline billboard | baked by `gen_skyline` from `skyline_src.jpg` (Wikimedia Commons, CC0) |
 | `font.bin` | SDF font atlas for the HUD | baked by `gen_font` from `font.ttf` (Roboto, SIL OFL 1.1 — licence text in `assets/font-OFL.txt`) |
 | `runner_loop.wav` | the looping driving music | generated with Claude for this project, CC0 (16-bit stereo PCM, ~27 s) |

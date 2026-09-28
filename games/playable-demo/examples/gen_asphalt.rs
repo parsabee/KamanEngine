@@ -9,7 +9,8 @@
 //! `asphalt_02` diffuse (<https://polyhaven.com/a/asphalt_02>, CC0, no attribution
 //! required) — committed as `games/playable-demo/assets/asphalt_src.jpg`. This
 //! generator loads that photo, tiles it to the road's aspect, composites our own
-//! **dashed white lane lines** at the interior lane boundaries, and embeds the
+//! **dashed white lane dividers** at the interior lane boundaries plus **solid
+//! yellow edge lines** at the outer edges of the drivable lanes, and embeds the
 //! result into a self-contained glTF 2.0 file (`assets/road.gltf`) whose mesh is a
 //! single **flat road-tile quad** carrying the tiling UVs. The road glTF is loaded
 //! through `kaman-assets` at runtime; the importer decodes the embedded PNG to
@@ -31,8 +32,9 @@
 //!
 //! UVs are baked so tiles seam invisibly under streaming:
 //! - **U = 0..1** across the full road width (the texture spans the road once), so
-//!   the two dashed lane lines land at the interior lane boundaries
-//!   (`x = ±1.5` ⇒ `U = 0.375 / 0.625`).
+//!   the two dashed white lane dividers land at the interior lane boundaries
+//!   (`x = ±1.5` ⇒ `U = 0.375 / 0.625`) and the two solid yellow edge lines at the
+//!   outer lane edges (`x = ±4.5` ⇒ `U = 0.125 / 0.875`).
 //! - **V = 0..3** along the tile's `spawn_interval` (6-unit) length — three integer
 //!   repeats — so every tile-to-tile seam falls on a texture-wrap boundary and, the
 //!   asphalt being seamless in V, is invisible.
@@ -69,10 +71,22 @@ const H_TILES: u32 = 6;
 /// over six units ⇒ a 2-unit texture period, a natural asphalt scale.
 const V_REPEATS: f32 = 3.0;
 
+/// Paint colour (sRGB) of the dashed interior lane dividers: a slightly worn white
+/// so the lines aren't a flat, fake pure white.
+const DIVIDER_WHITE: [u8; 3] = [218, 218, 208];
+
+/// Paint colour (sRGB) of the solid outer edge lines: a realistic road-marking
+/// yellow (a warm amber-leaning yellow, like worn traffic paint). Saturated enough
+/// in blue-vs-red/green that it still reads clearly as yellow after the demo's
+/// sun/sky lighting, ACES tonemap and distance fog, without clipping to white.
+const EDGE_YELLOW: [u8; 3] = [230, 180, 30];
+
 /// Bake the asphalt base-color texture as PNG bytes: the committed CC0 asphalt
-/// photo tiled to the road aspect, with our **dashed white lane lines** composited
-/// at the interior lane boundaries (`U ≈ 0.375` and `0.625`). Dashes run along the
-/// road (the V/length axis) so they read as painted lane markings.
+/// photo tiled to the road aspect, with our **dashed white lane dividers**
+/// ([`DIVIDER_WHITE`]) composited at the interior lane boundaries (`U ≈ 0.375` and
+/// `0.625`) and **solid yellow edge lines** ([`EDGE_YELLOW`]) at the outer lane
+/// edges (`U ≈ 0.125` and `0.875`). Dashes run along the road (the V/length axis)
+/// so they read as painted lane markings.
 ///
 /// The asphalt is *not* generated — it is the real photographic texture; only the
 /// lane lines are added here.
@@ -92,7 +106,7 @@ fn asphalt_png(src_path: &Path) -> Vec<u8> {
 
     // Lane markings as U columns. Interior lane dividers (U = 0.375, 0.625) are
     // dashed; the two outer edges of the drivable lanes (x = ±4.5 on the 12-unit
-    // road ⇒ U = 0.125, 0.875) are solid. Line width + dash cadence as texture
+    // road ⇒ U = 0.125, 0.875) are solid yellow. Line width + dash cadence as texture
     // fractions.
     let dashed_u = [0.375f32, 0.625f32];
     let solid_u = [0.125f32, 0.875f32];
@@ -113,26 +127,23 @@ fn asphalt_png(src_path: &Path) -> Vec<u8> {
             let px = tile.get_pixel(x % tile_px, y);
             let (mut r, mut g, mut b) = (px[0], px[1], px[2]);
 
-            // Slightly worn white so lines aren't a flat, fake pure white.
-            let paint = |r: &mut u8, g: &mut u8, b: &mut u8| {
-                *r = 218;
-                *g = 218;
-                *b = 208;
+            let paint = |r: &mut u8, g: &mut u8, b: &mut u8, c: [u8; 3]| {
+                [*r, *g, *b] = c;
             };
 
-            // Solid outer edge lines: painted continuously.
+            // Solid outer edge lines: painted continuously, in yellow.
             for &su in &solid_u {
                 if (u - su).abs() < line_half {
-                    paint(&mut r, &mut g, &mut b);
+                    paint(&mut r, &mut g, &mut b, EDGE_YELLOW);
                 }
             }
 
-            // Dashed interior lane dividers: painted only on the dash phase.
+            // Dashed interior lane dividers: painted white, only on the dash phase.
             for &lu in &dashed_u {
                 if (u - lu).abs() < line_half {
                     let phase = (v / dash_len).fract();
                     if phase < dash_on {
-                        paint(&mut r, &mut g, &mut b);
+                        paint(&mut r, &mut g, &mut b, DIVIDER_WHITE);
                     }
                 }
             }
