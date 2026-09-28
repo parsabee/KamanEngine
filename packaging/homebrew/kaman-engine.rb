@@ -12,9 +12,7 @@ class KamanEngine < Formula
   homepage "https://github.com/parsabee/KamanEngine"
   url "https://github.com/parsabee/KamanEngine/releases/download/v0.1.0-alpha.2/kaman-engine-0.1.0-alpha.2-aarch64-apple-darwin.tar.gz"
   version "0.1.0-alpha.2"
-  # PLACEHOLDER: replace with the sha256 from
-  # kaman-engine-0.1.0-alpha.2-aarch64-apple-darwin.tar.gz.sha256 once the release is built.
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "f7fba2dcaab6aa88d4cd24c1cd0e8dc240066760ade629d77028a4ce4a2cc27a"
   license "Apache-2.0"
 
   # Prebuilt for Apple Silicon only. On an Intel Mac (or Linux) brew refuses to install with
