@@ -8,7 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ## [Unreleased]
 
-## [0.1.0-alpha.2] - YYYY-MM-DD
+## [0.1.0-alpha.2] - 2026-09-27
 
 ### Added
 
