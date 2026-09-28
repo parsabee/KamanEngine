@@ -17,7 +17,9 @@ members = [
 
 # Shared package metadata. Individual crates inherit these via `field.workspace = true`.
 [workspace.package]
-version = "0.1.0"
+# Pre-release SemVer: cargo accepts `-alpha.N` suffixes. Bump the whole workspace
+# together; the release tag is `v` + this string (e.g. `v0.1.0-alpha.1`).
+version = "0.1.0-alpha.1"
 edition = "2021"
 # Minimum supported Rust version. Enforced by cargo on build (a required project
 # dependency), matched to the channel pinned in rust-toolchain.toml, and re-checked
@@ -26,6 +28,11 @@ rust-version = "1.91"
 license = "Apache-2.0"
 authors = ["Parsa Bagheri"]
 repository = "https://github.com/parsabee/KamanEngine"
+homepage = "https://parsabee.github.io/KamanEngine/"
+# Not published to crates.io yet: the API is pre-release and the intra-workspace
+# path deps carry no version requirement. Crates inherit this via
+# `publish.workspace = true`.
+publish = false
 
 # Shared dependency versions (pinned from the original prototype; see docs/ARCHITECTURE.md
 # Provenance). Crates opt in via

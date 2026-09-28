@@ -39,9 +39,10 @@ A native scene editor for macOS on Apple Silicon is planned as
 [Phase 5](docs/ROADMAP.md#phase-5--scene-editor-native-macos-apple-silicon).
 
 > [!NOTE]
-> KamanEngine is **pre-release and under active development**. There are no tagged releases yet,
-> and the public API may change between commits. macOS is the supported platform today; iOS
-> bring-up is planned (Phase 3).
+> KamanEngine is **pre-release and under active development**. The first alpha,
+> [`v0.1.0-alpha.1`](https://github.com/parsabee/KamanEngine/releases), is a source release; the
+> public API may change between releases (see [CHANGELOG.md](CHANGELOG.md)). macOS is the supported
+> platform today; iOS bring-up is planned (Phase 3).
 
 ## Table of contents
 
@@ -157,7 +158,7 @@ and rustdoc. The work runs as a **phase-gated pipeline**. Each phase defines wor
 implements them, runs SQA, and must hit its OKRs before the next phase starts. The prototype's
 provenance is recorded in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-**32 / 38 tickets done.** For live per-phase progress, run `python3 scripts/check-tickets.py`.
+**33 / 39 tickets done.** For live per-phase progress, run `python3 scripts/check-tickets.py`.
 
 | Phase | State |
 |---|---|
@@ -165,7 +166,7 @@ provenance is recorded in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 1 — Renderer foundation | ✅ Complete except KE-0107 (precompiled `.metallib`), which is blocked on full Xcode |
 | 2 — Gameplay core | ✅ Complete |
 | 3 — iOS bring-up | ⏳ Not started; needs full Xcode + iOS rustup targets |
-| 4 — Look & feel + content | ✅ Complete: glTF import, textures, modern-look stack, 2D HUD/SDF text, audio (kira), sun/sky seam, and real fitted shadow maps (KE-0407) |
+| 4 — Look & feel + content | ✅ Complete: glTF import, textures, modern-look stack, 2D HUD/SDF text, audio (kira), sun/sky seam, real fitted shadow maps (KE-0407), and graphics settings with a native macOS Graphics menu (KE-0408) |
 | 5 — Scene editor (native macOS, Apple Silicon) | ⏳ Not started; Key Results are draft |
 | 6 — Release | ⏳ Not started |
 | 7 — Playable Demo *(pulled forward)* | ✅ Complete: 3-lane freeway runner with real CC0 cars, buildings, road and skyline, HUD, title/game-over/replay, music + SFX |
@@ -194,6 +195,7 @@ Guides and design docs:
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Intentional constraints, the render seam, and workspace layout |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phases and OKRs |
 | [docs/INTEGRATION.md](docs/INTEGRATION.md) | Integration, testing and migration discipline |
+| [CHANGELOG.md](CHANGELOG.md) | Release history and notable changes |
 
 ## Workspace layout
 

@@ -2,11 +2,16 @@ name: CI
 
 # The macOS oracle: every push/PR must build, test, lint clean, and boot the headless smoke
 # oracle. Red blocks merge. See docs/INTEGRATION.md §1.
+#
+# Also runs on release tags (`v*`, e.g. `v0.1.0-alpha.1`) so every tagged release has its own
+# green run, and on demand from the Actions tab / `gh workflow run ci.yml --ref main`.
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -19,10 +24,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      # Install exactly the toolchain pinned in rust-toolchain.toml (channel + components), so CI
+      # builds with the same rustc as contributors. Argument-less `rustup toolchain install` reads
+      # the toolchain file (rustup >= 1.28); the version check fails the job if the pin is ignored.
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        run: |
+          rustup toolchain install --no-self-update
+          pinned=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustc --version
+          rustc --version | grep -q " $pinned " || { echo "rustc is not the pinned $pinned"; exit 1; }
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2

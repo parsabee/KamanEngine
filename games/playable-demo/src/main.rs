@@ -65,6 +65,11 @@
 //! run valid on headless CI (see `docs/INTEGRATION.md` §1).
 
 #![deny(missing_docs)]
+// This is a binary: cargo always documents its private items, so the module
+// map's links to the private `mod`s above resolve. Cargo allows this lint for bin
+// targets by default, but CI's explicit `-D rustdoc::private_intra_doc_links`
+// (meant for the library crates) re-denies it and fails `cargo doc`.
+#![allow(rustdoc::private_intra_doc_links)]
 
 use clap::Parser;
 
