@@ -29,7 +29,9 @@ use kaman_render_api::MaterialParams;
 
 use crate::assets::{compose, pick_model, CarPart};
 use crate::components::{BuildingVariant, GuardrailTag, PlacedModel, TrafficVariant};
-use crate::config::{BACKDROP_DIST, BACKDROP_H, BACKDROP_W, BACKDROP_Y};
+use crate::config::{
+    BACKDROP_DIST, BACKDROP_H, BACKDROP_SCALE, BACKDROP_W, BACKDROP_Y, CHASE_HEIGHT, PLAYER_Y,
+};
 use crate::game::CarRunner;
 
 impl CarRunner {
@@ -168,13 +170,23 @@ impl CarRunner {
     /// a wide, tall quad placed [`BACKDROP_DIST`] units ahead of the player along
     /// the travel axis and **locked to the player's XZ** (centered on `x = 0`) so a
     /// world stream/rebase never shifts it — it reads as a fixed far skyline. Sits
-    /// at [`BACKDROP_DIST`] < the camera far plane (100) so it is not clipped.
+    /// inside the camera far plane ([`CAMERA_FAR`](crate::config::CAMERA_FAR)) so
+    /// it is not clipped.
+    ///
+    /// Drawn [`BACKDROP_SCALE`]× its authored size, scaled about the chase camera's
+    /// eye height, so it covers the same part of the screen it was authored for.
+    /// `scale.z` scales the depth of the mesh's curve along with it.
     fn backdrop_transform(&self) -> Transform {
         let player = self.player_position();
+        let eye_y = PLAYER_Y + CHASE_HEIGHT;
         Transform {
-            position: Vec3::new(0.0, BACKDROP_Y, player.z - BACKDROP_DIST),
+            position: Vec3::new(
+                0.0,
+                eye_y + (BACKDROP_Y - eye_y) * BACKDROP_SCALE,
+                player.z - BACKDROP_DIST,
+            ),
             rotation: Quat::IDENTITY,
-            scale: Vec3::new(BACKDROP_W, BACKDROP_H, 1.0),
+            scale: Vec3::new(BACKDROP_W, BACKDROP_H, 1.0) * BACKDROP_SCALE,
         }
     }
 }

@@ -104,7 +104,8 @@ const V_SHIFT: f32 = -0.05;
 /// frame then reveals more of the image's bottom (and finally clamps to the
 /// waterfront row) instead of stretching or shifting the picture.
 const IMAGE_WORLD_H: f32 = 17.0;
-/// The demo's `BACKDROP_H` — **keep these in sync**. Growing it (with the demo
+/// The demo's `BACKDROP_H` (its authored height, before `BACKDROP_SCALE`) —
+/// **keep these in sync**. Growing it (with the demo
 /// lowering `BACKDROP_Y` by half the growth, so the top edge stays put) extends the
 /// frame downward at a constant picture scale.
 const FRAME_WORLD_H: f32 = 24.0;
@@ -117,9 +118,10 @@ const SEGMENTS: u32 = 24;
 
 /// How far (in world units) the backdrop's left/right edges bow **toward the
 /// camera** relative to its flat center, so it curves around the road for a
-/// panoramic illusion. The demo draws the mesh with `scale.z = 1`, so this is a
-/// world-space depth; the center strip stays at the nominal backdrop distance and
-/// the edges come forward by up to this much.
+/// panoramic illusion. The demo draws the mesh with `scale.z = BACKDROP_SCALE`
+/// (the same factor as its width and height), so this is the curve's depth at the
+/// *authored* size; the center strip stays at the nominal backdrop distance and
+/// the edges come forward by up to `BEND_DEPTH * BACKDROP_SCALE`.
 const BEND_DEPTH: f32 = 56.0;
 
 /// The curved skyline backdrop mesh: a shallow horizontal arc (a unit quad in

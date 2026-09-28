@@ -28,9 +28,12 @@
 //! # Frustum fit and why it does not shimmer
 //!
 //! A single map, not cascades, because the shadow-relevant part of the world is a
-//! small **slab**: ground-level distance fog is essentially opaque by
-//! [`shadow_distance_for_fog`] view-depth units, so shadows beyond it are never
-//! seen. [`fit_shadow_frustum`] each frame:
+//! small **slab**: shadows are only drawn out to [`shadow_distance_for_fog`]
+//! view-depth units — where ground-level distance fog becomes essentially opaque,
+//! but never further than [`MAX_SHADOW_DISTANCE`]. The cap keeps the map's texels
+//! small when the fog is pushed far out (a 3× deeper slab would make every texel,
+//! and so every shadow edge, 3× blurrier); past it shadows fade out over the last
+//! [`SHADOW_FADE_FRACTION`] of the slab. [`fit_shadow_frustum`] each frame:
 //!
 //! 1. Cuts the camera frustum at that view depth and takes the eight corners of the
 //!    resulting slab ([`visible_slab_corners`]).
@@ -91,7 +94,9 @@
 //! stair-stepped. The compares are done per texel (not with a hardware compare
 //! sampler) precisely so each texel can use its own receiver-plane depth above.
 //! Shadows fade out over the last [`SHADOW_FADE_FRACTION`] of the fitted
-//! distance, inside the fog, so the map's edge is never seen.
+//! distance, so the map's edge is never seen as a line. When the slab ends at the
+//! fog that fade is hidden in it; when [`MAX_SHADOW_DISTANCE`] binds (the default
+//! fog), it is a gentle ramp over the last 11 units in clear air.
 
 use kaman_math::glam::{Mat4, Vec3, Vec4};
 
@@ -114,6 +119,19 @@ pub const SHADOW_CASTER_MARGIN: f32 = 80.0;
 /// and so cannot say where the visible slab ends.
 pub const DEFAULT_SHADOW_DISTANCE: f32 = 60.0;
 
+/// The furthest (view depth, world units) the shadow slab ever reaches, however
+/// far out the fog is.
+///
+/// The map's texel size is proportional to the slab it covers, so a slab that
+/// followed the fog all the way out would trade sharp shadows near the car —
+/// where they are actually looked at — for coverage of distant ground where a
+/// ~25 cm-per-texel shadow would read as a smudge anyway. 55 units is the slab
+/// the demo's fog produced when shadows were tuned (`start = 35`, `k = 0.1`),
+/// i.e. it pins the ~4.7 cm texel and the bias/penumbra numbers below; it covers
+/// the road from the camera to ~40 units ahead of the car. Beyond it shadows fade
+/// out over the last [`SHADOW_FADE_FRACTION`].
+pub const MAX_SHADOW_DISTANCE: f32 = 55.0;
+
 /// The constant depth bias, in **world units**: 2 cm. See the
 /// [module docs](self#bias) for why this value.
 pub const SHADOW_DEPTH_BIAS_WORLD: f32 = 0.02;
@@ -123,8 +141,9 @@ pub const SHADOW_DEPTH_BIAS_WORLD: f32 = 0.02;
 /// [module docs](self#bias).
 pub const SHADOW_RECEIVER_SLOPE_CAP_WORLD: f32 = 0.5;
 
-/// Fraction of the shadow distance over which shadows fade out (the last 20%).
-/// The fade sits inside the fog, so the map's far edge is never visible as a line.
+/// Fraction of the shadow distance over which shadows fade out (the last 20%),
+/// so the map's far edge is never visible as a line — see
+/// [`MAX_SHADOW_DISTANCE`].
 pub const SHADOW_FADE_FRACTION: f32 = 0.2;
 
 /// Granularity (world units) the fitted sphere's radius is rounded **up** to.
@@ -135,17 +154,19 @@ pub const SHADOW_FADE_FRACTION: f32 = 0.2;
 /// may move away from the unsnapped one.
 pub const RADIUS_QUANTUM: f32 = 0.5;
 
-/// Where the visible slab ends for a given distance fog, in view-depth units.
+/// Where the shadow slab ends for a given distance fog, in view-depth units.
 ///
 /// The fog (`rasterization.metal`, `apply_fog`) is `1 - exp(-(k·(d - start))²)`,
 /// which reaches **98%** at `d = start + 2/k`: past that, geometry at ground
 /// level is indistinguishable from the horizon, so a shadow there cannot be seen.
-/// With the default fog (`start = 35`, `k = 0.1`) this is **55** units. A fog
-/// density of zero (fog off) falls back to [`DEFAULT_SHADOW_DISTANCE`].
+/// That distance is then capped at [`MAX_SHADOW_DISTANCE`] so a far fog does not
+/// blur the map. With the default fog (`start = 105`, `k = 1/30`) the fog reaches
+/// 98% at 165 units, so the cap binds and the slab is **55** units. A fog density
+/// of zero (fog off) falls back to [`DEFAULT_SHADOW_DISTANCE`].
 #[must_use]
 pub fn shadow_distance_for_fog(fog_start: f32, fog_density: f32) -> f32 {
     if fog_density > 0.0 {
-        fog_start.max(0.0) + 2.0 / fog_density
+        (fog_start.max(0.0) + 2.0 / fog_density).min(MAX_SHADOW_DISTANCE)
     } else {
         DEFAULT_SHADOW_DISTANCE
     }
@@ -324,14 +345,18 @@ impl ShadowFit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vertex::LightUniforms;
     use kaman_render_api::SunSky;
 
+    /// The playable demo's chase camera clip range.
+    const NEAR: f32 = 0.3;
+
     /// The playable demo's chase camera: 12 behind and 6 above the car, looking at
-    /// a point 1.5 above it (~20.6° down), 45° vertical FOV, 0.1..100 clip.
+    /// a point 1.5 above it (~20.6° down), 45° vertical FOV, 0.3..300 clip.
     fn chase_camera(car: Vec3, aspect: f32) -> Mat4 {
         let eye = car + Vec3::new(0.0, 6.0, 12.0);
         let target = car + Vec3::new(0.0, 1.5, 0.0);
-        Mat4::perspective_rh(45f32.to_radians(), aspect, 0.1, 100.0)
+        Mat4::perspective_rh(45f32.to_radians(), aspect, NEAR, 300.0)
             * Mat4::look_at_rh(eye, target, Vec3::Y)
     }
 
@@ -344,12 +369,41 @@ mod tests {
         .direction()
     }
 
-    const DIST: f32 = 55.0;
+    const DIST: f32 = MAX_SHADOW_DISTANCE;
 
     #[test]
-    fn default_fog_gives_a_55_unit_slab() {
+    fn slab_ends_where_the_fog_turns_opaque() {
+        // A near fog decides the slab by itself: 98% opaque at start + 2/k.
+        assert!((shadow_distance_for_fog(20.0, 0.1) - 40.0).abs() < 1e-4);
         assert!((shadow_distance_for_fog(35.0, 0.1) - 55.0).abs() < 1e-4);
         assert_eq!(shadow_distance_for_fog(35.0, 0.0), DEFAULT_SHADOW_DISTANCE);
+    }
+
+    #[test]
+    fn a_far_fog_is_capped_so_shadows_stay_sharp() {
+        // The default fog is 98% opaque at 105 + 30·2 = 165 units; following it
+        // would triple the slab (and the texel size). The cap holds it at 55.
+        let d = LightUniforms::default();
+        assert!((d.fog_start + 2.0 / d.fog_density - 165.0).abs() < 1e-3);
+        assert_eq!(
+            shadow_distance_for_fog(d.fog_start, d.fog_density),
+            MAX_SHADOW_DISTANCE
+        );
+        assert_eq!(shadow_distance_for_fog(1000.0, 0.001), MAX_SHADOW_DISTANCE);
+        // ...and the capped fit is exactly as sharp as the pre-cap 55-unit one.
+        let vp = chase_camera(Vec3::ZERO, 16.0 / 9.0);
+        let capped = fit_shadow_frustum(
+            vp,
+            demo_sun(),
+            shadow_distance_for_fog(105.0, 1.0 / 30.0),
+            2048,
+        );
+        let uncapped = fit_shadow_frustum(vp, demo_sun(), 165.0, 2048);
+        assert_eq!(
+            capped.texel_world_size,
+            fit_shadow_frustum(vp, demo_sun(), 55.0, 2048).texel_world_size
+        );
+        assert!(uncapped.texel_world_size > 2.5 * capped.texel_world_size);
     }
 
     #[test]
@@ -362,7 +416,7 @@ mod tests {
         }
         for c in &corners[..4] {
             let w = (vp * c.extend(1.0)).w;
-            assert!((w - 0.1).abs() < 1e-3, "near corner at view depth {w}");
+            assert!((w - NEAR).abs() < 1e-3, "near corner at view depth {w}");
         }
     }
 

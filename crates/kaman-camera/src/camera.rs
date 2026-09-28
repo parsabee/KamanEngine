@@ -99,6 +99,34 @@ impl Camera {
         self.aspect_ratio = aspect_ratio;
     }
 
+    /// Set the near and far clip distances (view-space depth, world units).
+    ///
+    /// The defaults (`0.1..100.0`) suit a small scene; a game that draws further
+    /// out pushes `far` beyond its farthest visible geometry, and may raise `near`
+    /// in proportion to keep the depth buffer's precision (which scales with
+    /// `near`) where it was. Both must be positive with `near < far`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use kaman_camera::Camera;
+    ///
+    /// let mut camera = Camera::new(16.0 / 9.0);
+    /// camera.set_clip_planes(0.3, 300.0);
+    /// assert_eq!(camera.clip_planes(), (0.3, 300.0));
+    /// ```
+    pub fn set_clip_planes(&mut self, near: f32, far: f32) {
+        debug_assert!(near > 0.0 && far > near, "invalid clip range {near}..{far}");
+        self.near = near;
+        self.far = far;
+    }
+
+    /// The current `(near, far)` clip distances.
+    #[must_use]
+    pub fn clip_planes(&self) -> (f32, f32) {
+        (self.near, self.far)
+    }
+
     /// Set the camera's world position.
     pub fn set_position(&mut self, position: Vec3) {
         self.position = position;

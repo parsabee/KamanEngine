@@ -385,7 +385,7 @@ MSAA/depth storage is behind one `cfg` hook (`msaa_storage_mode()`) so KE-0305 c
 attachments **memoryless** on iOS. The shadow map is deliberately *not* behind it: it is sampled by
 the pass after the one that writes it, so it is `Private` with a `Store` store action on every
 platform (both asserted). The light's orthographic projection is refitted each frame to the camera
-frustum cut where the fog goes opaque, enclosed in a sphere and snapped to whole shadow texels, so it
+frustum cut where the fog goes opaque (at most `MAX_SHADOW_DISTANCE` = 55 units), enclosed in a sphere and snapped to whole shadow texels, so it
 follows the camera without shimmering; its direction is the KE-0406 sun's. Receivers are biased by
 their own triangle's plane plus a constant 2 cm (see `kaman-render/src/shadow.rs`). Bloom is
 deferred.

@@ -24,7 +24,7 @@ use kaman_math::Transform;
 use kaman_render_api::{
     MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, SunSky, TextureHandle,
 };
-use kaman_scene::Scene;
+use kaman_scene::{Scene, StreamingConfig};
 
 use crate::assets::{building_fit, color_layout, fit_transform, load_model, load_textured_mesh, textured_layout, CarPart};
 use crate::components::{BuildingVariant, GuardrailTag, TrafficVariant};
@@ -468,10 +468,21 @@ impl CarRunner {
 impl Game for CarRunner {
     fn init(&mut self, ctx: &mut EngineCtx) {
         // The scene is owned by the loop and created with the engine-default
-        // `StreamingConfig` — which streams along `-Z`, exactly our travel axis
-        // (adjusting it would need an engine API, out of scope for this A0
-        // ticket). We drive `stream` / `maybe_rebase` against that scene; road
-        // tiles are sized to the scene's own `spawn_interval` so they tile flush.
+        // `StreamingConfig` — which streams along `-Z`, exactly our travel axis.
+        // Keep its axis, spacing and rebase threshold, and set only the reach:
+        // the demo draws 3× further ahead than the default. We drive `stream` /
+        // `maybe_rebase` against that scene; road tiles are sized to the scene's
+        // own `spawn_interval` so they tile flush.
+        let streaming = StreamingConfig {
+            spawn_ahead: config::SPAWN_AHEAD,
+            despawn_behind: config::DESPAWN_BEHIND,
+            ..ctx.scene().config()
+        };
+        ctx.scene_mut().set_config(streaming);
+        // ...and let the chase camera see that far (see `config::CAMERA_FAR`).
+        ctx.camera_mut()
+            .set_clip_planes(config::CAMERA_NEAR, config::CAMERA_FAR);
+
         let start = self.player_position();
         let scene = ctx.scene_mut();
         self.player = Some(Self::spawn_player(scene, start));
@@ -754,6 +765,41 @@ mod tests {
         assert!(
             harness.scene().streamed_count() > 0,
             "init primed streamed content ahead of the player"
+        );
+    }
+
+    #[test]
+    fn init_streams_the_full_draw_distance_and_the_camera_sees_it() {
+        let mut game = CarRunner::new();
+        let harness = kaman_core::headless::run(&mut game, 0);
+        let scene = harness.scene();
+        assert_eq!(scene.config().spawn_ahead, config::SPAWN_AHEAD);
+        assert_eq!(scene.config().despawn_behind, config::DESPAWN_BEHIND);
+        // Spacing is untouched, so traffic per unit of road is unchanged.
+        assert_eq!(
+            scene.config().spawn_interval,
+            StreamingConfig::default().spawn_interval
+        );
+
+        // The primed world reaches the spawn edge.
+        let axis = scene.config().axis;
+        let player = game.player_position().dot(axis);
+        let farthest = scene
+            .world()
+            .query::<&TransformComponent>()
+            .iter()
+            .map(|(_, t)| t.transform.position.dot(axis) - player)
+            .fold(f32::MIN, f32::max);
+        assert!(
+            farthest > config::SPAWN_AHEAD - scene.config().spawn_interval,
+            "streamed content reaches only {farthest} ahead"
+        );
+
+        // The camera was given the demo's clip range (whose layering against the
+        // spawn edge, backdrop and terrain `config.rs` checks at compile time).
+        assert_eq!(
+            harness.camera().clip_planes(),
+            (config::CAMERA_NEAR, config::CAMERA_FAR)
         );
     }
 

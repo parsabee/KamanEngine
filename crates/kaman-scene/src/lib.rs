@@ -203,6 +203,46 @@ impl Scene {
         self.config
     }
 
+    /// Replaces the streaming configuration.
+    ///
+    /// Meant for a game that owns a scene it did not construct (the engine loop
+    /// builds it with [`Scene::new`]) to set its own reach — typically once, in
+    /// `init`, before the first [`stream`](Self::stream). Changing
+    /// [`spawn_ahead`](StreamingConfig::spawn_ahead),
+    /// [`despawn_behind`](StreamingConfig::despawn_behind) or
+    /// [`rebase_threshold`](StreamingConfig::rebase_threshold) later is also safe:
+    /// the next pass simply fills to / trims at the new distances.
+    ///
+    /// # Panics
+    ///
+    /// If streaming has already started and the new config changes
+    /// [`axis`](StreamingConfig::axis) or
+    /// [`spawn_interval`](StreamingConfig::spawn_interval): the spawn frontier is
+    /// a slot index along that axis at that spacing, so either change would
+    /// silently re-spawn or skip slots.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use kaman_scene::{Scene, StreamingConfig};
+    ///
+    /// let mut scene = Scene::new();
+    /// scene.set_config(StreamingConfig {
+    ///     spawn_ahead: 180.0,
+    ///     ..scene.config()
+    /// });
+    /// assert_eq!(scene.config().spawn_ahead, 180.0);
+    /// ```
+    pub fn set_config(&mut self, config: StreamingConfig) {
+        assert!(
+            self.spawn_frontier.is_none()
+                || (config.axis == self.config.axis
+                    && config.spawn_interval == self.config.spawn_interval),
+            "cannot change the streaming axis or spawn_interval once streaming has started"
+        );
+        self.config = config;
+    }
+
     /// Number of entities the scene is currently tracking for despawn-behind.
     ///
     /// This is the count of entities spawned through `stream` that have not yet
@@ -606,6 +646,40 @@ mod tests {
                 "survivor {along} must not be beyond the spawn-ahead horizon"
             );
         }
+    }
+
+    /// `set_config` before the first pass changes how far streaming reaches.
+    #[test]
+    fn set_config_extends_the_spawn_reach() {
+        let spawn = |cx: &mut SpawnCtx<'_>| {
+            let e = cx
+                .world
+                .spawn((TransformComponent::from_position(cx.position),));
+            cx.spawned(e);
+        };
+        let mut near = Scene::new();
+        near.stream(Vec3::ZERO, spawn);
+        let mut far = Scene::new();
+        far.set_config(StreamingConfig {
+            spawn_ahead: near.config().spawn_ahead * 3.0,
+            ..far.config()
+        });
+        far.stream(Vec3::ZERO, spawn);
+        // Slots 0..=ahead/interval inclusive: 11 at 60, 31 at 180.
+        assert_eq!(near.streamed_count(), 11);
+        assert_eq!(far.streamed_count(), 31);
+    }
+
+    /// The frontier is a slot index, so the spacing cannot change mid-stream.
+    #[test]
+    #[should_panic(expected = "spawn_interval")]
+    fn set_config_rejects_a_new_interval_once_streaming() {
+        let mut scene = Scene::new();
+        scene.stream(Vec3::ZERO, |_| {});
+        scene.set_config(StreamingConfig {
+            spawn_interval: 3.0,
+            ..scene.config()
+        });
     }
 
     /// No unbounded growth: driving many frames of advancing focus keeps both the

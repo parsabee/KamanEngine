@@ -115,10 +115,20 @@ falls behind. Despawn is **atomic**: the physics rigid body is removed with the 
 live `PhysicsBodyComponent` ever holds a freed handle
 ([`Scene::despawn`](../crates/kaman-scene/src/lib.rs#L262)).
 
-The demo runs on the **engine-default** `StreamingConfig`
+The loop creates the scene with the **engine-default** `StreamingConfig`
 ([kaman-scene:107](../crates/kaman-scene/src/lib.rs#L107)) — axis `-Z`, `spawn_interval` 6,
-`spawn_ahead` 60, `despawn_behind` 12, `rebase_threshold` 1000 — because the loop creates the
-scene and the default axis is already the demo's travel direction. Road tiles and the guardrail
+`spawn_ahead` 60, `despawn_behind` 12, `rebase_threshold` 1000 — and the default axis is already
+the demo's travel direction. The demo keeps the axis, spacing and rebase threshold and, in `init`,
+sets only its reach with `Scene::set_config`: `spawn_ahead` **180** (`config::SPAWN_AHEAD`, three
+times the default) and `despawn_behind` 12. Because obstacles and buildings are placed per slot,
+traffic per unit of road is unchanged; only how far out it exists grows. At steady state that is
+~176 streamed entities (it was ~66 at the default reach). The chase camera's clip range is set to
+match (`config::CAMERA_NEAR` 0.3 / `CAMERA_FAR` 300, from the engine's 0.1 / 100): the far plane
+clears the spawn edge (192 from the camera), and the near plane rose in proportion so the depth
+buffer keeps its precision. New slots appear behind the skyline backdrop (159 ahead, drawn 3× its
+authored size so it frames the view exactly as it did at 45), and the renderer's distance fog —
+clear to 105 view-depth units, ~98% opaque at 165 — dissolves everything short of it into the
+horizon, so nothing is ever seen popping in. Road tiles and the guardrail
 mesh are sized from `ctx.scene().config().spawn_interval` rather than a literal
 ([game.rs:531](../games/playable-demo/src/game.rs#L531),
 [game.rs:604](../games/playable-demo/src/game.rs#L604)), so streamed segments abut flush whatever
@@ -290,7 +300,9 @@ from the west-northwest, shadows fall east and a little toward the camera: the r
 the left throw long bands across the road, the guardrail posts stripe the asphalt beside them, and
 the cars shade the road to their right and their own bodywork. The demo does nothing to get this:
 every mesh it draws is a caster and every lit surface a receiver, and the renderer fits its single
-shadow map to what the chase camera can see before the fog closes in (about 55 units out). Change
+shadow map to the first 55 units of what the chase camera can see (`MAX_SHADOW_DISTANCE`; shadows
+fade out over the last 11 of them). The slab is capped rather than following the fog out to 165,
+which would make every shadow texel — and every shadow edge — three times blurrier. Change
 `SUN_ELEVATION_DEG` / `SUN_AZIMUTH_DEG` and the shadows swing and stretch with the lighting.
 
 The sun *disc* the sky pass draws is not visible in the demo: the chase camera pitches down to

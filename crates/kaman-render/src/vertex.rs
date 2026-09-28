@@ -289,14 +289,25 @@ impl Default for LightUniforms {
             // streaming spawn edge is fully blended into the horizon — which hides
             // content popping in at the spawn distance while leaving the mid-ground
             // (and the skyline backdrop) crisp.
+            //
+            // Tuned to the playable demo's reach, which is the only content that
+            // draws this far out: it streams 180 units ahead of the car, so the
+            // fog clears to 105 and is ~98% opaque at 105 + 2·30 = 165 view depth
+            // (3× the original 35 / 0.10 pair, which served a 60-unit reach — the
+            // look at a given *fraction* of the reach is unchanged). These live
+            // here rather than in the game because the render seam has no fog
+            // parameters yet; a scene that fits within 105 units sees no fog at
+            // all, which is why the pixel-hash reference scenes are unaffected.
             sky_top_color: sun.sky_zenith_color,
             _padding3: 0.0,
             sky_horizon_color: sun.sky_horizon_color,
             _padding_horizon: 0.0,
-            fog_density: 0.10,
-            fog_start: 35.0,
+            fog_density: 1.0 / 30.0,
+            fog_start: 105.0,
             // Fog hugs the ground: full strength at/below the roadway, thinning
             // upward so the skyline backdrop and tall buildings stay readable.
+            // Deliberately *not* scaled with the distances above: it is a world
+            // height (the road deck sits at y = -0.3), not a view distance.
             fog_height: 2.0,
             fog_falloff: 5.0,
             // Shadow map (KE-0407): the bias and distance terms are refitted every
@@ -304,7 +315,7 @@ impl Default for LightUniforms {
             // default camera would get. A shadowed fragment keeps only sky fill.
             shadow_depth_bias: 0.0,
             shadow_receiver_slope_cap: 0.0,
-            shadow_distance: crate::shadow::shadow_distance_for_fog(35.0, 0.10),
+            shadow_distance: crate::shadow::shadow_distance_for_fog(105.0, 1.0 / 30.0),
             shadow_strength: 1.0,
             // No camera pushed yet: the origin and an identity view-projection (whose
             // inverse is the identity), matching the backend's own default camera.

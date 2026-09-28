@@ -66,6 +66,44 @@ pub(crate) const CHASE_SMOOTHING: f32 = 0.2;
 /// The car's travel direction (the streaming axis, `-Z`); the chase camera
 /// trails along it.
 pub(crate) const FORWARD: Vec3 = Vec3::new(0.0, 0.0, -1.0);
+/// Near clip distance of the chase camera. Raised from the engine default `0.1`
+/// in proportion to [`CAMERA_FAR`], which keeps the depth buffer's precision
+/// (set by `near`) where it was; nothing is ever closer than ~6 units to the
+/// camera, which trails [`CHASE_DISTANCE`] behind and [`CHASE_HEIGHT`] above.
+pub(crate) const CAMERA_NEAR: f32 = 0.3;
+/// Far clip distance of the chase camera: beyond everything the demo draws — the
+/// spawn edge ([`SPAWN_AHEAD`] + [`CHASE_DISTANCE`] = 192 from the camera), the
+/// skyline backdrop (~171) and the far edge of the terrain sheet
+/// ([`TERRAIN_Z_FAR`], 252).
+pub(crate) const CAMERA_FAR: f32 = 300.0;
+
+// ---------------------------------------------------------------------------
+// Streaming (draw distance)
+// ---------------------------------------------------------------------------
+
+/// How far ahead of the car (along [`FORWARD`]) the streamed world — road tiles,
+/// traffic, roadside buildings, guardrails — is kept filled, in world units.
+///
+/// This is the draw distance. It only decides how far out content *exists*;
+/// traffic density per unit of road, lane choice and difficulty are all per-slot
+/// and so unaffected by it. Three times the engine default (60). The far end is
+/// never seen being filled: new slots appear behind the skyline backdrop
+/// ([`BACKDROP_DIST`]), and everything short of it fades into the distance fog
+/// (the render backend's default, which clears to 105 and is ~98% opaque at 165
+/// view depth).
+pub(crate) const SPAWN_AHEAD: f32 = 180.0;
+/// How far behind the car a streamed entity may fall before it is despawned. The
+/// engine default: the camera trails [`CHASE_DISTANCE`] (12) behind and looks
+/// forward and down, so nothing further back is ever in view.
+pub(crate) const DESPAWN_BEHIND: f32 = 12.0;
+
+// The draw-distance layering, checked at compile time: new slots fill in behind
+// the backdrop, the ground runs on under it, and the far plane (measured from the
+// camera, which trails `CHASE_DISTANCE` behind the car) covers all of it.
+const _: () = assert!(BACKDROP_DIST < SPAWN_AHEAD);
+const _: () = assert!(-TERRAIN_Z_FAR > BACKDROP_DIST);
+const _: () = assert!(SPAWN_AHEAD + CHASE_DISTANCE < CAMERA_FAR);
+const _: () = assert!(-TERRAIN_Z_FAR + CHASE_DISTANCE < CAMERA_FAR);
 
 // ---------------------------------------------------------------------------
 // Car fit
@@ -179,10 +217,11 @@ pub(crate) const TERRAIN_W: f32 = 260.0;
 /// How far in front of the (trailing) camera the terrain sheet extends
 /// (camera-locked, relative `Z`).
 pub(crate) const TERRAIN_Z_NEAR: f32 = 30.0;
-/// How far behind the terrain sheet extends (camera-locked, relative `Z`). The
-/// far edge stays inside the camera's far plane (100) measured from the
-/// trailing camera, so it never clips.
-pub(crate) const TERRAIN_Z_FAR: f32 = -80.0;
+/// How far ahead the terrain sheet extends (camera-locked, relative `Z`): past
+/// the skyline backdrop ([`BACKDROP_DIST`]) so the ground runs all the way under
+/// it, and inside the camera's far plane ([`CAMERA_FAR`]; the edge is 252 from
+/// the trailing camera) so it never clips.
+pub(crate) const TERRAIN_Z_FAR: f32 = -240.0;
 /// Half-width of the flat valley floor the road and buildings sit on — the terrain
 /// stays level at [`GROUND_Y`] out to here, so buildings rest flush, then rises.
 pub(crate) const TERRAIN_FLAT_HALF: f32 = 13.0;
@@ -197,21 +236,41 @@ pub(crate) const TERRAIN_COLUMNS: u32 = 96;
 // ---------------------------------------------------------------------------
 
 /// How far ahead of the player (along the travel axis, `-Z`) the skyline backdrop
-/// sits. Kept well under the camera far plane (100) so it never clips; far enough
-/// that the distance fog blends it toward the horizon so it reads as a far skyline.
-pub(crate) const BACKDROP_DIST: f32 = 45.0;
-/// Backdrop billboard width in world units — wide enough to span the view frustum
-/// at [`BACKDROP_DIST`].
+/// sits: 171 units from the trailing camera, 3× the 57 it was before the draw
+/// distance was tripled.
+///
+/// It sits a little short of the spawn edge ([`SPAWN_AHEAD`]) on purpose: new
+/// slots are filled *behind* it, so a tall building never visibly pops in (the
+/// fog hugs the ground, so it cannot hide a skyscraper's upper floors on its
+/// own). Everything in front of it is drawn. Under the camera far plane
+/// ([`CAMERA_FAR`]), so it never clips; far enough that the distance fog blends
+/// its base toward the horizon so it reads as a far skyline.
+pub(crate) const BACKDROP_DIST: f32 = 159.0;
+/// How much larger the backdrop is drawn than its authored size
+/// ([`BACKDROP_W`] × [`BACKDROP_H`] at [`BACKDROP_Y`], which is what
+/// `examples/gen_skyline.rs` is built against).
+///
+/// The backdrop was authored to be seen from 57 units; it is now 3× as far, so
+/// it is scaled 3× **about the chase camera's eye** (width, height, the depth of
+/// its curve, and its height offset from the eye). That keeps its on-screen size,
+/// position and curvature exactly as they were: the skyline frames the view the
+/// same way, there is just 3× more road in front of it.
+pub(crate) const BACKDROP_SCALE: f32 = 3.0;
+/// Authored backdrop billboard width in world units (before [`BACKDROP_SCALE`]) —
+/// wide enough to span the view frustum.
 pub(crate) const BACKDROP_W: f32 = 150.0;
-/// Backdrop billboard height in world units. One full image height renders as 17
+/// Authored backdrop billboard height in world units (before
+/// [`BACKDROP_SCALE`]). One full image height renders as 17
 /// units; the extra height extends the frame **downward** (the generator's
 /// `V_SPAN` matches, so the picture keeps its scale and position and the extra
 /// frame just shows more of the image's bottom). Keep in sync with the
 /// `FRAME_WORLD_H` constant in `examples/gen_skyline.rs`.
 pub(crate) const BACKDROP_H: f32 = 24.0;
-/// World `Y` of the backdrop's center. Chosen so the frame's **top edge stays at
-/// `13.5`** while [`BACKDROP_H`] grows downward (`Y = 13.5 - H/2`), extending the
-/// frame's bottom to cover the mid-ground without moving the skyline picture.
+/// Authored world `Y` of the backdrop's center (before [`BACKDROP_SCALE`], which
+/// scales its offset from the camera's eye height). Chosen so the frame's **top
+/// edge stays at `13.5`** while [`BACKDROP_H`] grows downward (`Y = 13.5 - H/2`),
+/// extending the frame's bottom to cover the mid-ground without moving the skyline
+/// picture.
 pub(crate) const BACKDROP_Y: f32 = 1.5;
 
 // ---------------------------------------------------------------------------

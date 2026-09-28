@@ -6,8 +6,8 @@ Owns the engine's camera model:
 
 - **`Camera`** — a target-based perspective camera. Produces the view,
   projection, and view-projection matrices the render seam carries; supports
-  aspect-ratio updates, `set_position` / `set_target`, and the forward / right
-  basis vectors. Migrated (and trimmed to the seam-facing core) from the
+  aspect-ratio updates, `set_position` / `set_target`, the clip range
+  (`set_clip_planes`; default `0.1..100`), and the forward / right basis vectors. Migrated (and trimmed to the seam-facing core) from the
   prototype camera.
 - **`ChaseController`** — a follow camera. Given a target position and a facing
   direction it places the camera **behind and above** the target and points it

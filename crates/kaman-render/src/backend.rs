@@ -401,7 +401,12 @@ pub const MAX_FRAMES_IN_FLIGHT: u64 = 3;
 /// ring **grows** at that draw (an allocation-time event, counted by the KR1.2
 /// instrument) rather than allocating per draw — steady state stays allocation
 /// free. Growth doubles the per-frame capacity so it amortizes.
-const INITIAL_MAX_DRAWS_PER_FRAME: u64 = 256;
+///
+/// Sized for the playable demo's steady state with headroom: at its 180-unit
+/// draw distance a frame uses ~630 slots (a textured draw takes two), so 1024
+/// means the ring never has to grow mid-frame. It is 768 KiB across the three
+/// in-flight regions.
+const INITIAL_MAX_DRAWS_PER_FRAME: u64 = 1024;
 
 /// A persistent mesh resource: a deindexed vertex buffer, uploaded once, and its
 /// vertex count. Held in the [`Registry`] for the mesh's whole lifetime.

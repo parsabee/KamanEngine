@@ -13,7 +13,9 @@ Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
   `step_physics()` (steps at `FIXED_DT`, then syncs each dynamic body's transform back into its
   `TransformComponent`).
 - `StreamingConfig` — 1-D streaming policy along an `axis`: `spawn_interval`, `spawn_ahead`,
-  `despawn_behind`, `rebase_threshold`.
+  `despawn_behind`, `rebase_threshold`. `set_config` replaces it on a scene the game did not
+  construct (the engine loop's), e.g. to set its own reach in `init`; the axis and spacing are
+  fixed once streaming has started.
 - `stream(focus, spawn)` — despawns tracked entities that fell more than `despawn_behind` behind
   the focus, then invokes the game's `spawn` callback once per unfilled slot up to
   `focus + spawn_ahead`. `SpawnCtx` gives the callback `world`/`physics`/`position`/`slot` and a

@@ -107,7 +107,8 @@ pass** from the sun into a 2048² `Depth32Float` map *before* the scene pass, an
 (untextured and textured) sample it. To know every caster before the scene pass starts, the backend
 records draws during the frame and encodes both passes at `submit` — invisible above the seam, where
 a game still just draws meshes and sets a `SunSky`. The light's orthographic projection is refitted
-every frame to the slab of camera frustum the fog leaves visible, enclosed in a sphere and **snapped
+every frame to the slab of camera frustum the fog leaves visible (capped at 55 units so a far fog
+does not blur the shadows), enclosed in a sphere and **snapped
 to whole shadow texels** so it follows the camera without shimmering, and its direction is the
 KE-0406 sun's — one source of truth for shading, sun disc and shadows. On a TBDR GPU the map is the
 one depth attachment that must be **stored** (the MSAA scene targets are resolved in-tile and

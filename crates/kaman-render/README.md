@@ -124,9 +124,12 @@ store action. Getting this wrong is silent — the scene would sample garbage �
 texture's storage/usage is asserted at creation and the store action every time the
 pass descriptor is built.
 
-**Frustum fit and stability.** One map, not cascades: ground-level fog is ~98%
-opaque by `fog_start + 2 / fog_density` view-depth units (55 with the defaults), so
-the fit covers only the camera frustum cut at that depth. The slab is enclosed in a
+**Frustum fit and stability.** One map, not cascades: the fit covers only the camera
+frustum cut at `fog_start + 2 / fog_density` view-depth units (where ground-level fog is
+~98% opaque), capped at `MAX_SHADOW_DISTANCE` = 55. With the default fog (clear to 105,
+density 1/30) the fog distance is 165, so the cap binds: shadows stay as sharp as they
+were tuned (~4.7 cm texels) and fade out over the last 11 units of the slab instead of
+spreading the map over ground three times as deep. The slab is enclosed in a
 bounding sphere (whose size does not change as the camera turns), its radius rounded
 up to 0.5 units, and its centre **snapped to whole shadow texels** in a light space
 anchored at the world origin — so as the fit slides with the camera every world
