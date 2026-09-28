@@ -6,12 +6,12 @@
 #
 # Installs the prebuilt `kaman-demo` (the playable demo) and the engine source, from the
 # Apple Silicon tarball that .github/workflows/release.yml attaches to each GitHub release.
-# To release: bump `url`/`version`, then set `sha256` from the release's `.sha256` asset.
+# Kept current automatically: on every v* tag, release.yml runs scripts/update-homebrew-formula.sh
+# to point `url`/`sha256` at the new tarball, here and in the tap.
 class KamanEngine < Formula
   desc "Rust game engine for Apple platforms with raw Metal, plus its playable demo"
   homepage "https://github.com/parsabee/KamanEngine"
   url "https://github.com/parsabee/KamanEngine/releases/download/v0.1.0-alpha.2/kaman-engine-0.1.0-alpha.2-aarch64-apple-darwin.tar.gz"
-  version "0.1.0-alpha.2"
   sha256 "f7fba2dcaab6aa88d4cd24c1cd0e8dc240066760ade629d77028a4ce4a2cc27a"
   license "Apache-2.0"
 

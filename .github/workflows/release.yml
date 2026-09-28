@@ -87,3 +87,54 @@ jobs:
               "${pre[@]}" --verify-tag --title "$TAG" \
               --notes "Prebuilt Apple Silicon build of $TAG. See CHANGELOG.md for what changed."
           fi
+
+      # Point the Homebrew tap (github.com/parsabee/homebrew-kaman) at this release, so
+      # `brew install/upgrade parsabee/kaman/kaman-engine` serves it, and keep the canonical copy
+      # in packaging/homebrew/ on main in sync. The tap is pushed with a write deploy key scoped to
+      # that one repo (secret HOMEBREW_TAP_DEPLOY_KEY); main is pushed with this run's token
+      # (pushes made with GITHUB_TOKEN don't re-trigger workflows). Without the secret the step
+      # warns and skips, so forks and first-time setups still release.
+      - name: Update Homebrew tap + canonical formula
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -z "$TAP_DEPLOY_KEY" ]; then
+            echo "::warning::HOMEBREW_TAP_DEPLOY_KEY is not set; skipping the Homebrew tap update"
+            exit 0
+          fi
+          sha=$(cut -d' ' -f1 "dist/kaman-engine-${VERSION}-aarch64-apple-darwin.tar.gz.sha256")
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # The job checked out the tag (detached). Switch to main first: the canonical formula is
+          # committed there, and main's copy of update-homebrew-formula.sh is used for both files,
+          # so re-running this for an older tag (workflow_dispatch) works even if the tag predates
+          # the script.
+          git fetch --depth 1 origin main
+          git checkout -B main FETCH_HEAD
+
+          key="$RUNNER_TEMP/tap_deploy_key"
+          printf '%s\n' "$TAP_DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+            git clone --depth 1 git@github.com:parsabee/homebrew-kaman.git "$RUNNER_TEMP/tap"
+          ./scripts/update-homebrew-formula.sh "$RUNNER_TEMP/tap/Formula/kaman-engine.rb" "$VERSION" "$sha"
+          if git -C "$RUNNER_TEMP/tap" diff --quiet; then
+            echo "tap already at $VERSION"
+          else
+            git -C "$RUNNER_TEMP/tap" commit -am "kaman-engine $VERSION" \
+              -m "- Formula/kaman-engine.rb: url and sha256 for the $TAG release"
+            GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes" git -C "$RUNNER_TEMP/tap" push origin HEAD:main
+          fi
+          rm -f "$key"
+
+          # Keep the canonical copy on main in sync.
+          ./scripts/update-homebrew-formula.sh packaging/homebrew/kaman-engine.rb "$VERSION" "$sha"
+          if git diff --quiet; then
+            echo "packaging/homebrew already at $VERSION"
+          else
+            git commit -am "Homebrew formula: point at $TAG" \
+              -m "- packaging/homebrew/kaman-engine.rb: url and sha256 for $TAG (updated by the release workflow)"
+            git push origin main
+          fi
