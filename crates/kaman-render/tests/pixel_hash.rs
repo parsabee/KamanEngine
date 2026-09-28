@@ -26,7 +26,9 @@
 //!    casting onto a ground split between the textured and untextured pipelines.
 //!    Alongside it, two behavioural tests prove the shadow comes from the shadow
 //!    pass (disabling its casters removes it) and follows the sun (turning the sun
-//!    moves it).
+//!    moves it). This one is exact on a real Apple GPU but compared with a tight,
+//!    edge-confined **tolerance** on a paravirtualized one (a CI virtual machine):
+//!    see [`SHADOW_REFERENCE_BGRA`].
 //!
 //! They are separate renders (separate offscreen backends) so a change to one
 //! cannot shift the other's pixels, and a failure names which pass regressed.
@@ -51,6 +53,13 @@
 //! can return nil. When no Metal device is available the tests **skip** (print a
 //! skip line and return) instead of failing, so they never break a GPU-less
 //! build. On a real Mac (this dev machine) they run and assert.
+//!
+//! GitHub's current macOS runners are virtual machines that *do* expose a Metal
+//! device — `"Apple Paravirtual device"`, which forwards to a host GPU. References
+//! 1–3 hash identically there; the shadow reference does not (a handful of texel
+//! compares at its soft edge land differently), so on that device it is checked
+//! against a committed reference image within tolerances instead of by hash. See
+//! [`SHADOW_REFERENCE_BGRA`] for the rule and why it still catches regressions.
 
 use kaman_camera::Camera;
 use kaman_math::glam::{Quat, Vec3};
@@ -669,7 +678,102 @@ fn reference_sun_matches_committed_hash() {
 ///   hashes to `0xe105de70657b1d19`, as before. So the bias still adds no acne.
 /// - **The other baselines behave.** `REFERENCE_HASH`, `OVERLAY_REFERENCE_HASH`
 ///   and `SUN_REFERENCE_HASH` pass unchanged.
+///
+/// # Real vs paravirtualized GPUs
+///
+/// This hash is asserted on real Apple GPUs only. On a paravirtualized device
+/// (CI's virtual machines) the frame is compared with [`SHADOW_REFERENCE_BGRA`] —
+/// the exact frame this hash was taken of — within tolerances; see there.
+/// Re-blessing rewrites both (`BLESS=1` writes the image file too), and
+/// [`shadow_reference_image_matches_committed_hash`] keeps them in lockstep.
 const SHADOW_REFERENCE_HASH: u64 = 0xb5efe2dbd7e0de08;
+
+/// The committed shadow reference frame itself: `WIDTH x HEIGHT` BGRA8 pixels
+/// (16 KiB), byte-identical to the frame [`SHADOW_REFERENCE_HASH`] pins (a GPU-free
+/// test checks that). It exists for one reason: GPUs that do not reproduce the
+/// frame bit-for-bit.
+///
+/// # Why the shadow reference needs a tolerance path at all
+///
+/// On GitHub's macOS runners (Metal device `"Apple Paravirtual device"`) every
+/// other reference in this file hashes identically, but this one came out
+/// `0x1cfb5fb94c280bb9`. Everything the shadow shares with the other references
+/// (lighting, fog, sky, texturing, present) is therefore bit-exact there; what is
+/// not is the one thing only this scene exercises: the shadow lookup. Its per-texel
+/// `receiver <= occluder` compare is a knife edge wherever the receiver's depth is
+/// within float error of the occluder's — which, with a receiver ~1 unit below the
+/// caster, happens only at the shadow's outline — and its receiver-plane bias comes
+/// from screen-space derivatives whose float rounding is GPU-specific. So a
+/// different GPU flips a few edge texels, and each flip moves a penumbra pixel by
+/// up to a third of the full shadow contrast (a texel's tent weight is up to 3/9 of
+/// a column). A hash cannot tell that from a regression; a tolerance can.
+///
+/// # The rule (paravirtualized devices only)
+///
+/// [`compare_shadow_frames`] measures the candidate against this reference, using
+/// the device's own casters-off render to find the shadow. The **edge band** is
+/// every pixel within [`SHADOW_EDGE_BAND_PX`] of the boundary of the shadowed
+/// region (pixels the casters darken by more than 2/255 luminance). Then:
+///
+/// 1. **Outside the edge band nothing moves:** every channel within
+///    [`SHADOW_OUTSIDE_BAND_MAX_DELTA`] (2/255) — the sky, the lit ground on both
+///    pipelines, the cube and the umbra's interior. All of those are bit-exact
+///    across GPUs (the other references prove it for everything but the shadow; a
+///    fully-shadowed or fully-lit texel's compare has a margin of centimetres, not
+///    ulps), so acne, a leak, a lighting change or a lightened umbra fails here.
+/// 2. **Only a few edge pixels move:** at most [`SHADOW_MAX_DIFFERING_PIXELS`]
+///    pixels differ at all.
+/// 3. **The shadow as a whole is where it was and as dark as it was:** its
+///    integrated darkening (sum over the frame of casters-off minus casters-on
+///    luminance) is within [`SHADOW_DARKENING_TOLERANCE`] of the reference's, and
+///    its darkening-weighted centroid within [`SHADOW_CENTROID_TOLERANCE_PX`].
+///
+/// There is deliberately no per-pixel cap inside the band: the penumbra is ~4
+/// shadow texels (~13 cm) across while a pixel here is ~8 cm of ground, so a pixel
+/// straddling it can legitimately take any value between lit and umbra.
+///
+/// # Where the thresholds come from
+///
+/// They were calibrated on a real Apple GPU against the worst *legitimate* edge
+/// perturbation available without touching the renderer: re-gridding the shadow
+/// map (a fixed shadow distance of 40, 55, 67, 80, 90, 95 or 99 instead of the
+/// fitted 100), which re-rolls every edge texel's compare — strictly more than
+/// float noise, which leaves the texel grid in place and moves the receiver by
+/// ulps. Across those re-grids at most 37 pixels differed (of 4096; all at the
+/// outline), outside the 2-px band nothing differed, the darkening moved by at
+/// most 1.9% and the centroid by at most 0.15 px. Each threshold sits
+/// comfortably above that and well below what a real regression does:
+/// [`shadow_tolerance_accepts_regridding_and_rejects_regressions`] proves the
+/// comparison passes such a re-grid but fails with the casters off, with the sun
+/// turned 1° (0.5° already moves 104 pixels) or with the caster moved by 5 cm.
+/// On a real GPU none of this is needed: [`SHADOW_REFERENCE_HASH`] is asserted exactly.
+const SHADOW_REFERENCE_BGRA: &[u8] = include_bytes!("data/shadow_reference.bgra");
+
+/// Path of [`SHADOW_REFERENCE_BGRA`], for `BLESS=1` to rewrite it.
+const SHADOW_REFERENCE_BGRA_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/data/shadow_reference.bgra"
+);
+
+/// Width (pixels, Chebyshev distance) of the shadow edge band on each side of the
+/// shadowed region's boundary, inside which [`compare_shadow_frames`] tolerates
+/// differences. 2 px: the penumbra itself is ~1.6 px wide (tent PCF over ±2
+/// texels of ~3.3 cm, at ~8 cm of ground per pixel), and umbra pixels next to it
+/// still see its outer taps.
+const SHADOW_EDGE_BAND_PX: i32 = 2;
+/// Largest per-channel difference (of 255) allowed **outside** the edge band: two
+/// steps of unorm rounding, nothing more.
+const SHADOW_OUTSIDE_BAND_MAX_DELTA: u8 = 2;
+/// Most pixels (of 4096) allowed to differ at all. A full re-grid of the shadow
+/// map moves at most 37 here; 64 is ~1.7x that, well under the 170-pixel
+/// shadow, and a 0.5° turn of the sun already moves 104.
+const SHADOW_MAX_DIFFERING_PIXELS: usize = 64;
+/// Allowed relative change of the shadow's integrated darkening. Re-grids move it
+/// by at most 1.9%; losing or gaining one row of the shadow's long edge is ~15%.
+const SHADOW_DARKENING_TOLERANCE: f32 = 0.04;
+/// Allowed shift (pixels) of the shadow's darkening-weighted centroid. Re-grids
+/// move it by at most 0.15 px.
+const SHADOW_CENTROID_TOLERANCE_PX: f32 = 0.35;
 
 /// The sun the shadow reference is lit by: 50° up at `azimuth_deg` (the reference
 /// uses `270`, due **west**, so the light travels toward `+X` and the caster's
@@ -784,8 +888,49 @@ fn reference_shadow_camera() -> Camera {
 /// shadow falls east across the seam, so one frame proves both pipelines receive.
 /// `shadows` toggles the shadow pass's casters; `azimuth_deg` turns the sun.
 fn render_reference_shadow(shadows: bool, azimuth_deg: f32) -> Option<Vec<u8>> {
+    render_shadow_scene(ShadowVariant {
+        shadows,
+        azimuth_deg,
+        ..ShadowVariant::REFERENCE
+    })
+}
+
+/// A perturbation of the shadow reference scene, for exercising
+/// [`compare_shadow_frames`] against legitimate and illegitimate changes.
+#[derive(Clone, Copy)]
+struct ShadowVariant {
+    /// Whether the shadow pass renders casters.
+    shadows: bool,
+    /// Sun azimuth (degrees).
+    azimuth_deg: f32,
+    /// Fixed shadow distance (`None`: follow the draw distance, as the reference).
+    shadow_distance: Option<f32>,
+    /// Offset added to the caster cube's position.
+    caster_offset: Vec3,
+}
+
+impl ShadowVariant {
+    /// The shadow reference itself.
+    const REFERENCE: Self = Self {
+        shadows: true,
+        azimuth_deg: 270.0,
+        shadow_distance: None,
+        caster_offset: Vec3::ZERO,
+    };
+}
+
+/// Render the shadow reference scene with `variant` applied (see
+/// [`render_reference_shadow`]), or `None` without a Metal device.
+fn render_shadow_scene(variant: ShadowVariant) -> Option<Vec<u8>> {
+    let ShadowVariant {
+        shadows,
+        azimuth_deg,
+        shadow_distance,
+        caster_offset,
+    } = variant;
     let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
     renderer.set_shadows_enabled(shadows);
+    renderer.set_shadow_distance(shadow_distance);
 
     let untextured = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor {
         vertex_shader: "vertex_main".into(),
@@ -837,12 +982,120 @@ fn render_reference_shadow(shadows: bool, azimuth_deg: f32) -> Option<Vec<u8>> {
     renderer.draw_mesh(east, &Transform::identity(), &MaterialParams::default());
     renderer.draw_mesh(
         cube,
-        &Transform::from_position(SHADOW_CASTER_CENTER),
+        &Transform::from_position(SHADOW_CASTER_CENTER + caster_offset),
         &MaterialParams::default(),
     );
     renderer.submit();
 
     renderer.read_pixels()
+}
+
+/// Luminance (0..255) of pixel `i` of a BGRA8 frame.
+fn pixel_luminance(pixels: &[u8], i: usize) -> f32 {
+    let (b, g, r) = (
+        pixels[i * 4] as f32,
+        pixels[i * 4 + 1] as f32,
+        pixels[i * 4 + 2] as f32,
+    );
+    0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/// Compare a shadow-reference `candidate` frame with `reference` under the
+/// tolerance rule documented on [`SHADOW_REFERENCE_BGRA`]. `unshadowed` is the
+/// same scene rendered with the casters off *on the device under test*; it
+/// locates the shadow (whose darkening is `unshadowed - frame`). Returns a
+/// description of the first rule broken.
+fn compare_shadow_frames(
+    reference: &[u8],
+    candidate: &[u8],
+    unshadowed: &[u8],
+) -> Result<(), String> {
+    let (w, h) = (WIDTH as i32, HEIGHT as i32);
+    let n = (WIDTH * HEIGHT) as usize;
+    assert!(reference.len() == n * 4 && candidate.len() == n * 4 && unshadowed.len() == n * 4);
+
+    // The shadowed region, and the band around its boundary.
+    let shadowed: Vec<bool> = (0..n)
+        .map(|i| pixel_luminance(unshadowed, i) - pixel_luminance(reference, i) > 2.0)
+        .collect();
+    let r = SHADOW_EDGE_BAND_PX;
+    let in_band = |i: usize| {
+        let (x, y) = (i as i32 % w, i as i32 / w);
+        let (mut any_in, mut any_out) = (false, false);
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let (nx, ny) = (x + dx, y + dy);
+                let inside =
+                    nx >= 0 && ny >= 0 && nx < w && ny < h && shadowed[(ny * w + nx) as usize];
+                any_in |= inside;
+                any_out |= !inside;
+            }
+        }
+        any_in && any_out
+    };
+
+    // Rules 1 and 2: nothing moves outside the band; few pixels move at all.
+    let mut differing = 0;
+    for i in 0..n {
+        let delta = (0..4)
+            .map(|c| reference[i * 4 + c].abs_diff(candidate[i * 4 + c]))
+            .max()
+            .unwrap_or(0);
+        if delta == 0 {
+            continue;
+        }
+        differing += 1;
+        if delta > SHADOW_OUTSIDE_BAND_MAX_DELTA && !in_band(i) {
+            return Err(format!(
+                "pixel ({}, {}) is away from the shadow's edge but changed by {delta}/255 \
+                 (allowed {SHADOW_OUTSIDE_BAND_MAX_DELTA})",
+                i as i32 % w,
+                i as i32 / w
+            ));
+        }
+    }
+    if differing > SHADOW_MAX_DIFFERING_PIXELS {
+        return Err(format!(
+            "{differing} pixels differ (allowed {SHADOW_MAX_DIFFERING_PIXELS})"
+        ));
+    }
+
+    // Rule 3: the shadow's total darkening and its centroid.
+    let darkening = |frame: &[u8]| {
+        let (mut sum, mut cx, mut cy) = (0.0f32, 0.0f32, 0.0f32);
+        for i in 0..n {
+            let d = (pixel_luminance(unshadowed, i) - pixel_luminance(frame, i)).max(0.0);
+            sum += d;
+            cx += d * (i as i32 % w) as f32;
+            cy += d * (i as i32 / w) as f32;
+        }
+        (sum, cx / sum.max(1.0), cy / sum.max(1.0))
+    };
+    let (ref_sum, ref_x, ref_y) = darkening(reference);
+    let (sum, x, y) = darkening(candidate);
+    let relative = (sum - ref_sum).abs() / ref_sum.max(1.0);
+    if relative > SHADOW_DARKENING_TOLERANCE {
+        return Err(format!(
+            "the shadow's integrated darkening moved by {:.1}% ({sum:.0} vs {ref_sum:.0}; \
+             allowed {:.1}%)",
+            relative * 100.0,
+            SHADOW_DARKENING_TOLERANCE * 100.0
+        ));
+    }
+    let shift = ((x - ref_x).powi(2) + (y - ref_y).powi(2)).sqrt();
+    if shift > SHADOW_CENTROID_TOLERANCE_PX {
+        return Err(format!(
+            "the shadow's centroid moved by {shift:.2} px ({x:.2}, {y:.2}) vs \
+             ({ref_x:.2}, {ref_y:.2}); allowed {SHADOW_CENTROID_TOLERANCE_PX} px"
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `device_name` is a paravirtualized Metal device (a macOS virtual
+/// machine, e.g. a GitHub Actions runner) rather than a real Apple GPU.
+fn is_paravirtual(device_name: &str) -> bool {
+    device_name.contains("Paravirtual")
 }
 
 /// Mean luminance (0..255) of the 3x3 pixels around where `world` projects in the
@@ -857,10 +1110,7 @@ fn luminance_at(pixels: &[u8], world: Vec3) -> f32 {
         for dx in -1..=1 {
             let x = (px + dx).clamp(0, WIDTH as i32 - 1) as usize;
             let y = (py + dy).clamp(0, HEIGHT as i32 - 1) as usize;
-            let i = (y * WIDTH as usize + x) * 4;
-            // BGRA8.
-            let (b, g, r) = (pixels[i] as f32, pixels[i + 1] as f32, pixels[i + 2] as f32);
-            sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            sum += pixel_luminance(pixels, y * WIDTH as usize + x);
         }
     }
     sum / 9.0
@@ -878,12 +1128,134 @@ const LIT_UNTEXTURED: Vec3 = Vec3::new(2.2, 0.0, 1.8);
 
 #[test]
 fn reference_shadow_matches_committed_hash() {
-    let Some(pixels) = render_reference_shadow(true, 270.0) else {
+    let Some(device) = MetalRenderer::new_offscreen(1, 1).map(|r| r.device_name()) else {
+        skip_no_gpu("reference-shadow");
+        return;
+    };
+    let (Some(pixels), Some(unshadowed)) = (
+        render_reference_shadow(true, 270.0),
+        render_reference_shadow(false, 270.0),
+    ) else {
+        skip_no_gpu("reference-shadow");
+        return;
+    };
+    let blessing = std::env::var("BLESS").is_ok();
+
+    if blessing {
+        std::fs::write(SHADOW_REFERENCE_BGRA_PATH, &pixels)
+            .expect("BLESS: failed to write the shadow reference image");
+        println!("BLESS: rewrote {SHADOW_REFERENCE_BGRA_PATH}");
+    }
+
+    if blessing {
+        bless_or_assert(&pixels, SHADOW_REFERENCE_HASH, "SHADOW_REFERENCE_HASH");
+        return;
+    }
+
+    // Runs on every device (trivially exact on a real GPU), so the tolerance path
+    // CI depends on is exercised locally too.
+    let tolerance = compare_shadow_frames(SHADOW_REFERENCE_BGRA, &pixels, &unshadowed);
+
+    if is_paravirtual(&device) {
+        // See SHADOW_REFERENCE_BGRA: a paravirtualized GPU flips a few texel
+        // compares at the soft edge, so the exact hash is replaced by the
+        // edge-confined tolerance comparison against the committed frame.
+        eprintln!(
+            "{device}: paravirtualized Metal device, so the shadow reference is compared \
+             within tolerance (hash here {:#018x}; the exact {SHADOW_REFERENCE_HASH:#018x} \
+             is asserted on real Apple GPUs)",
+            fnv1a_64(&pixels)
+        );
+        if let Err(why) = tolerance {
+            panic!(
+                "SHADOW_REFERENCE on {device} is outside the paravirtualized-GPU tolerance: \
+                 {why}. See SHADOW_REFERENCE_BGRA in tests/pixel_hash.rs."
+            );
+        }
+        return;
+    }
+
+    bless_or_assert(&pixels, SHADOW_REFERENCE_HASH, "SHADOW_REFERENCE_HASH");
+    // Real GPU and the hash matched, so the frame *is* the committed image.
+    assert_eq!(tolerance, Ok(()));
+}
+
+#[test]
+fn shadow_reference_image_matches_committed_hash() {
+    // GPU-free: the committed image is exactly the frame the hash pins, so the
+    // tolerance path compares against the same baseline the strict path asserts.
+    assert_eq!(SHADOW_REFERENCE_BGRA.len(), (WIDTH * HEIGHT * 4) as usize);
+    assert_eq!(
+        fnv1a_64(SHADOW_REFERENCE_BGRA),
+        SHADOW_REFERENCE_HASH,
+        "tests/data/shadow_reference.bgra is not the frame SHADOW_REFERENCE_HASH pins; \
+         re-bless both together (BLESS=1 rewrites the image)"
+    );
+}
+
+#[test]
+fn shadow_tolerance_accepts_regridding_and_rejects_regressions() {
+    // The tolerance rule must not be vacuous. Everything here is rendered on the
+    // device under test and compared with that device's own reference render, so
+    // it holds on any GPU: legitimate edge perturbations (re-gridding the shadow
+    // map) pass, real regressions fail.
+    let (Some(reference), Some(unshadowed)) = (
+        render_shadow_scene(ShadowVariant::REFERENCE),
+        render_shadow_scene(ShadowVariant {
+            shadows: false,
+            ..ShadowVariant::REFERENCE
+        }),
+    ) else {
         skip_no_gpu("reference-shadow");
         return;
     };
 
-    bless_or_assert(&pixels, SHADOW_REFERENCE_HASH, "SHADOW_REFERENCE_HASH");
+    assert_eq!(
+        compare_shadow_frames(&reference, &reference, &unshadowed),
+        Ok(())
+    );
+    for distance in [55.0, 80.0, 99.0] {
+        let regridded = render_shadow_scene(ShadowVariant {
+            shadow_distance: Some(distance),
+            ..ShadowVariant::REFERENCE
+        })
+        .expect("the Metal device vanished mid-test");
+        assert_eq!(
+            compare_shadow_frames(&reference, &regridded, &unshadowed),
+            Ok(()),
+            "a shadow map re-gridded for a {distance}-unit slab should be within tolerance"
+        );
+    }
+
+    let regressions = [
+        (
+            "casters off",
+            ShadowVariant {
+                shadows: false,
+                ..ShadowVariant::REFERENCE
+            },
+        ),
+        (
+            "sun turned 1°",
+            ShadowVariant {
+                azimuth_deg: 271.0,
+                ..ShadowVariant::REFERENCE
+            },
+        ),
+        (
+            "caster moved 5 cm",
+            ShadowVariant {
+                caster_offset: Vec3::new(0.05, 0.0, 0.0),
+                ..ShadowVariant::REFERENCE
+            },
+        ),
+    ];
+    for (what, variant) in regressions {
+        let frame = render_shadow_scene(variant).expect("the Metal device vanished mid-test");
+        let verdict = compare_shadow_frames(&reference, &frame, &unshadowed);
+        eprintln!("{what}: {verdict:?}");
+        assert!(verdict.is_err(), "{what} should fail the shadow tolerance");
+    }
 }
 
 #[test]

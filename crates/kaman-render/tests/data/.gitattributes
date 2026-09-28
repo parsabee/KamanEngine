@@ -1,0 +1,2 @@
+# Raw pixel dumps: never diff, merge or line-ending-convert them.
+*.bgra binary

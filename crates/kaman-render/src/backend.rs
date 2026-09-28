@@ -1250,6 +1250,16 @@ impl MetalRenderer {
         self.alloc_count.load(Ordering::Relaxed)
     }
 
+    /// The Metal device's name (`MTLDevice.name`), e.g. `"Apple M2"`, or
+    /// `"Apple Paravirtual device"` inside a macOS virtual machine such as a
+    /// GitHub Actions macOS runner. Test/diagnostic aid: the shadow pixel-hash
+    /// guard uses it to tell a real Apple GPU (bit-exact baseline) from a
+    /// paravirtualized one (tolerance comparison at the shadow's edges).
+    #[must_use]
+    pub fn device_name(&self) -> String {
+        self.device.name().to_string()
+    }
+
     /// Allocate a Metal buffer with initial data, counting the allocation.
     ///
     /// # Safety
