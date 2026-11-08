@@ -50,6 +50,7 @@ reference title is the [playable demo](#the-playable-demo), an endless car runne
 - [Features](#features)
 - [Install with Homebrew](#install-with-homebrew)
 - [Quick start](#quick-start)
+- [Using KamanEngine from C or Swift](#using-kamanengine-from-c-or-swift)
 - [The playable demo](#the-playable-demo)
 - [Project status](#project-status)
 - [Documentation](#documentation)
@@ -59,6 +60,10 @@ reference title is the [playable demo](#the-playable-demo), an endless car runne
 
 ## Features
 
+- **A C API** (`libkaman` + a generated `kaman.h`, with a Swift module map) for hosts in C,
+  Objective-C, Swift or C++. It is asynchronous in shape: calls return at once with a handle or a
+  result code, resources become ready later, and completions arrive as events. glTF models load
+  on worker threads, and acquiring a frame never waits. See [docs/C_API.md](docs/C_API.md).
 - **Raw Metal behind a render seam.** `kaman-render-api` defines the render contract
   (`RenderDevice` / `FrameRecorder` traits and opaque handles). `kaman-render` is the only crate
   that depends on `metal`, and CI fails if the seam crate ever gains a `metal` dependency.
@@ -76,15 +81,17 @@ reference title is the [playable demo](#the-playable-demo), an endless car runne
 - **2D HUD overlay** with SDF text rendering.
 - **Audio** built on [`kira`](https://crates.io/crates/kira): load-once sounds, one-shots, looping
   music, and master volume.
-- **Testable by design:** a headless smoke oracle that runs with no GPU, plus golden pixel-hash
-  tests that pin the renderer's output.
+- **Testable by design:** a headless smoke oracle that runs with no GPU, golden pixel-hash tests
+  that pin the renderer's output, a null backend that runs the C API without a GPU, and a C
+  program compiled and run against the header in CI.
 - **Fully documented API:** every engine crate compiles under `#![deny(missing_docs)]`, and the
   rustdoc is [published online](https://parsabee.github.io/KamanEngine/).
 
 ## Install with Homebrew
 
 On an **Apple Silicon** Mac (arm64; Intel Macs are not supported and Homebrew refuses the
-install), install the prebuilt demo and the engine source, with no Rust toolchain needed:
+install), install the prebuilt demo, the C library and the engine source, with no Rust toolchain
+needed:
 
 ```sh
 brew install parsabee/kaman/kaman-engine
@@ -97,6 +104,9 @@ What gets installed:
 | Path | Contents |
 |---|---|
 | `$(brew --prefix)/bin/kaman-demo` | The playable demo (the `playable-demo` binary) |
+| `$(brew --prefix)/lib/libkaman.a`, `libkaman.dylib` | The C library, static and dynamic (install name `@rpath/libkaman.dylib`) |
+| `$(brew --prefix)/include/kaman/` | `kaman.h` and the Swift `module.modulemap` |
+| `$(brew --prefix)/lib/pkgconfig/kaman.pc` | `pkg-config --cflags --libs kaman` |
 | `$(brew --prefix kaman-engine)/share/kaman-engine/assets/` | The demo's runtime assets |
 | `$(brew --prefix kaman-engine)/share/kaman-engine/src/` | The engine source: the workspace `Cargo.toml` / `Cargo.lock` / `rust-toolchain.toml`, `crates/`, `games/`, `docs/`, `LICENSE`, `NOTICE` |
 
@@ -158,6 +168,59 @@ cargo test  --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p playable-demo -- --smoke                    # headless oracle: 120 frames, exits 0
+./scripts/test-c-api.sh                                  # build libkaman, compile + run the C programs
+./scripts/gen-header.sh --check                          # kaman.h matches the Rust sources (needs cbindgen 0.29.0)
+```
+
+## Using KamanEngine from C or Swift
+
+Build the library from a checkout (or install it with [Homebrew](#install-with-homebrew)):
+
+```sh
+cargo build --release -p kaman-capi
+# -> target/release/libkaman.a and target/release/libkaman.dylib
+# header and Swift module map: crates/kaman-capi/include/
+```
+
+Then include `kaman.h` and link `libkaman`:
+
+```sh
+# Installed with Homebrew: pkg-config knows the paths and, with --static, the frameworks.
+cc -std=c11 app.c $(pkg-config --cflags --libs kaman) -o app
+# From a checkout, linking the static library by hand:
+cc -std=c11 app.c -I crates/kaman-capi/include target/release/libkaman.a \
+   -framework Metal -framework QuartzCore -framework Foundation -framework CoreGraphics \
+   -framework AppKit -framework CoreFoundation -lobjc -liconv -o app
+```
+
+The exact library list for static linking is what rustc reports
+(`cargo rustc -p kaman-capi --lib --crate-type staticlib -- --print native-static-libs`);
+[`scripts/test-c-api.sh`](scripts/test-c-api.sh) builds this way. From Swift, put the include
+directory on the import paths (`SWIFT_INCLUDE_PATHS` in Xcode, or `-I`), link `libkaman`, and
+`import Kaman`.
+
+A frame looks like this; the full contract (handles, events, threading, what may wait) is
+[docs/C_API.md](docs/C_API.md), and [`examples/c/offscreen.c`](examples/c/offscreen.c) is a
+complete program:
+
+```c
+KamanContextDesc desc = { KAMAN_API_VERSION, KAMAN_BACKEND_METAL, metal_layer, 1280, 720, 2.0f };
+KamanContext *ctx;
+kaman_context_create(&desc, &ctx);
+
+KamanModel car;
+kaman_model_load_file(ctx, "car.glb", NULL, &car);   /* returns at once; loads off-thread */
+
+/* every display tick */
+KamanEvent events[16];
+uint32_t n;
+kaman_poll_events(ctx, events, 16, &n);              /* housekeeping + completions */
+KamanFrame *frame;
+if (kaman_frame_acquire(ctx, &frame) == KAMAN_OK) {  /* never waits */
+    kaman_frame_set_camera(frame, &camera);
+    kaman_frame_draw_model(frame, car, &world, NULL); /* KAMAN_NOT_READY until loaded */
+    kaman_frame_submit(frame, NULL, NULL);
+}
 ```
 
 ## The playable demo
@@ -235,6 +298,7 @@ smoke oracle). The layout follows [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) Â
 
 | Crate | Purpose |
 |---|---|
+| [`kaman-capi`](crates/kaman-capi) | The C API: `libkaman` (static and dynamic), the generated `kaman.h` and the Swift module map, over a Metal or a null backend. Graphics only: no windowing, audio, ECS or physics |
 | [`kaman-core`](crates/kaman-core) | Application lifecycle and the engine/game boundary: the `Game` trait, `EngineCtx`, the fixed-timestep loop, input, and the windowed (winit) and headless drivers |
 | [`kaman-render-api`](crates/kaman-render-api) | Backend-agnostic render seam: `RenderDevice` / `FrameRecorder` traits, opaque handles, descriptors, sun/sky and 2D overlay types, and a `NullRenderer` test double. Never depends on `metal` |
 | [`kaman-render`](crates/kaman-render) | Raw-Metal implementation of the seam: rasterization pipeline, look stack, shadow maps, offscreen rendering and pixel read-back |

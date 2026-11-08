@@ -8,11 +8,57 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ## [Unreleased]
 
+### Added
+
+- **The C API.** A new `kaman-capi` crate builds `libkaman.a` and `libkaman.dylib` with a
+  cbindgen-generated `kaman.h` and a Swift `module.modulemap`; the contract is
+  [docs/C_API.md](docs/C_API.md). The API is **asynchronous in shape**:
+  - calls return at once with a handle or a result code;
+  - resources go `PENDING` → `READY` / `FAILED`;
+  - completions arrive as events, through `kaman_poll_events` or per-call callbacks that run on
+    the host's thread;
+  - glTF models are parsed on worker threads, and `kaman_frame_acquire` never waits.
+
+  Under the hood:
+  - Handles are typed 64-bit ids with 32-bit generations and are never reissued.
+  - A context is used by one thread at a time; an overlapping call returns `KAMAN_ERROR_BUSY`.
+  - No panic crosses the boundary.
+  - The library is graphics-only: no windowing, audio, ECS or physics crate links into it, and
+    CI checks that.
+- **A null backend** for the C API (`KAMAN_BACKEND_NULL`), so the API and host-side tests run
+  without a GPU. It is the only backend off Apple platforms.
+- **C programs in CI.** `crates/kaman-capi/tests/c/smoke.c` and `examples/c/offscreen.c` are
+  compiled with `-std=c11 -pedantic -Werror` against the header and run on the macOS runner's
+  Metal device (`scripts/test-c-api.sh`). CI also fails if the committed header no longer
+  matches the Rust sources (`scripts/gen-header.sh --check`).
+- **The release ships the C library.** The tarball and the Homebrew formula now install
+  `lib/libkaman.a`, `lib/libkaman.dylib` (install name `@rpath/libkaman.dylib`),
+  `include/kaman/kaman.h`, `include/kaman/module.modulemap` and `lib/pkgconfig/kaman.pc`.
+  Packaging builds and runs the C programs against the unpacked tarball.
+- **`kaman-render`: fallible and non-blocking entry points**, alongside the existing ones:
+  - `try_new`, `try_new_offscreen` and `try_from_layer` return a `RenderError` instead of
+    panicking; `try_from_layer` takes a `CAMetalLayer` the host owns.
+  - `try_create_mesh` and `try_create_texture` validate their input strictly.
+  - `try_begin_frame` reports a `FrameSkip` instead of blocking.
+  - `submit_async` never waits.
+  - `request_readback` returns a `Readback` with a frame's own pixels.
+  - `discard_frame`, frame completion counts, and `draw_mesh_matrix`.
+- **`PipelineKind`** (`VertexColor`, `Textured`) in `kaman-render-api`: the single source of truth
+  for the two built-in pipelines and their vertex layouts.
+
 ### Changed
 
 - **CI fails on unformatted code.** A new `cargo fmt --all -- --check` step runs first in the
   macOS CI job, and the whole workspace was reformatted with rustfmt's defaults (a
   formatting-only change). Run `cargo fmt --all` before pushing.
+- **Pipelines and materials say what they do.** `PipelineDescriptor` is now
+  `{ kind: PipelineKind }`; the shader-name strings it used to carry were ignored by the backend.
+  `MaterialParams` keeps only `base_color`.
+- **`kaman-render` no longer waits on the CPU for texture mipmaps.** The mip blit runs on the
+  same queue as every later frame. Frame opening, submission and the mip blit now run inside
+  autorelease pools.
+- **`kaman-assets`' ECS spawn helper is behind a default `ecs` feature.** `kaman-render` drops
+  its unused `winit` dependency.
 - **A new roadmap.** `docs/ROADMAP.md` now lists what v0.1 (beta.1, then 0.1.0) and v0.2 contain,
   replacing the phase/OKR plan. The native scene editor is no longer planned for this repository.
 - **The docs match the code.** Docs and doc comments that described things the code does not do
@@ -32,10 +78,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
   tracked in GitHub issues, starting with
   [#2 iOS support (v0.2)](https://github.com/parsabee/KamanEngine/issues/2).
 
+- **`MaterialParams::metallic` and `roughness`**, and `PipelineDescriptor`'s
+  `vertex_shader` / `fragment_shader` / `vertex_layout` fields. No pipeline read any of them.
+
 - **The `raytracer` feature.** KamanEngine is rasterization-only. The off-by-default
   `kaman-render` feature, its `raytracer` module (a CPU `trace_ray` and GPU triangle layouts that
   nothing called) and `shaders/raytracing.metal` (which no build ever compiled or loaded) are
   gone, along with the CI step that built them. Default builds are unchanged.
+
+### Fixed
+
+- **`create_texture` could read past the end of its pixel data.** It took any `rgba8` slice, even
+  one shorter than `4 * width * height` bytes. Short data is now rejected: the seam method panics
+  with a message, and `try_create_texture` returns an error.
+- **Calling `begin_frame` twice without `submit`** leaked a frames-in-flight permit, and the
+  third time deadlocked. A second call is now a no-op.
+- **HUD quads recorded outside a frame** (before the first frame, after `submit`, or while a frame
+  was skipped for want of a drawable) used to stack into the next frame. They are now ignored.
+- **A mesh drawn with the other pipeline** made the GPU fetch vertices at the wrong stride, past
+  the end of its buffer. Such a draw is now rejected and counted (`rejected_draw_count`).
+- **The HUD vertex buffer was shared by all frames in flight,** so a frame could draw the next
+  frame's HUD. Each in-flight frame now has its own buffer.
 
 ## [0.1.0-alpha.2] - 2026-09-27
 
