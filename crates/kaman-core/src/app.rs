@@ -601,10 +601,12 @@ mod tests {
         let make: fn() -> Box<dyn Renderer> = || Box::new(NullRenderer::new());
         let mut renderer = make();
 
+        let layout = kaman_render_api::PipelineKind::VertexColor.vertex_layout();
+        let vertices = vec![0u8; 3 * layout.stride as usize];
         let mesh = renderer.create_mesh(&kaman_render_api::MeshData {
-            vertices: &[],
-            indices: &[],
-            layout: kaman_render_api::VertexLayout::default(),
+            vertices: &vertices,
+            indices: &[0, 1, 2],
+            layout,
         });
         renderer.begin_frame();
         let pipeline = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor::new(

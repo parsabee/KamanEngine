@@ -11,33 +11,28 @@
 use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, NullRenderer, PipelineDescriptor, PipelineKind,
-    RenderDevice, TextureData, VertexAttribute, VertexFormat, VertexLayout,
+    FrameRecorder, MaterialParams, MeshData, MeshHandle, NullRenderer, OverlayQuad,
+    PipelineDescriptor, PipelineHandle, PipelineKind, ProtocolViolation, RenderDevice, TextureData,
+    TextureHandle, VertexLayout,
 };
 
-fn sample_layout() -> VertexLayout {
-    VertexLayout::new(
-        12,
-        vec![VertexAttribute {
-            location: 0,
-            offset: 0,
-            format: VertexFormat::Float32x3,
-        }],
-    )
-}
-
-fn make_mesh(r: &mut NullRenderer) -> kaman_render_api::MeshHandle {
-    let layout = sample_layout();
-    // 1 vertex worth of bytes (stride = 12).
-    let vertices = [0u8; 12];
+/// A one-triangle mesh on `kind`'s vertex layout: something the Metal backend
+/// would actually draw with that pipeline.
+fn make_mesh_for(r: &mut NullRenderer, kind: PipelineKind) -> MeshHandle {
+    let layout = kind.vertex_layout();
+    let vertices = vec![0u8; 3 * layout.stride as usize];
     r.create_mesh(&MeshData {
         vertices: &vertices,
-        indices: &[0, 0, 0],
+        indices: &[0, 1, 2],
         layout,
     })
 }
 
-fn make_pipeline(r: &mut NullRenderer) -> kaman_render_api::PipelineHandle {
+fn make_mesh(r: &mut NullRenderer) -> MeshHandle {
+    make_mesh_for(r, PipelineKind::VertexColor)
+}
+
+fn make_pipeline(r: &mut NullRenderer) -> PipelineHandle {
     r.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor))
 }
 
@@ -191,6 +186,127 @@ fn switching_pipeline_and_texture_mid_frame_is_captured_per_draw() {
     assert_eq!(draws[0].texture, Some(t0));
     assert_eq!(draws[1].pipeline, Some(p1));
     assert_eq!(draws[1].texture, Some(t1));
+}
+
+#[test]
+fn correct_use_records_no_protocol_violations() {
+    let mut r = NullRenderer::new();
+    let mesh = make_mesh(&mut r);
+    let pipeline = make_pipeline(&mut r);
+    r.begin_frame();
+    r.set_pipeline(pipeline);
+    r.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
+    r.draw_overlay_quad(&OverlayQuad::solid([0.0, 0.0, 1.0, 1.0], [1.0; 4]));
+    r.submit();
+    assert!(r.protocol_violations().is_empty());
+    assert_eq!((r.draw_count(), r.overlay_quad_count()), (1, 1));
+}
+
+#[test]
+fn a_double_destroy_does_not_hide_a_live_mesh() {
+    let mut r = NullRenderer::new();
+    let a = make_mesh(&mut r);
+    let _b = make_mesh(&mut r);
+    r.destroy_mesh(a);
+    r.destroy_mesh(a);
+    assert_eq!(r.live_mesh_count(), 1, "b is still live");
+    assert_eq!(
+        r.protocol_violations(),
+        &[ProtocolViolation::UnknownMesh(a)]
+    );
+}
+
+#[test]
+fn destroying_unknown_handles_is_reported_not_a_panic() {
+    let mut r = NullRenderer::new();
+    r.destroy_mesh(MeshHandle(7));
+    r.destroy_texture(TextureHandle(7));
+    r.destroy_pipeline(PipelineHandle(7));
+    assert_eq!(
+        (
+            r.live_mesh_count(),
+            r.live_texture_count(),
+            r.live_pipeline_count()
+        ),
+        (0, 0, 0)
+    );
+    assert_eq!(
+        r.protocol_violations(),
+        &[
+            ProtocolViolation::UnknownMesh(MeshHandle(7)),
+            ProtocolViolation::UnknownTexture(TextureHandle(7)),
+            ProtocolViolation::UnknownPipeline(PipelineHandle(7)),
+        ]
+    );
+}
+
+#[test]
+fn draws_the_metal_backend_drops_are_not_counted() {
+    let mut r = NullRenderer::new();
+    let mesh = make_mesh(&mut r);
+    let textured = make_mesh_for(&mut r, PipelineKind::Textured);
+    let empty = r.create_mesh(&MeshData {
+        vertices: &[],
+        indices: &[],
+        layout: PipelineKind::VertexColor.vertex_layout(),
+    });
+    let wrong_layout = r.create_mesh(&MeshData {
+        vertices: &[0; 36],
+        indices: &[0, 0, 0],
+        layout: VertexLayout::default(),
+    });
+    let identity = Transform::identity();
+    let material = MaterialParams::default();
+
+    // Before any frame is open.
+    r.draw_mesh(mesh, &identity, &material);
+    r.draw_overlay_quad(&OverlayQuad::solid([0.0; 4], [1.0; 4]));
+
+    r.begin_frame();
+    // A textured mesh on the default (untextured) pipeline, an empty mesh and a
+    // layout no pipeline draws.
+    r.draw_mesh(textured, &identity, &material);
+    r.draw_mesh(empty, &identity, &material);
+    r.draw_mesh(wrong_layout, &identity, &material);
+    r.destroy_mesh(mesh);
+    r.draw_mesh(mesh, &identity, &material);
+    r.submit();
+
+    assert_eq!(r.draw_count(), 0);
+    assert_eq!(r.overlay_quad_count(), 0);
+    assert_eq!(
+        r.protocol_violations(),
+        &[
+            ProtocolViolation::OutsideFrame,
+            ProtocolViolation::OutsideFrame,
+            ProtocolViolation::MeshPipelineMismatch(textured),
+            ProtocolViolation::EmptyMesh(empty),
+            ProtocolViolation::MeshPipelineMismatch(wrong_layout),
+            ProtocolViolation::UnknownMesh(mesh),
+        ]
+    );
+}
+
+#[test]
+fn frame_protocol_mistakes_are_no_ops() {
+    let mut r = NullRenderer::new();
+    r.submit();
+    r.begin_frame();
+    r.begin_frame();
+    r.set_pipeline(PipelineHandle(3));
+    r.bind_texture(TextureHandle(3));
+    r.submit();
+    assert_eq!((r.frames_begun(), r.frames_submitted()), (1, 1));
+    assert!(!r.frame_open());
+    assert_eq!(
+        r.protocol_violations(),
+        &[
+            ProtocolViolation::SubmitWithoutFrame,
+            ProtocolViolation::BeginWhileOpen,
+            ProtocolViolation::UnknownPipeline(PipelineHandle(3)),
+            ProtocolViolation::UnknownTexture(TextureHandle(3)),
+        ]
+    );
 }
 
 #[test]
