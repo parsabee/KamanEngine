@@ -334,7 +334,7 @@ on top regardless of record order — which is why
 is plain data — glyph metrics in em units plus the uploaded atlas texture handle; the backend
 never parses a font. [`FontAtlas::layout`](../crates/kaman-render-api/src/overlay.rs#L180) walks a
 `&str` and hands one `OverlayQuad` per visible glyph to a callback, and
-[`measure`](../crates/kaman-render-api/src/overlay.rs#L156) returns a string's pixel width for
+[`measure`](../crates/kaman-render-api/src/overlay.rs#L158) returns a string's pixel width for
 centering. Because the metrics are in em units, one atlas serves any pixel size — the demo draws
 the score at 30 px and the banner headline at 64 px from the same texture.
 
@@ -461,7 +461,7 @@ Five crates carry a self-scanning **guard test** that embeds the crate's own sou
 | `tests::no_game_specific_symbols` ([lib.rs:997](../crates/kaman-scene/src/lib.rs#L997)) | `kaman-scene` |
 | `guard_tests::no_game_specific_symbols` ([lib.rs:72](../crates/kaman-assets/src/lib.rs#L72)) | `kaman-assets` |
 | `guard_tests::no_game_specific_symbols` ([lib.rs](../crates/kaman-audio/src/lib.rs)) | `kaman-audio` |
-| `tests::test_no_game_specific_symbols` ([lib.rs:715](../crates/kaman-ecs/src/lib.rs#L715)) | `kaman-ecs` |
+| `tests::test_no_game_specific_symbols` ([lib.rs:723](../crates/kaman-ecs/src/lib.rs#L723)) | `kaman-ecs` |
 
 The forbidden words are assembled from ASCII byte codes rather than written as literals, so each
 test's own body contains no occurrence of them and can scan every file in its crate — itself
