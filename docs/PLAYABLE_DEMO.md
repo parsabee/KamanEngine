@@ -30,7 +30,7 @@ The engine owns the loop. A game is any type implementing
 
 [`EngineCtx`](../crates/kaman-core/src/context.rs#L86) is the only channel into the engine. It
 is built fresh by the driver for each hook call and dropped immediately after, so a game cannot
-stash it across frames. Its whole surface is: the [`Scene`](../crates/kaman-scene/src/lib.rs#L141)
+stash it across frames. Its whole surface is: the [`Scene`](../crates/kaman-scene/src/lib.rs#L143)
 (`scene`/`scene_mut`), the ECS world (`world`/`world_mut`, delegating to the scene), the render
 seam (`renderer`), the [`Camera`](../crates/kaman-camera/src/camera.rs) (`camera`/`camera_mut`),
 the read-only `InputState` (`input`), the [`Audio`](../crates/kaman-audio/src/mixer.rs) layer
@@ -101,7 +101,7 @@ same frames, on any machine, with or without a GPU.
 ## 3. Scene streaming and the floating-origin rebase
 
 The world is endless, so the demo never builds it — it streams it. The engine half is
-[`Scene::stream`](../crates/kaman-scene/src/lib.rs#L355): the *game* supplies a **focus point**
+[`Scene::stream`](../crates/kaman-scene/src/lib.rs#L410): the *game* supplies a **focus point**
 and a **spawn callback**; the scene owns the bookkeeping (which slots ahead are filled, which
 streamed entities have fallen behind).
 
@@ -110,13 +110,13 @@ The demo's focus is the player's position
 [`spawn_slot`](../games/playable-demo/src/game.rs#L372), called from `update` at
 [game.rs:738](../games/playable-demo/src/game.rs#L738). Per slot it spawns a road tile, an
 obstacle on a cadence, two roadside buildings and two guardrail segments — reporting each via
-[`SpawnCtx::spawned`](../crates/kaman-scene/src/lib.rs#L511) so the scene despawns it once it
+[`SpawnCtx::spawned`](../crates/kaman-scene/src/lib.rs#L571) so the scene despawns it once it
 falls behind. Despawn is **atomic**: the physics rigid body is removed with the ECS entity, so no
 live `PhysicsBodyComponent` ever holds a freed handle
-([`Scene::despawn`](../crates/kaman-scene/src/lib.rs#L262)).
+([`Scene::despawn`](../crates/kaman-scene/src/lib.rs#L356)).
 
 The loop creates the scene with the **engine-default** `StreamingConfig`
-([kaman-scene:107](../crates/kaman-scene/src/lib.rs#L107)) — axis `-Z`, `spawn_interval` 6,
+([kaman-scene:109](../crates/kaman-scene/src/lib.rs#L109)) — axis `-Z`, `spawn_interval` 6,
 `spawn_ahead` 60, `despawn_behind` 12, `rebase_threshold` 1000 — and the default axis is already
 the demo's travel direction. The demo keeps the axis, spacing and rebase threshold and, in `init`,
 sets only its reach with `Scene::set_config`: `spawn_ahead` **180** (`config::SPAWN_AHEAD`, three
@@ -136,7 +136,7 @@ the interval is.
 
 ### The rebase, and what the game must carry through it
 
-[`Scene::maybe_rebase`](../crates/kaman-scene/src/lib.rs#L435) keeps world coordinates out of
+[`Scene::maybe_rebase`](../crates/kaman-scene/src/lib.rs#L495) keeps world coordinates out of
 float-precision trouble: once the focus is more than `rebase_threshold` from the origin, **every**
 position — every `TransformComponent` and every physics body translation — is shifted by one
 offset back toward the origin, and the offset actually applied is returned. Relative positions are
@@ -458,7 +458,7 @@ Five crates carry a self-scanning **guard test** that embeds the crate's own sou
 | Guard test | Crate |
 |---|---|
 | `boundary_tests::no_game_specific_symbols` ([lib.rs:104](../crates/kaman-core/src/lib.rs#L104)) | `kaman-core` |
-| `tests::no_game_specific_symbols` ([lib.rs:738](../crates/kaman-scene/src/lib.rs#L738)) | `kaman-scene` |
+| `tests::no_game_specific_symbols` ([lib.rs:997](../crates/kaman-scene/src/lib.rs#L997)) | `kaman-scene` |
 | `guard_tests::no_game_specific_symbols` ([lib.rs:72](../crates/kaman-assets/src/lib.rs#L72)) | `kaman-assets` |
 | `guard_tests::no_game_specific_symbols` ([lib.rs](../crates/kaman-audio/src/lib.rs)) | `kaman-audio` |
 | `tests::test_no_game_specific_symbols` ([lib.rs:715](../crates/kaman-ecs/src/lib.rs#L715)) | `kaman-ecs` |
