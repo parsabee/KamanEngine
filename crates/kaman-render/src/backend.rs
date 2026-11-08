@@ -187,6 +187,7 @@ use kaman_render_api::{
     TextureData, TextureHandle, VertexFormat, VertexLayout,
 };
 
+use crate::deindex::deindex;
 use crate::error::{check_size, rgba8_len, RenderError};
 use crate::frame_sync::FrameSemaphore;
 use crate::registry::Registry;
@@ -1503,20 +1504,11 @@ impl MetalRenderer {
                 textured,
             };
         }
-        let vertex_count_in = data.vertices.len() / stride;
-
         // Expand the index buffer into a flat, deindexed byte buffer: one
-        // `stride`-byte vertex record per index, copied verbatim.
-        let mut expanded: Vec<u8> = Vec::with_capacity(data.indices.len() * stride);
-        for &index in data.indices {
-            let start = index as usize * stride;
-            if index as usize >= vertex_count_in {
-                // A malformed index would read out of bounds; skip defensively
-                // rather than panic on the load path.
-                continue;
-            }
-            expanded.extend_from_slice(&data.vertices[start..start + stride]);
-        }
+        // `stride`-byte vertex record per index, copied verbatim. A triangle with
+        // an out-of-range index is dropped whole, so the triangles after it keep
+        // their vertices.
+        let expanded = deindex(data.vertices, stride, data.indices);
         if expanded.is_empty() {
             return MeshEntry {
                 vertex_buffer: None,
