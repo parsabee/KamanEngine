@@ -913,7 +913,8 @@ KamanResult kaman_font_create(struct KamanContext *ctx,
 KamanResult kaman_font_destroy(struct KamanContext *ctx, struct KamanFont font);
 
 /**
- * The width of `text` at `px` pixels per em, into `*out_width`.
+ * The width of `text` at `px` pixels per em, into `*out_width`: the widest
+ * line's, since `\n` starts a new line.
  *
  * # Safety
  * `ctx` must be NULL or a live context; `text` NULL or NUL-terminated;

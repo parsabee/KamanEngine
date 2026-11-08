@@ -149,12 +149,23 @@ impl FontAtlas {
             .unwrap_or(&self.fallback)
     }
 
-    /// Width of `text` when laid out at `px` pixels per em, in pixels.
+    /// Width of `text` when laid out at `px` pixels per em, in pixels: the
+    /// widest line's, since [`layout`](Self::layout) starts each `\n` on a new
+    /// line.
     ///
     /// Useful for right-aligning or centering a HUD string without allocating.
     #[must_use]
     pub fn measure(&self, text: &str, px: f32) -> f32 {
-        text.chars().map(|c| self.glyph(c).advance).sum::<f32>() * px
+        let (mut widest, mut line) = (0.0f32, 0.0f32);
+        for c in text.chars() {
+            if c == '\n' {
+                widest = widest.max(line);
+                line = 0.0;
+            } else {
+                line += self.glyph(c).advance;
+            }
+        }
+        widest.max(line) * px
     }
 
     /// Lay `text` out and hand each glyph's quad to `emit`.
@@ -241,6 +252,15 @@ mod tests {
         let a = atlas();
         // Two in-range glyphs at 0.6 em each, times 20px.
         assert!((a.measure("AB", 20.0) - 24.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn measure_is_the_widest_line_like_layout() {
+        // A newline starts a new line in `layout`, so it is not an advance here.
+        let a = atlas();
+        assert!((a.measure("AB\nA", 20.0) - 24.0).abs() < 1e-5);
+        assert!((a.measure("A\nAB", 20.0) - 24.0).abs() < 1e-5);
+        assert_eq!(a.measure("", 20.0), 0.0);
     }
 
     #[test]

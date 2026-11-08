@@ -407,7 +407,7 @@ import. Load failures (`IO`, `PARSE`) arrive as `RESOURCE_FAILED` with a message
 |---|---|
 | `KamanResult kaman_font_create(KamanContext *ctx, const KamanFontDesc *desc, const KamanCompletion *completion, KamanFont *out)` | The glyph table is copied. |
 | `KamanResult kaman_font_destroy(KamanContext *ctx, KamanFont font)` | Does not destroy the atlas texture. |
-| `KamanResult kaman_font_measure(KamanContext *ctx, KamanFont font, const char *text, float px, float *out_width)` | Width of `text` at `px` pixels per em. |
+| `KamanResult kaman_font_measure(KamanContext *ctx, KamanFont font, const char *text, float px, float *out_width)` | Width of `text` at `px` pixels per em: the widest line, since `\n` starts a new line. |
 
 ```c
 typedef struct KamanGlyph {

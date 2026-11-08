@@ -311,17 +311,18 @@ impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
         }
     }
 
-    /// Size the drawable for the window's native pixels and the current render
-    /// scale, and report the matching UI scale.
+    /// Size the drawable for the window's native pixels and the render scale in
+    /// effect (a queued change counts, so this is right before `Game::init` has
+    /// applied the restored settings), and report the matching UI scale.
     fn resize_surface(&mut self) {
         let Some(window) = &self.window else {
             return;
         };
         let size = window.inner_size();
-        let (width, height, pixels_per_point) = self
-            .lp
-            .graphics
-            .current()
+        let graphics = &self.lp.graphics;
+        let (width, height, pixels_per_point) = graphics
+            .pending()
+            .unwrap_or_else(|| graphics.current())
             .render_scale
             .surface_for(size.width, size.height, window.scale_factor());
         self.renderer
@@ -410,6 +411,9 @@ impl<G: Game> ApplicationHandler<EngineEvent> for EngineApp<'_, '_, G> {
             self.window = Some(window);
         }
 
+        // Size the drawable before the game's init sees it: a new backend's
+        // drawable is the view's size in points with a UI scale of 1.
+        self.resize_surface();
         // First activation: run the game's one-time init against the live seam
         // through the shared loop (idempotent).
         self.lp.init_once(self.game, self.renderer.as_mut());
