@@ -58,8 +58,8 @@ renderer (highest risk) comes only after the seam and golden-hash net exist.
 - macOS oracle green at every commit (CI-enforced).
 - Golden pixel-hash + golden physics-trajectory for code that resists unit testing.
 - Metal API Validation always on; GPU Frame Capture reviewed after each renderer sub-step.
-- **Feature-gate / `#[cfg]` risky parallel work** so the main path never breaks: raytracer
-  behind `feature = "raytracer"`; iOS behind `#[cfg(target_os = "ios")]`.
+- **Feature-gate / `#[cfg]` risky parallel work** so the main path never breaks: e.g. iOS
+  behind `#[cfg(target_os = "ios")]`.
 - The `kaman-render-api` seam makes a renderer rewrite physically unable to leak into other crates.
 
 ### 2.6 Documentation standard

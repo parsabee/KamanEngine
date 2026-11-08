@@ -7,9 +7,9 @@
 //! This is the migrated core of the prototype camera, trimmed to what the
 //! engine's render seam actually consumes: a look-at view
 //! matrix, a right-handed perspective projection, their product, an aspect
-//! update, position/target setters, and the forward/right basis vectors the
-//! (feature-gated) ray tracer reads. The prototype's free-fly `move_*` / orbit
-//! `rotate_*` controllers are intentionally not migrated here — the runner needs
+//! update, position/target setters, and the forward/right basis vectors. The
+//! prototype's free-fly `move_*` / orbit `rotate_*` controllers are
+//! intentionally not migrated here — the runner needs
 //! a chase camera (see [`crate::chase`]), and those controllers migrate lazily if
 //! a consumer needs them.
 

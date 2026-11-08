@@ -350,7 +350,7 @@ inline float3 lit_linear(float3 albedo, float3 worldNormal, float3 worldPos,
     float spec = pow(max(dot(normal, halfDir), 0.0), light.shininess);
     // Only lit faces can have a highlight. With a real view vector a face turned
     // away from the sun but toward the camera would otherwise pick up a spurious
-    // one; the CPU mirror in `raytracer.rs` already gates on `ndotl > 0`.
+    // one.
     spec *= step(1e-4, diff);
     float3 specular = light.specularIntensity * spec * light.color;
 

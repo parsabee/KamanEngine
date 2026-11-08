@@ -11,11 +11,7 @@ homepage.workspace = true
 publish.workspace = true
 
 [features]
-# The ray tracer is off by default. KE-0106 formalizes the gating and the iOS
-# exclusion; here it merely keeps the default build rasterization-only so that
-# `raytracing.metal` is never compiled unless explicitly requested.
 default = []
-raytracer = []
 
 # ASTC compressed base-color textures on device (KE-0403). OFF by default: macOS
 # on the Command Line Tools has no ASTC transcoder, so RGBA8 is the accepted

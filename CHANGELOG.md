@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ## [Unreleased]
 
+### Removed
+
+- **The `raytracer` feature.** KamanEngine is rasterization-only. The off-by-default
+  `kaman-render` feature, its `raytracer` module (a CPU `trace_ray` and GPU triangle layouts that
+  nothing called) and `shaders/raytracing.metal` (which no build ever compiled or loaded) are
+  gone, along with the CI step that built them. Default builds are unchanged.
+
 ## [0.1.0-alpha.2] - 2026-09-27
 
 ### Added

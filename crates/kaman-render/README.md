@@ -189,27 +189,6 @@ view/projection `Camera` is inlined here to place the reference scene. A later
 camera-migration ticket should replace it with the real crate and delete
 `src/camera.rs`.
 
-## Ray tracer (feature `raytracer`, off by default)
-
-The ray-tracing code that was entangled in the prototype renderer is behind the
-off-by-default `raytracer` cargo feature (`src/raytracer.rs` + `shaders/raytracing.metal`).
-The **default** build is rasterization-only and never compiles `raytracing.metal`.
-
-The raytracer is a **desktop-only, non-shipping** path. The module is gated
-`#[cfg(all(feature = "raytracer", not(target_os = "ios")))]`, so even with the
-feature enabled it compiles to nothing on iOS — an accidental feature enable can
-never pull it into a mobile build. A default-build test (`raytracer_is_off_by_default`)
-guards against the feature silently becoming a default.
-
-Build/test it explicitly (macOS):
-
-```text
-cargo build -p kaman-render --features raytracer
-cargo test  -p kaman-render --features raytracer
-```
-
-KE-0106 formalizes the gating and the iOS exclusion.
-
 ## Runtime shader compilation
 
 Shaders compile at runtime via `include_str!` + `new_library_with_source`

@@ -243,7 +243,7 @@ smoke oracle). The layout follows [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) Â
 |---|---|
 | [`kaman-core`](crates/kaman-core) | Application lifecycle and the engine/game boundary: the `Game` trait, `EngineCtx`, the fixed-timestep loop, input, and the windowed (winit) and headless drivers |
 | [`kaman-render-api`](crates/kaman-render-api) | Backend-agnostic render seam: `RenderDevice` / `FrameRecorder` traits, opaque handles, descriptors, sun/sky and 2D overlay types, and a `NullRenderer` test double. Never depends on `metal` |
-| [`kaman-render`](crates/kaman-render) | Raw-Metal implementation of the seam: rasterization pipeline, look stack, shadow maps, offscreen rendering and pixel read-back, plus an off-by-default `raytracer` feature |
+| [`kaman-render`](crates/kaman-render) | Raw-Metal implementation of the seam: rasterization pipeline, look stack, shadow maps, offscreen rendering and pixel read-back |
 | [`kaman-assets`](crates/kaman-assets) | Static glTF import and asset cache (metal-free) |
 | [`kaman-audio`](crates/kaman-audio) | Audio over `kira`: load-once sounds, one-shot playback, looping music, master volume |
 | [`kaman-camera`](crates/kaman-camera) | Camera state and controller math (perspective camera, chase controller) |
