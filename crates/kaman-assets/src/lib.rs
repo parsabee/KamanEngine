@@ -36,7 +36,7 @@
 //! [`spawn_scene`] turns a [`SceneAsset`]'s baked node graph into ECS entities
 //! (`TransformComponent` + `RenderComponent` + `StaticTag`). It lives here (not in
 //! a game crate) so any title reuses it; the `kaman-assets → kaman-ecs` edge is
-//! acyclic. See the [`spawn`] module.
+//! acyclic. See the `spawn` module, which needs the default `ecs` feature.
 //!
 //! # Engine-generic boundary
 //!
@@ -49,6 +49,7 @@ pub mod cache;
 pub mod error;
 pub mod import;
 pub mod scene;
+#[cfg(feature = "ecs")]
 pub mod spawn;
 
 pub use cache::{upload_scene, AssetCache, CachedAsset};
@@ -57,6 +58,7 @@ pub use import::{import_gltf, import_slice};
 pub use scene::{
     render_vertex_layout, textured_vertex_layout, BaseColorTexture, MeshAsset, Node, SceneAsset,
 };
+#[cfg(feature = "ecs")]
 pub use spawn::{render_component_from_mesh, spawn_scene};
 
 #[cfg(test)]

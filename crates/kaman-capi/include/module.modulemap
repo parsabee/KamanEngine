@@ -1,0 +1,7 @@
+// Lets Swift `import Kaman` with this directory on the header search path
+// (SWIFT_INCLUDE_PATHS / -I) and libkaman on the link line.
+module Kaman {
+    header "kaman.h"
+    link "kaman"
+    export *
+}

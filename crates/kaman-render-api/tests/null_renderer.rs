@@ -11,8 +11,8 @@
 use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, NullRenderer, PipelineDescriptor, RenderDevice,
-    TextureData, VertexAttribute, VertexFormat, VertexLayout,
+    FrameRecorder, MaterialParams, MeshData, NullRenderer, PipelineDescriptor, PipelineKind,
+    RenderDevice, TextureData, VertexAttribute, VertexFormat, VertexLayout,
 };
 
 fn sample_layout() -> VertexLayout {
@@ -38,11 +38,7 @@ fn make_mesh(r: &mut NullRenderer) -> kaman_render_api::MeshHandle {
 }
 
 fn make_pipeline(r: &mut NullRenderer) -> kaman_render_api::PipelineHandle {
-    r.create_pipeline(&PipelineDescriptor {
-        vertex_shader: "vs_main".into(),
-        fragment_shader: "fs_main".into(),
-        vertex_layout: sample_layout(),
-    })
+    r.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor))
 }
 
 fn make_texture(r: &mut NullRenderer) -> kaman_render_api::TextureHandle {
@@ -108,8 +104,6 @@ fn records_a_full_frame_with_bound_state_per_draw() {
     let t_b = Transform::from_position(Vec3::new(0.0, 2.0, 0.0));
     let mat_a = MaterialParams {
         base_color: [1.0, 0.0, 0.0, 1.0],
-        metallic: 0.0,
-        roughness: 0.5,
     };
     let mat_b = MaterialParams::default();
 

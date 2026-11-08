@@ -12,6 +12,7 @@ members = [
     "crates/kaman-assets",
     "crates/kaman-audio",
     "crates/kaman-core",
+    "crates/kaman-capi",
     "games/playable-demo",
 ]
 

@@ -92,11 +92,13 @@
 #![deny(missing_docs)]
 
 pub mod backend;
+pub mod error;
 pub mod frame_sync;
 pub mod registry;
 pub mod shadow;
 pub mod vertex;
 
-pub use backend::MetalRenderer;
+pub use backend::{FrameSkip, MetalRenderer, Readback};
+pub use error::{RenderError, MAX_TEXTURE_DIMENSION};
 pub use registry::{Registry, RegistryError};
 pub use vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex};

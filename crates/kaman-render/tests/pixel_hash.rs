@@ -359,11 +359,9 @@ fn render_reference() -> Option<Vec<u8>> {
         indices: &indices,
         layout: vertex_layout(),
     });
-    let pipeline = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor {
-        vertex_shader: "vertex_main".into(),
-        fragment_shader: "fragment_main".into(),
-        vertex_layout: vertex_layout(),
-    });
+    let pipeline = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor::new(
+        kaman_render_api::PipelineKind::VertexColor,
+    ));
 
     // A fixed, slightly-rotated transform so lighting is visible.
     let transform = Transform::from_position_rotation(
@@ -934,16 +932,12 @@ fn render_shadow_scene(variant: ShadowVariant) -> Option<Vec<u8>> {
     renderer.set_shadows_enabled(shadows);
     renderer.set_shadow_distance(shadow_distance);
 
-    let untextured = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor {
-        vertex_shader: "vertex_main".into(),
-        fragment_shader: "fragment_main".into(),
-        vertex_layout: vertex_layout(),
-    });
-    let textured = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor {
-        vertex_shader: "textured_vertex_main".into(),
-        fragment_shader: "textured_fragment_main".into(),
-        vertex_layout: textured_layout(),
-    });
+    let untextured = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor::new(
+        kaman_render_api::PipelineKind::VertexColor,
+    ));
+    let textured = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor::new(
+        kaman_render_api::PipelineKind::Textured,
+    ));
 
     let (cube_v, cube_i) = caster_cube();
     let cube = renderer.create_mesh(&MeshData {

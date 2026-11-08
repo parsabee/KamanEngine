@@ -4,7 +4,7 @@
 
 //! The [`RenderDevice`] trait — load-time resource creation and destruction.
 
-use crate::descriptor::VertexLayout;
+use crate::descriptor::{PipelineKind, VertexLayout};
 use crate::handles::{MeshHandle, PipelineHandle, TextureHandle};
 use crate::settings::RenderSettings;
 
@@ -37,20 +37,24 @@ pub struct TextureData<'a> {
     pub rgba8: &'a [u8],
 }
 
-/// Plain-data description of a render pipeline to compile.
+/// Plain-data description of a render pipeline: which built-in pipeline the
+/// handle selects.
 ///
-/// Names the vertex/fragment shader functions (backend resolves them from its
-/// compiled shader library) and the [`VertexLayout`] the pipeline expects. No
-/// backend objects appear here — the device turns this into its native pipeline
-/// state.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Backends provide a fixed set of pipelines ([`PipelineKind`]); there are no
+/// custom shaders to name. The vertex layout is implied by the kind
+/// ([`PipelineKind::vertex_layout`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PipelineDescriptor {
-    /// Name of the vertex shader entry point in the backend's shader library.
-    pub vertex_shader: String,
-    /// Name of the fragment shader entry point in the backend's shader library.
-    pub fragment_shader: String,
-    /// Vertex layout the pipeline binds against.
-    pub vertex_layout: VertexLayout,
+    /// The built-in pipeline this descriptor selects.
+    pub kind: PipelineKind,
+}
+
+impl PipelineDescriptor {
+    /// A descriptor for the given built-in pipeline.
+    #[must_use]
+    pub const fn new(kind: PipelineKind) -> Self {
+        Self { kind }
+    }
 }
 
 /// Load-time GPU-resource ownership: create and destroy meshes, textures and
@@ -113,13 +117,14 @@ pub trait RenderDevice {
     /// - Destroying an unknown or already-destroyed handle is a caller error.
     fn destroy_texture(&mut self, handle: TextureHandle);
 
-    /// Compile a render pipeline and return an opaque [`PipelineHandle`] naming it.
+    /// Create a handle for one of the built-in render pipelines.
     ///
     /// # Contract
     /// - The returned handle is valid until
     ///   [`destroy_pipeline`](Self::destroy_pipeline) is called with it.
-    /// - The named shader functions must exist in the backend's shader library;
-    ///   a backend may panic or otherwise surface an error if they do not.
+    /// - Meshes drawn while it is selected must be packed on
+    ///   `desc.kind.vertex_layout()`; a backend may reject a draw whose mesh layout
+    ///   does not match.
     fn create_pipeline(&mut self, desc: &PipelineDescriptor) -> PipelineHandle;
 
     /// Release the pipeline named by `handle`.
@@ -141,9 +146,10 @@ pub trait RenderDevice {
     /// notches, rounded corners, home indicators — as `[top, right, bottom, left]`.
     ///
     /// A HUD should keep anything it wants guaranteed-visible inside
-    /// [`surface_size`](Self::surface_size) shrunk by these. Backends without
-    /// intrusions (a plain desktop window) report zeros; an iOS backend (not built
-    /// yet) would report the real insets.
+    /// [`surface_size`](Self::surface_size) shrunk by these. The backends in this
+    /// workspace report zeros on every platform: a plain desktop window has no
+    /// intrusions, and on a device it is the host that knows its view's safe area
+    /// (UIKit's `safeAreaInsets`) and should apply it to its own layout.
     fn safe_area_insets(&self) -> [f32; 4];
 
     /// Resize the drawable to `width` × `height` **pixels**.

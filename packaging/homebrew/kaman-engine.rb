@@ -4,12 +4,13 @@
 #
 #   brew install parsabee/kaman/kaman-engine
 #
-# Installs the prebuilt `kaman-demo` (the playable demo) and the engine source, from the
-# Apple Silicon tarball that .github/workflows/release.yml attaches to each GitHub release.
+# Installs the prebuilt `kaman-demo` (the playable demo), the C library (`libkaman`, its header,
+# Swift module map and pkg-config file) and the engine source, from the Apple Silicon tarball that
+# .github/workflows/release.yml attaches to each GitHub release.
 # Kept current automatically: on every v* tag, release.yml runs scripts/update-homebrew-formula.sh
 # to point `url`/`sha256` at the new tarball, here and in the tap.
 class KamanEngine < Formula
-  desc "Rust game engine for Apple platforms with raw Metal, plus its playable demo"
+  desc "Metal graphics engine for Apple Silicon: a C library, Rust crates and a demo"
   homepage "https://github.com/parsabee/KamanEngine"
   url "https://github.com/parsabee/KamanEngine/releases/download/v0.1.0-alpha.2/kaman-engine-0.1.0-alpha.2-aarch64-apple-darwin.tar.gz"
   sha256 "4ce9564ad61bbd1e8ad8711d3cc49600de0a6e85b1a3e49a6e4eeb27b3597a42"
@@ -22,6 +23,10 @@ class KamanEngine < Formula
 
   def install
     bin.install "bin/kaman-demo"
+    lib.install "lib/libkaman.a", "lib/libkaman.dylib"
+    (lib/"pkgconfig").install "lib/pkgconfig/kaman.pc"
+    # In include/kaman/ so the generic module.modulemap never collides in the shared prefix.
+    (include/"kaman").install "include/kaman/kaman.h", "include/kaman/module.modulemap"
     # `kaman-demo` looks for its assets in <bin>/../share/kaman-engine/assets, which is
     # exactly pkgshare/"assets" in the keg.
     pkgshare.install "share/kaman-engine/assets"
@@ -32,6 +37,11 @@ class KamanEngine < Formula
     <<~EOS
       Run the playable demo (a Metal window; arrow keys to change lanes, Space to start):
         kaman-demo
+
+      The C library: #include "kaman.h" and link libkaman, e.g. with pkg-config:
+        cc app.c $(pkg-config --cflags --libs kaman) -o app
+      Swift: add #{opt_include}/kaman to the import paths and `import Kaman`.
+      The API is described in #{opt_pkgshare}/src/docs/C_API.md.
 
       The engine source is installed for use as Cargo path dependencies, e.g.:
         [dependencies]
@@ -49,5 +59,17 @@ class KamanEngine < Formula
   test do
     assert_match "share/kaman-engine/assets", shell_output("#{bin}/kaman-demo --print-assets-dir")
     assert_match "smoke: 120 frames OK", shell_output("#{bin}/kaman-demo --smoke")
+
+    (testpath/"version.c").write <<~C
+      #include <stdio.h>
+      #include "kaman.h"
+      int main(void) {
+        printf("%s\n", kaman_version_string());
+        return kaman_api_version() == KAMAN_API_VERSION ? 0 : 1;
+      }
+    C
+    system ENV.cc, "-std=c11", "version.c", "-I#{include}/kaman", "-L#{lib}", "-lkaman",
+           "-Wl,-rpath,#{lib}", "-o", "version"
+    assert_match version.to_s, shell_output("./version")
   end
 end

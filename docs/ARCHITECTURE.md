@@ -61,9 +61,10 @@ that refactor. This lets arbitrary imported layouts flow through the one seam.
 `kaman-assets` crate imports static glTF (`.gltf`/`.glb`) into a `SceneAsset` (meshes + a baked node
 tree) packed onto the render seam's `MeshData`/`VertexLayout`, with a load-once/dedup `AssetCache`
 ("upload once, reference by handle", one level up from the renderer's mesh registry) and a `spawn_scene` ECS helper. It
-depends only on `gltf`, `kaman-math`, `kaman-render-api`, and `kaman-ecs` — the `kaman-assets →
-kaman-ecs` edge stays acyclic (`kaman-ecs` never depends on `kaman-assets`) and no `metal` enters the
-tree. Imported geometry packs onto `[pos,normal,color]` with a default vertex color so it renders
+depends only on `gltf`, `kaman-math`, `kaman-render-api`, and (for `spawn_scene`, behind the default
+`ecs` feature) `kaman-ecs` — the `kaman-assets → kaman-ecs` edge stays acyclic (`kaman-ecs` never
+depends on `kaman-assets`) and no `metal` enters the tree. The C API uses the crate without the
+`ecs` feature, so no ECS or physics crate reaches `libkaman`. Imported geometry packs onto `[pos,normal,color]` with a default vertex color so it renders
 through the existing pipeline immediately; parsed UVs are retained on `MeshAsset::uvs` for the
 textured pipeline. `playable-demo` loads every mesh it draws this way: the player and
 traffic are real committed CC0 car models (`assets/*.glb`), and the road, skyline, and scenery come
@@ -146,7 +147,8 @@ kaman-engine/
 │   ├── kaman-render        # raw-Metal impl of kaman-render-api      (refactor)
 │   ├── kaman-core          # app/lifecycle + platform (#[cfg])       (refactor)
 │   ├── kaman-assets        # glTF + textures                         (new)
-│   └── kaman-audio         # kira wrapper: sounds/one-shots/loops    (new)
+│   ├── kaman-audio         # kira wrapper: sounds/one-shots/loops    (new)
+│   └── kaman-capi          # the C API: libkaman + kaman.h           (new)
 ├── games/
 │   └── playable-demo       # reference title; only uses engine public API
 ├── docs/                   # architecture, design, guides, roadmap

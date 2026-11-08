@@ -15,7 +15,13 @@ gltf.workspace = true
 image.workspace = true
 kaman-math.workspace = true
 kaman-render-api.workspace = true
-# `kaman-ecs` powers the ECS spawn helper (`spawn` module). The dep direction
-# stays acyclic: kaman-ecs depends only on kaman-math/hecs/rapier, never on
-# kaman-assets, so this is a leaf → helper edge, not a cycle.
-kaman-ecs.workspace = true
+# `kaman-ecs` powers the ECS spawn helper (`spawn` module), behind the default
+# `ecs` feature so a graphics-only consumer (the C API) can import glTF without
+# pulling in hecs and rapier. The dep direction stays acyclic: kaman-ecs depends
+# only on kaman-math/hecs/rapier, never on kaman-assets.
+kaman-ecs = { workspace = true, optional = true }
+
+[features]
+default = ["ecs"]
+# The `spawn` module: turn an imported scene into ECS entities.
+ecs = ["dep:kaman-ecs"]

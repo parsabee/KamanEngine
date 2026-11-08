@@ -607,11 +607,9 @@ mod tests {
             layout: kaman_render_api::VertexLayout::default(),
         });
         renderer.begin_frame();
-        let pipeline = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor {
-            vertex_shader: "vs".into(),
-            fragment_shader: "fs".into(),
-            vertex_layout: kaman_render_api::VertexLayout::default(),
-        });
+        let pipeline = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor::new(
+            kaman_render_api::PipelineKind::VertexColor,
+        ));
         renderer.set_pipeline(pipeline);
         renderer.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
         renderer.submit();

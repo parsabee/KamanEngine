@@ -1,7 +1,7 @@
 name: Release
 
-# Build the prebuilt Apple Silicon tarball for a release tag and attach it (plus its .sha256) to
-# the GitHub release. The Homebrew formula (packaging/homebrew/kaman-engine.rb, published in the
+# Build the prebuilt Apple Silicon tarball for a release tag (the playable demo, the C library and
+# header, and the engine source) and attach it (plus its .sha256) to the GitHub release. The Homebrew formula (packaging/homebrew/kaman-engine.rb, published in the
 # parsabee/homebrew-kaman tap) downloads this asset. Packaging lives in
 # scripts/package-release.sh so it can be run and checked locally.
 #
@@ -60,14 +60,19 @@ jobs:
       - name: Build release binary
         run: cargo build --release -p playable-demo --locked
 
+      # libkaman.a and libkaman.dylib (install name @rpath/libkaman.dylib) for C and Swift hosts.
+      - name: Build the C library
+        run: cargo build --release -p kaman-capi --locked
+
       - name: Verify binary (arm64, smoke)
         run: |
           file target/release/playable-demo
           [ "$(lipo -archs target/release/playable-demo)" = "arm64" ] || { echo "not arm64"; exit 1; }
           target/release/playable-demo --smoke
 
-      # Stages bin/ + share/, tars it, writes the .sha256, then re-runs --smoke from an unpacked
-      # copy to prove the packaged assets resolve.
+      # Stages bin/, lib/, include/ and share/, tars it, writes the .sha256, then from an unpacked
+      # copy re-runs --smoke (the packaged assets resolve) and builds and runs the C smoke test and
+      # sample against the packaged library and header.
       - name: Package
         run: ./scripts/package-release.sh "${{ steps.version.outputs.version }}" dist
 
@@ -119,6 +124,11 @@ jobs:
           chmod 600 "$key"
           GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
             git clone --depth 1 git@github.com:parsabee/homebrew-kaman.git "$RUNNER_TEMP/tap"
+          # The canonical formula on main is the source of truth for the install steps (the tap's
+          # copy only ever had its url/sha256 rewritten): copy it into the tap, then stamp this
+          # release's url and sha256 on both. (Re-running for a tag older than main's formula
+          # would pair main's install steps with an older tarball; build a fresh tag instead.)
+          cp packaging/homebrew/kaman-engine.rb "$RUNNER_TEMP/tap/Formula/kaman-engine.rb"
           ./scripts/update-homebrew-formula.sh "$RUNNER_TEMP/tap/Formula/kaman-engine.rb" "$VERSION" "$sha"
           if git -C "$RUNNER_TEMP/tap" diff --quiet; then
             echo "tap already at $VERSION"

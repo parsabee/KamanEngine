@@ -71,7 +71,9 @@ use kaman_core::{EngineCtx, Game};
 use kaman_ecs::TransformComponent;
 use kaman_math::glam::Vec3;
 use kaman_math::Transform;
-use kaman_render_api::{MaterialParams, MeshHandle, PipelineDescriptor, PipelineHandle};
+use kaman_render_api::{
+    MaterialParams, MeshHandle, PipelineDescriptor, PipelineHandle, PipelineKind,
+};
 
 /// Resolved against this crate's directory, so the path holds whatever the
 /// process working directory is.
@@ -103,11 +105,8 @@ impl Game for MyGame {
 
         // Create GPU resources ONCE, here. Keep the opaque handles.
         let renderer = ctx.renderer();
-        self.pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
-            vertex_shader: "vertex_main".into(),
-            fragment_shader: "fragment_main".into(),
-            vertex_layout: kaman_assets::render_vertex_layout(),
-        }));
+        self.pipeline =
+            Some(renderer.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor)));
 
         // Import a glTF file once; the cache parses and uploads it, then hands
         // back a mesh handle per primitive.
@@ -184,7 +183,7 @@ fit transforms that place a model on the ground) and
 ## 4. Record a draw
 
 The render seam is two traits, handed to you as one `&mut dyn Renderer` from `ctx.renderer()`:
-[`RenderDevice`](../crates/kaman-render-api/src/device.rs#L78) for resources (and
+[`RenderDevice`](../crates/kaman-render-api/src/device.rs#L82) for resources (and
 `surface_size` / `safe_area_insets`) and
 [`FrameRecorder`](../crates/kaman-render-api/src/recorder.rs#L63) for the frame. The frame
 protocol is `begin_frame` → `set_pipeline` / `bind_texture` / `draw_mesh` /
@@ -349,7 +348,7 @@ camera — which means even *view* behaviour is testable with no display.
 For any of this to be reproducible, keep two rules: never read wall-clock time in `update` (the
 engine's fixed `dt` is the only clock you need), and drive every random choice from a seeded PRNG.
 Worked example: [rng.rs](../games/playable-demo/src/rng.rs), and the test module at
-[game.rs:677](../games/playable-demo/src/game.rs#L677).
+[game.rs:670](../games/playable-demo/src/game.rs#L670).
 
 ---
 

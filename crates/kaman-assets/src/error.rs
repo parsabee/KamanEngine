@@ -26,6 +26,15 @@ impl fmt::Display for ImportError {
     }
 }
 
+impl ImportError {
+    /// Whether the import failed because a file could not be read (as opposed
+    /// to a document that could not be parsed).
+    #[must_use]
+    pub fn is_io(&self) -> bool {
+        matches!(self, ImportError::Gltf(gltf::Error::Io(_)))
+    }
+}
+
 impl std::error::Error for ImportError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {

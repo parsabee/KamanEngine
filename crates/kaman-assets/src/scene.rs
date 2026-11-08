@@ -11,7 +11,7 @@
 //! engine-generic geometry plus a baked transform hierarchy.
 
 use kaman_math::Transform;
-use kaman_render_api::{VertexAttribute, VertexFormat, VertexLayout};
+use kaman_render_api::{PipelineKind, VertexLayout};
 
 /// Number of `f32`s in one packed render vertex: `[pos_xyz, normal_xyz, color_rgb]`.
 pub const RENDER_VERTEX_FLOATS: usize = 9;
@@ -34,26 +34,7 @@ pub const TEXTURED_VERTEX_STRIDE: u32 = (TEXTURED_VERTEX_FLOATS * 4) as u32;
 /// are retained separately on [`MeshAsset::uvs`] for the textured pipeline.
 #[must_use]
 pub fn render_vertex_layout() -> VertexLayout {
-    VertexLayout::new(
-        RENDER_VERTEX_STRIDE,
-        vec![
-            VertexAttribute {
-                location: 0,
-                offset: 0,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 1,
-                offset: 12,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 2,
-                offset: 24,
-                format: VertexFormat::Float32x3,
-            },
-        ],
-    )
+    PipelineKind::VertexColor.vertex_layout()
 }
 
 /// The interleaved `[position_xyz, normal_xyz, uv]` render layout that a mesh
@@ -66,26 +47,7 @@ pub fn render_vertex_layout() -> VertexLayout {
 /// are distinct pipelines, so the untextured (box) pixel-hash is unaffected.
 #[must_use]
 pub fn textured_vertex_layout() -> VertexLayout {
-    VertexLayout::new(
-        TEXTURED_VERTEX_STRIDE,
-        vec![
-            VertexAttribute {
-                location: 0,
-                offset: 0,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 1,
-                offset: 12,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 2,
-                offset: 24,
-                format: VertexFormat::Float32x2,
-            },
-        ],
-    )
+    PipelineKind::Textured.vertex_layout()
 }
 
 /// A decoded 2D base-color (albedo) texture retained on a [`MeshAsset`].
