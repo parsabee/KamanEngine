@@ -481,7 +481,14 @@ impl<G: Game> ApplicationHandler<EngineEvent> for EngineApp<'_, '_, G> {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.lp.input.set_cursor_position(position.x, position.y);
+                let scale = self.window.as_ref().map_or(1.0, |w| w.scale_factor());
+                let (x, y) = cursor_to_logical(position, scale);
+                self.lp.input.set_cursor_position(x, y);
+            }
+            WindowEvent::Focused(false) => {
+                // macOS sends no key-up for a key released while another window
+                // has focus; let go of everything so nothing stays held.
+                self.lp.input.release_all();
             }
             WindowEvent::Resized(size) => {
                 // Keep the engine camera's projection correct as the window
@@ -553,6 +560,15 @@ fn translate_key(code: KeyCode) -> Option<Key> {
     })
 }
 
+/// Convert a `winit` cursor position, which is in physical pixels, to the window
+/// logical pixels (points) [`InputState::cursor_position`] reports.
+///
+/// [`InputState::cursor_position`]: crate::input::InputState::cursor_position
+fn cursor_to_logical(position: winit::dpi::PhysicalPosition<f64>, scale_factor: f64) -> (f64, f64) {
+    let logical = position.to_logical::<f64>(scale_factor);
+    (logical.x, logical.y)
+}
+
 /// Translate a `winit` mouse button into the engine's [`MouseButton`].
 ///
 /// Returns `None` for buttons outside the supported subset.
@@ -570,7 +586,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn key_translation_covers_the_phase1_subset() {
+    fn cursor_positions_are_reported_in_logical_pixels() {
+        let physical = winit::dpi::PhysicalPosition::new(800.0, 600.0);
+        // The centre of an 800×600-point window on a 2× display.
+        assert_eq!(cursor_to_logical(physical, 2.0), (400.0, 300.0));
+        assert_eq!(cursor_to_logical(physical, 1.0), (800.0, 600.0));
+    }
+
+    #[test]
+    fn key_translation_covers_the_supported_keys() {
         assert_eq!(translate_key(KeyCode::KeyW), Some(Key::W));
         assert_eq!(translate_key(KeyCode::ArrowLeft), Some(Key::Left));
         assert_eq!(translate_key(KeyCode::Escape), Some(Key::Escape));
