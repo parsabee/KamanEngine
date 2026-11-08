@@ -97,12 +97,7 @@ fn asphalt_png(src_path: &Path) -> Vec<u8> {
     let src = image::open(src_path)
         .unwrap_or_else(|e| panic!("open {}: {e}", src_path.display()))
         .to_rgba8();
-    let tile = image::imageops::resize(
-        &src,
-        tile_px,
-        TEX_H,
-        image::imageops::FilterType::Lanczos3,
-    );
+    let tile = image::imageops::resize(&src, tile_px, TEX_H, image::imageops::FilterType::Lanczos3);
 
     // Lane markings as U columns. Interior lane dividers (U = 0.375, 0.625) are
     // dashed; the two outer edges of the drivable lanes (x = ±4.5 on the 12-unit
@@ -111,9 +106,9 @@ fn asphalt_png(src_path: &Path) -> Vec<u8> {
     let dashed_u = [0.375f32, 0.625f32];
     let solid_u = [0.125f32, 0.875f32];
     let line_half = 0.006f32; // ~0.14 world units wide ⇒ a realistic painted stripe
-    // Period divides 1.0 evenly (1 per texture height) so dashes tile seamlessly
-    // across the V wrap boundary; a large period spaces the dashes out, and the
-    // painted fraction keeps each dash's length (≈ the prior 1/2 × 0.72 dash).
+                              // Period divides 1.0 evenly (1 per texture height) so dashes tile seamlessly
+                              // across the V wrap boundary; a large period spaces the dashes out, and the
+                              // painted fraction keeps each dash's length (≈ the prior 1/2 × 0.72 dash).
     let dash_len = 1.0f32; // dash + gap period along V
     let dash_on = 0.36f32; // fraction of the period that is painted (rest is gap)
 
@@ -174,12 +169,7 @@ fn road_quad() -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<u16>) {
         [-0.5, 0.5, 0.5],
     ];
     let normals = vec![[0.0, 1.0, 0.0]; 4];
-    let uvs = vec![
-        [0.0, 0.0],
-        [1.0, 0.0],
-        [1.0, V_REPEATS],
-        [0.0, V_REPEATS],
-    ];
+    let uvs = vec![[0.0, 0.0], [1.0, 0.0], [1.0, V_REPEATS], [0.0, V_REPEATS]];
     // CCW from above (+Y) so the surface faces up.
     let indices = vec![0u16, 2, 1, 0, 3, 2];
     (positions, normals, uvs, indices)
@@ -310,8 +300,7 @@ fn main() {
     )
     .unwrap();
 
-    std::fs::write(&out, json)
-        .unwrap_or_else(|e| panic!("write {}: {e}", out.display()));
+    std::fs::write(&out, json).unwrap_or_else(|e| panic!("write {}: {e}", out.display()));
     println!(
         "wrote {}: {} verts, {} indices, {} buffer bytes, {}-byte {}x{} asphalt png (source {})",
         out.display(),

@@ -14,8 +14,9 @@ later. CI runs the oracle on every commit.
 
 ### 2.1 Safety net (built once, in Phase 0)
 
-- **CI oracle:** every commit runs `cargo build --workspace`, `cargo test --workspace`, and a
-  headless macOS smoke run (boot a scene, render 120 frames, exit 0). Red blocks merge.
+- **CI oracle:** every commit runs `cargo fmt --all -- --check`, `cargo build --workspace`,
+  `cargo test --workspace`, and a headless macOS smoke run (boot a scene, render 120 frames,
+  exit 0). Red blocks merge.
 - **Metal API Validation** on in all debug/CI runs.
 - **Golden baselines captured while behavior is known-good:**
   - *Renderer* → deterministic offscreen render of a fixed scene → **hash the pixel buffer**.
@@ -58,8 +59,8 @@ renderer (highest risk) comes only after the seam and golden-hash net exist.
 - macOS oracle green at every commit (CI-enforced).
 - Golden pixel-hash + golden physics-trajectory for code that resists unit testing.
 - Metal API Validation always on; GPU Frame Capture reviewed after each renderer sub-step.
-- **Feature-gate / `#[cfg]` risky parallel work** so the main path never breaks: raytracer
-  behind `feature = "raytracer"`; iOS behind `#[cfg(target_os = "ios")]`.
+- **Feature-gate / `#[cfg]` risky parallel work** so the main path never breaks: e.g. iOS
+  behind `#[cfg(target_os = "ios")]`.
 - The `kaman-render-api` seam makes a renderer rewrite physically unable to leak into other crates.
 
 ### 2.6 Documentation standard
@@ -85,6 +86,6 @@ Step 4 of the phase loop runs the **full** gate set, not just the touched module
 3. macOS oracle smoke.
 4. Device smoke (Phase 3+).
 5. Coverage report meets per-class targets.
-6. `#![deny(missing_docs)]` + `cargo clippy -D warnings` clean.
+6. `#![deny(missing_docs)]` + `cargo clippy -D warnings` + `cargo fmt --all -- --check` clean.
 
 A phase's OKR review (step 5) may only be marked pass if the SQA gate is fully green.

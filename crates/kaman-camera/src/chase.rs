@@ -188,7 +188,11 @@ mod tests {
     fn follow_snaps_without_smoothing() {
         let mut cam = Camera::new(1.0);
         let chase = ChaseController::new(10.0, 5.0);
-        chase.follow(&mut cam, Vec3::new(0.0, 0.0, -20.0), Vec3::new(0.0, 0.0, -1.0));
+        chase.follow(
+            &mut cam,
+            Vec3::new(0.0, 0.0, -20.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        );
         assert!((cam.position() - Vec3::new(0.0, 5.0, -10.0)).length() < 1e-5);
         assert!((cam.target() - Vec3::new(0.0, 0.0, -20.0)).length() < 1e-5);
     }
@@ -199,7 +203,11 @@ mod tests {
         let chase = ChaseController::new(6.0, 3.0);
         chase.follow(&mut cam, Vec3::ZERO, Vec3::new(0.0, 0.0, -1.0));
         let first = cam.position();
-        chase.follow(&mut cam, Vec3::new(0.0, 0.0, -10.0), Vec3::new(0.0, 0.0, -1.0));
+        chase.follow(
+            &mut cam,
+            Vec3::new(0.0, 0.0, -10.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        );
         // The camera followed the target along -Z.
         assert!(cam.position().z < first.z);
     }

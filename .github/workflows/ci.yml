@@ -34,6 +34,10 @@ jobs:
           rustc --version
           rustc --version | grep -q " $pinned " || { echo "rustc is not the pinned $pinned"; exit 1; }
 
+      # Fail fast on unformatted code (rustfmt defaults); fix locally with `cargo fmt --all`.
+      - name: Format check (rustfmt)
+        run: cargo fmt --all -- --check
+
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
@@ -75,14 +79,6 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D rustdoc::broken_intra_doc_links -D rustdoc::private_intra_doc_links -A rustdoc::redundant_explicit_links"
         run: cargo doc --workspace --no-deps
-
-      # Raytracer is a desktop-only, off-by-default feature (KE-0106, KR1.4). Keep the feature
-      # path compiling and lint-clean so it does not rot; the default build above proves the
-      # rasterization path never pulls it in.
-      - name: Build + clippy raytracer feature (macOS)
-        run: |
-          cargo build -p kaman-render --features raytracer
-          cargo clippy -p kaman-render --all-targets --features raytracer -- -D warnings
 
       # Headless smoke oracle. Metal API Validation is enabled here per the ticket so that,
       # once the renderer migrates in Phase 1, this run exercises it under validation. Today

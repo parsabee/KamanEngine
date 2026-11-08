@@ -338,7 +338,11 @@ mod tests {
                 Vec3::new(6.0, 12.0, 18.0),
             ),
             // Identity leaves the point untouched.
-            (Transform::identity(), Vec3::new(1.0, 2.0, 3.0), Vec3::new(1.0, 2.0, 3.0)),
+            (
+                Transform::identity(),
+                Vec3::new(1.0, 2.0, 3.0),
+                Vec3::new(1.0, 2.0, 3.0),
+            ),
             // Translation only, second sample.
             (
                 Transform::from_position(Vec3::new(5.0, 0.0, 0.0)),
@@ -361,7 +365,10 @@ mod tests {
         // `to_matrix().transform_point3()` must agree with `transform_point()`
         // across a spread of TRS configurations.
         let cases: &[(Transform, Vec3)] = &[
-            (Transform::from_position(Vec3::new(1.0, 2.0, 3.0)), Vec3::new(1.0, 0.0, 0.0)),
+            (
+                Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
+                Vec3::new(1.0, 0.0, 0.0),
+            ),
             (
                 Transform::from_position_rotation(
                     Vec3::new(0.0, 5.0, 0.0),

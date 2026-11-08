@@ -92,7 +92,10 @@ const SMOKE_FRAMES: u32 = 120;
 
 /// Command-line arguments for `playable-demo`.
 #[derive(Parser, Debug)]
-#[command(name = "playable-demo", about = "KamanEngine playable-demo + headless smoke oracle")]
+#[command(
+    name = "playable-demo",
+    about = "KamanEngine playable-demo + headless smoke oracle"
+)]
 struct Cli {
     /// Run the headless smoke oracle: boot the game and drive a fixed frame loop, then exit 0.
     ///
@@ -172,7 +175,11 @@ fn run_smoke(frames: u32) {
     harness.run(&mut game, frames - 1);
 
     // The engine must have driven the game for exactly the requested frame count.
-    assert_eq!(harness.frames_run(), frames, "driver ran the wrong frame count");
+    assert_eq!(
+        harness.frames_run(),
+        frames,
+        "driver ran the wrong frame count"
+    );
 
     println!("{}", smoke_report(frames));
 }

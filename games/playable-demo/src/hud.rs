@@ -105,9 +105,8 @@ pub(crate) fn load_font(renderer: &mut dyn Renderer, path: &str) -> FontAtlas {
         "{path} is not a KFNT font atlas",
     );
 
-    let u32_at = |off: usize| {
-        u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
-    };
+    let u32_at =
+        |off: usize| u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
     let f32_at = |off: usize| f32::from_bits(u32_at(off));
 
     let width = u32_at(8);
@@ -206,10 +205,7 @@ impl CarRunner {
             GameState::GameOver => Some(HUD_DIM_COLOR),
         };
         if let Some(color) = wash {
-            renderer.draw_overlay_quad(&OverlayQuad::solid(
-                [0.0, 0.0, screen_w, screen_h],
-                color,
-            ));
+            renderer.draw_overlay_quad(&OverlayQuad::solid([0.0, 0.0, screen_w, screen_h], color));
         }
 
         // Live score, top-left of the safe area — only once a run is under way.
@@ -387,10 +383,7 @@ mod tests {
     /// reordering of `draw_hud` would break it silently — hence an explicit check
     /// in every state that draws a wash.
     fn assert_wash_first(quads: &[OverlayQuad], surface: (u32, u32), state: &str) -> [f32; 4] {
-        assert!(
-            !quads.is_empty(),
-            "{state} records a background wash quad",
-        );
+        assert!(!quads.is_empty(), "{state} records a background wash quad",);
         let wash = quads[0];
         assert_eq!(
             wash.fill,
@@ -449,10 +442,7 @@ mod tests {
     /// a score drawn centered, or down in the banner, lands nowhere near here.
     fn in_score_corner(quad: &OverlayQuad, surface: (u32, u32)) -> bool {
         let [x, y, _, h] = quad.rect;
-        x >= 0.0
-            && x < surface.0 as f32 * 0.5
-            && y >= 0.0
-            && y + h <= surface.1 as f32 * 0.25
+        x >= 0.0 && x < surface.0 as f32 * 0.5 && y >= 0.0 && y + h <= surface.1 as f32 * 0.25
     }
 
     #[test]
@@ -733,5 +723,4 @@ mod tests {
             "the banner block is centred, not top-aligned",
         );
     }
-
 }

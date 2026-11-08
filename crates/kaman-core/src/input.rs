@@ -245,13 +245,19 @@ mod tests {
         assert!(input.is_key_just_pressed(Key::Left));
         assert!(input.is_key_just_pressed(Key::Left), "still the same step");
         input.advance_frame();
-        assert!(!input.is_key_just_pressed(Key::Left), "held key: no repeat edge");
+        assert!(
+            !input.is_key_just_pressed(Key::Left),
+            "held key: no repeat edge"
+        );
         assert!(input.is_key_down(Key::Left), "but still held down");
         // Releasing then pressing again is a fresh edge.
         input.release_key(Key::Left);
         input.advance_frame();
         assert!(!input.is_key_just_pressed(Key::Left));
         input.press_key(Key::Left);
-        assert!(input.is_key_just_pressed(Key::Left), "re-press is a new edge");
+        assert!(
+            input.is_key_just_pressed(Key::Left),
+            "re-press is a new edge"
+        );
     }
 }

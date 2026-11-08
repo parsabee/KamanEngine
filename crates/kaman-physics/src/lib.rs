@@ -832,7 +832,10 @@ mod tests {
         }
 
         let final_pos = world.get_transform(handle).unwrap().position;
-        assert!(final_pos.y < initial_pos.y, "Body should fall due to gravity");
+        assert!(
+            final_pos.y < initial_pos.y,
+            "Body should fall due to gravity"
+        );
     }
 
     #[test]

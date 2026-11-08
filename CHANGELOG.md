@@ -8,6 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ## [Unreleased]
 
+### Changed
+
+- **CI fails on unformatted code.** A new `cargo fmt --all -- --check` step runs first in the
+  macOS CI job, and the whole workspace was reformatted with rustfmt's defaults (a
+  formatting-only change). Run `cargo fmt --all` before pushing.
+
+### Removed
+
+- **The `raytracer` feature.** KamanEngine is rasterization-only. The off-by-default
+  `kaman-render` feature, its `raytracer` module (a CPU `trace_ray` and GPU triangle layouts that
+  nothing called) and `shaders/raytracing.metal` (which no build ever compiled or loaded) are
+  gone, along with the CI step that built them. Default builds are unchanged.
+
 ## [0.1.0-alpha.2] - 2026-09-27
 
 ### Added

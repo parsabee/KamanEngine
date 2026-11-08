@@ -295,30 +295,48 @@ impl RenderShape {
             [0.5, 0.5, 0.5, 0.0, 0.0, 1.0, color[0], color[1], color[2]],   // 2
             [-0.5, 0.5, 0.5, 0.0, 0.0, 1.0, color[0], color[1], color[2]],  // 3
             // Back face (Z-) - 4 vertices
-            [0.5, -0.5, -0.5, 0.0, 0.0, -1.0, color[0], color[1], color[2]], // 4
-            [-0.5, -0.5, -0.5, 0.0, 0.0, -1.0, color[0], color[1], color[2]], // 5
-            [-0.5, 0.5, -0.5, 0.0, 0.0, -1.0, color[0], color[1], color[2]], // 6
-            [0.5, 0.5, -0.5, 0.0, 0.0, -1.0, color[0], color[1], color[2]],  // 7
+            [
+                0.5, -0.5, -0.5, 0.0, 0.0, -1.0, color[0], color[1], color[2],
+            ], // 4
+            [
+                -0.5, -0.5, -0.5, 0.0, 0.0, -1.0, color[0], color[1], color[2],
+            ], // 5
+            [
+                -0.5, 0.5, -0.5, 0.0, 0.0, -1.0, color[0], color[1], color[2],
+            ], // 6
+            [0.5, 0.5, -0.5, 0.0, 0.0, -1.0, color[0], color[1], color[2]], // 7
             // Top face (Y+) - 4 vertices
             [-0.5, 0.5, 0.5, 0.0, 1.0, 0.0, color[0], color[1], color[2]], // 8
             [0.5, 0.5, 0.5, 0.0, 1.0, 0.0, color[0], color[1], color[2]],  // 9
             [0.5, 0.5, -0.5, 0.0, 1.0, 0.0, color[0], color[1], color[2]], // 10
             [-0.5, 0.5, -0.5, 0.0, 1.0, 0.0, color[0], color[1], color[2]], // 11
             // Bottom face (Y-) - 4 vertices
-            [-0.5, -0.5, -0.5, 0.0, -1.0, 0.0, color[0], color[1], color[2]], // 12
-            [0.5, -0.5, -0.5, 0.0, -1.0, 0.0, color[0], color[1], color[2]],  // 13
-            [0.5, -0.5, 0.5, 0.0, -1.0, 0.0, color[0], color[1], color[2]],   // 14
-            [-0.5, -0.5, 0.5, 0.0, -1.0, 0.0, color[0], color[1], color[2]],  // 15
+            [
+                -0.5, -0.5, -0.5, 0.0, -1.0, 0.0, color[0], color[1], color[2],
+            ], // 12
+            [
+                0.5, -0.5, -0.5, 0.0, -1.0, 0.0, color[0], color[1], color[2],
+            ], // 13
+            [0.5, -0.5, 0.5, 0.0, -1.0, 0.0, color[0], color[1], color[2]], // 14
+            [
+                -0.5, -0.5, 0.5, 0.0, -1.0, 0.0, color[0], color[1], color[2],
+            ], // 15
             // Right face (X+) - 4 vertices
-            [0.5, -0.5, 0.5, 1.0, 0.0, 0.0, color[0], color[1], color[2]],  // 16
+            [0.5, -0.5, 0.5, 1.0, 0.0, 0.0, color[0], color[1], color[2]], // 16
             [0.5, -0.5, -0.5, 1.0, 0.0, 0.0, color[0], color[1], color[2]], // 17
-            [0.5, 0.5, -0.5, 1.0, 0.0, 0.0, color[0], color[1], color[2]],  // 18
-            [0.5, 0.5, 0.5, 1.0, 0.0, 0.0, color[0], color[1], color[2]],   // 19
+            [0.5, 0.5, -0.5, 1.0, 0.0, 0.0, color[0], color[1], color[2]], // 18
+            [0.5, 0.5, 0.5, 1.0, 0.0, 0.0, color[0], color[1], color[2]],  // 19
             // Left face (X-) - 4 vertices
-            [-0.5, -0.5, -0.5, -1.0, 0.0, 0.0, color[0], color[1], color[2]], // 20
-            [-0.5, -0.5, 0.5, -1.0, 0.0, 0.0, color[0], color[1], color[2]],  // 21
-            [-0.5, 0.5, 0.5, -1.0, 0.0, 0.0, color[0], color[1], color[2]],   // 22
-            [-0.5, 0.5, -0.5, -1.0, 0.0, 0.0, color[0], color[1], color[2]],  // 23
+            [
+                -0.5, -0.5, -0.5, -1.0, 0.0, 0.0, color[0], color[1], color[2],
+            ], // 20
+            [
+                -0.5, -0.5, 0.5, -1.0, 0.0, 0.0, color[0], color[1], color[2],
+            ], // 21
+            [-0.5, 0.5, 0.5, -1.0, 0.0, 0.0, color[0], color[1], color[2]], // 22
+            [
+                -0.5, 0.5, -0.5, -1.0, 0.0, 0.0, color[0], color[1], color[2],
+            ], // 23
         ];
 
         let indices = vec![
@@ -488,8 +506,9 @@ mod tests {
 
         // Query all entities with transform and render components
         let mut count = 0;
-        for (_entity, (transform, render)) in
-            world.query::<(&TransformComponent, &RenderComponent)>().iter()
+        for (_entity, (transform, render)) in world
+            .query::<(&TransformComponent, &RenderComponent)>()
+            .iter()
         {
             count += 1;
             assert!(transform.transform.position.length() >= 0.0);
@@ -573,8 +592,9 @@ mod tests {
 
         // Query entities with physics bodies
         let mut found = false;
-        for (_entity, (physics, _transform)) in
-            world.query::<(&PhysicsBodyComponent, &TransformComponent)>().iter()
+        for (_entity, (physics, _transform)) in world
+            .query::<(&PhysicsBodyComponent, &TransformComponent)>()
+            .iter()
         {
             assert_eq!(physics.handle, handle);
             found = true;

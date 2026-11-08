@@ -84,7 +84,12 @@ fn skyline_png(src_path: &Path) -> (Vec<u8>, u32, u32) {
 
     let mut png: Vec<u8> = Vec::new();
     image::codecs::png::PngEncoder::new(&mut png)
-        .write_image(scaled.as_raw(), TEX_W, tex_h, image::ExtendedColorType::Rgba8)
+        .write_image(
+            scaled.as_raw(),
+            TEX_W,
+            tex_h,
+            image::ExtendedColorType::Rgba8,
+        )
         .expect("encode skyline png");
     debug_assert_eq!(image::guess_format(&png).unwrap(), ImageFormat::Png);
     (png, TEX_W, tex_h)
@@ -183,8 +188,16 @@ fn base64(bytes: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(TABLE[((n >> 18) & 63) as usize] as char);
         out.push(TABLE[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { TABLE[((n >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            TABLE[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }

@@ -349,7 +349,7 @@ camera — which means even *view* behaviour is testable with no display.
 For any of this to be reproducible, keep two rules: never read wall-clock time in `update` (the
 engine's fixed `dt` is the only clock you need), and drive every random choice from a seeded PRNG.
 Worked example: [rng.rs](../games/playable-demo/src/rng.rs), and the test module at
-[game.rs:668](../games/playable-demo/src/game.rs#L668).
+[game.rs:677](../games/playable-demo/src/game.rs#L677).
 
 ---
 

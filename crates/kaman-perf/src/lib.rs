@@ -356,8 +356,14 @@ impl<C: Clock> PerfTracker<C> {
             "  Frame Time:   {:<6.2} ms (avg)",
             self.avg_frame_time().as_secs_f64() * 1000.0
         );
-        println!("                {:<6.2} ms (min)", min_ft.as_secs_f64() * 1000.0);
-        println!("                {:<6.2} ms (max)", max_ft.as_secs_f64() * 1000.0);
+        println!(
+            "                {:<6.2} ms (min)",
+            min_ft.as_secs_f64() * 1000.0
+        );
+        println!(
+            "                {:<6.2} ms (max)",
+            max_ft.as_secs_f64() * 1000.0
+        );
 
         println!(" ───────────────────────────────────────────────────────");
         println!("  Breakdown:");
@@ -649,7 +655,10 @@ mod tests {
         assert_eq!(tracker.current_fps(), 0.0);
         assert_eq!(tracker.avg_fps(), 0.0);
         assert_eq!(tracker.avg_frame_time(), Duration::ZERO);
-        assert_eq!(tracker.min_max_frame_time(), (Duration::ZERO, Duration::ZERO));
+        assert_eq!(
+            tracker.min_max_frame_time(),
+            (Duration::ZERO, Duration::ZERO)
+        );
         assert_eq!(
             tracker.avg_subsystems(),
             (Duration::ZERO, Duration::ZERO, Duration::ZERO)

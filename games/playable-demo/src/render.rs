@@ -82,7 +82,11 @@ impl CarRunner {
                 if Some(e) == player_entity {
                     Some((t.transform, PlacedModel::Player))
                 } else if ctx.world().get::<&PhysicsBodyComponent>(e).is_ok() {
-                    let variant = ctx.world().get::<&TrafficVariant>(e).map(|v| v.0).unwrap_or(0);
+                    let variant = ctx
+                        .world()
+                        .get::<&TrafficVariant>(e)
+                        .map(|v| v.0)
+                        .unwrap_or(0);
                     Some((t.transform, PlacedModel::Traffic(variant)))
                 } else if let Ok(b) = ctx.world().get::<&BuildingVariant>(e) {
                     Some((t.transform, PlacedModel::Building(b.0)))
@@ -96,7 +100,9 @@ impl CarRunner {
         let pipeline = self.pipeline.expect("pipeline created in init");
         let asphalt = self.asphalt.expect("asphalt texture created in init");
         let backdrop = self.backdrop_mesh.expect("backdrop mesh created in init");
-        let backdrop_texture = self.backdrop_texture.expect("backdrop texture created in init");
+        let backdrop_texture = self
+            .backdrop_texture
+            .expect("backdrop texture created in init");
         let backdrop_transform = self.backdrop_transform();
         let terrain = self.hills_mesh.expect("terrain mesh created in init");
         let terrain_transform = self.terrain_transform();
@@ -120,7 +126,11 @@ impl CarRunner {
             for (local, mesh, texture) in self.model_parts(*model) {
                 if let Some(texture) = texture {
                     renderer.bind_texture(*texture);
-                    renderer.draw_mesh(*mesh, &compose(*entity_transform, local), &MaterialParams::default());
+                    renderer.draw_mesh(
+                        *mesh,
+                        &compose(*entity_transform, local),
+                        &MaterialParams::default(),
+                    );
                 }
             }
         }
@@ -136,7 +146,11 @@ impl CarRunner {
         for (entity_transform, model) in &model_draws {
             for (local, mesh, texture) in self.model_parts(*model) {
                 if texture.is_none() {
-                    renderer.draw_mesh(*mesh, &compose(*entity_transform, local), &MaterialParams::default());
+                    renderer.draw_mesh(
+                        *mesh,
+                        &compose(*entity_transform, local),
+                        &MaterialParams::default(),
+                    );
                 }
             }
         }
