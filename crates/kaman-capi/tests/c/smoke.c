@@ -15,6 +15,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "kaman.h"
@@ -73,6 +74,13 @@ int main(int argc, char **argv) {
     KamanContext *ctx = NULL;
     KamanResult created = kaman_context_create(&desc, &ctx);
     if (!use_null && created == KAMAN_ERROR_NO_DEVICE) {
+        /* CI sets KAMAN_REQUIRE_GPU=1: a runner that lost its GPU must fail, not skip. */
+        const char *require = getenv("KAMAN_REQUIRE_GPU");
+        if (require != NULL && (strcmp(require, "1") == 0 || strcmp(require, "true") == 0)) {
+            fprintf(stderr, "c smoke: no Metal device, and KAMAN_REQUIRE_GPU is set (%s)\n",
+                    kaman_last_error_message());
+            return 1;
+        }
         printf("c smoke: skipped (no Metal device: %s)\n", kaman_last_error_message());
         return 0;
     }

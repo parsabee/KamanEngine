@@ -937,6 +937,8 @@ fn events_that_do_not_fit_stay_queued() {
 #[cfg(target_os = "macos")]
 #[test]
 fn the_c_api_renders_what_the_rust_api_renders() {
+    use std::io::Write;
+
     use kaman_math::glam::{Mat4, Vec3};
     use kaman_render::MetalRenderer;
     use kaman_render_api::{
@@ -947,7 +949,15 @@ fn the_c_api_renders_what_the_rust_api_renders() {
     const W: u32 = 64;
     const H: u32 = 48;
     let Some(mut rust) = MetalRenderer::new_offscreen(W, H) else {
-        eprintln!("skipping: no Metal device");
+        // Visible past the harness's capture; a failure under KAMAN_REQUIRE_GPU=1
+        // (CI), so a runner without a GPU cannot pass this test unrun.
+        let required = std::env::var("KAMAN_REQUIRE_GPU")
+            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+        assert!(!required, "no Metal device, and KAMAN_REQUIRE_GPU is set");
+        let _ = writeln!(
+            std::io::stderr(),
+            "SKIPPED the_c_api_renders_what_the_rust_api_renders: no Metal device"
+        );
         return;
     };
     let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 2.0), Vec3::ZERO, Vec3::Y);

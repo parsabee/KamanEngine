@@ -21,6 +21,10 @@ jobs:
   oracle:
     name: build / test / clippy / smoke (macOS)
     runs-on: macos-latest
+    # The GPU tests skip without a Metal device; here a missing device fails them
+    # instead, so a runner that lost its GPU cannot pass the render suite unrun.
+    env:
+      KAMAN_REQUIRE_GPU: "1"
     steps:
       - uses: actions/checkout@v4
 

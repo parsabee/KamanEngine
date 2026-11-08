@@ -1837,6 +1837,14 @@ impl MetalRenderer {
         (self.ring_region_base + self.ring_cursor) * UNIFORM_RING_STRIDE
     }
 
+    /// The uniform-ring byte offset each draw recorded in the open frame binds
+    /// its uniforms at, in record order. Test aid: the offsets the draws will
+    /// actually use, not a re-derivation of the formula.
+    #[must_use]
+    pub fn recorded_uniform_offsets_for_test(&self) -> Vec<u64> {
+        self.draws.iter().map(|draw| draw.uniforms.1).collect()
+    }
+
     /// The per-slot byte stride of the uniform ring (256-byte aligned). Test aid.
     #[must_use]
     pub fn ring_stride_for_test(&self) -> u64 {
@@ -1876,13 +1884,13 @@ impl MetalRenderer {
         self.light
     }
 
-    /// Byte offset in the light ring that the *next* frame's light upload will bind
-    /// at. Test aid: proves the light rotates through one slot per
-    /// in-flight frame, `0, 256, 512, 0, …`, instead of being overwritten in place
-    /// while the GPU may still be reading it.
+    /// Byte offset in the light ring that the **open** frame's light was written
+    /// to and is bound at, or `None` with no frame open. Test aid: proves the
+    /// light rotates through one slot per in-flight frame, `0, 256, 512, 0, …`,
+    /// instead of being overwritten in place while the GPU may still be reading it.
     #[must_use]
-    pub fn light_offset_for_test(&self) -> u64 {
-        (self.frame_index % MAX_FRAMES_IN_FLIGHT) * UNIFORM_RING_STRIDE
+    pub fn light_offset_for_test(&self) -> Option<u64> {
+        self.frame.as_ref().map(|frame| frame.light_offset)
     }
 
     /// Enable or disable **shadow casting**. On by default.

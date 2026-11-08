@@ -28,6 +28,8 @@ use kaman_render_api::{
     RenderDevice, TextureData, VertexAttribute, VertexFormat, VertexLayout,
 };
 
+mod common;
+
 const WIDTH: u32 = 32;
 const HEIGHT: u32 = 32;
 
@@ -78,7 +80,7 @@ fn pipeline(r: &mut MetalRenderer, kind: PipelineKind) -> kaman_render_api::Pipe
 fn renderer() -> Option<MetalRenderer> {
     let r = MetalRenderer::new_offscreen(WIDTH, HEIGHT);
     if r.is_none() {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
     }
     r
 }
@@ -103,7 +105,7 @@ fn a_second_begin_frame_is_a_no_op_and_never_deadlocks() {
         let _ = done_tx.send(Some(r.frame_index_for_test()));
     });
     match done_rx.recv_timeout(Duration::from_secs(30)) {
-        Ok(None) => eprintln!("skipping: no Metal device (GPU-less runner)"),
+        Ok(None) => common::no_gpu(),
         Ok(Some(frames)) => assert_eq!(frames, 4, "one submitted frame per begin/submit pair"),
         Err(_) => {
             panic!("begin_frame deadlocked: a repeated call leaked a frames-in-flight permit")
@@ -291,7 +293,7 @@ fn try_from_layer_accepts_a_metal_layer_and_rejects_other_objects() {
     use objc::{class, msg_send, sel, sel_impl};
 
     if metal::Device::system_default().is_none() {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     }
     // SAFETY: `NSObject new` returns a live, retained object we release below.

@@ -15,13 +15,15 @@ use std::time::{Duration, Instant};
 use kaman_render::{FrameSkip, MetalRenderer};
 use kaman_render_api::{FrameRecorder, OverlayQuad};
 
+mod common;
+
 const WIDTH: u32 = 32;
 const HEIGHT: u32 = 32;
 
 fn renderer() -> Option<MetalRenderer> {
     let r = MetalRenderer::new_offscreen(WIDTH, HEIGHT);
     if r.is_none() {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
     }
     r
 }
@@ -89,7 +91,7 @@ fn the_non_blocking_path_never_blocks_and_every_frame_completes() {
         Some((opened, skipped, r.frames_in_flight()))
     });
     let Some((opened, skipped, in_flight)) = result else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
     assert!(opened > 0, "no frame was ever opened ({skipped} skipped)");
@@ -178,7 +180,7 @@ fn discarding_a_frame_returns_its_permit() {
         Some((r.frames_in_flight(), r.submitted_frame_count()))
     });
     match result {
-        None => eprintln!("skipping: no Metal device (GPU-less runner)"),
+        None => common::no_gpu(),
         Some((in_flight, submitted)) => {
             assert_eq!(in_flight, 0);
             assert_eq!(submitted, 0, "a discarded frame is not submitted");

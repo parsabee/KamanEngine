@@ -21,7 +21,7 @@
 //!    frames-in-flight machinery adds no `new_buffer*` to the hot path.
 //!
 //! Like the other backend tests, these **skip** when no Metal device is
-//! available (GPU-less CI) and run + assert on a real Mac.
+//! available (a failure instead under `KAMAN_REQUIRE_GPU=1`, as in CI).
 
 use kaman_math::Transform;
 use kaman_render::backend::MAX_FRAMES_IN_FLIGHT;
@@ -30,6 +30,8 @@ use kaman_render_api::{
     FrameRecorder, MaterialParams, MeshData, MeshHandle, RenderDevice, VertexAttribute,
     VertexFormat, VertexLayout,
 };
+
+mod common;
 
 /// Offscreen render size.
 const WIDTH: u32 = 64;
@@ -93,7 +95,7 @@ fn make_mesh(r: &mut MetalRenderer) -> MeshHandle {
 #[test]
 fn many_frames_do_not_deadlock_and_ring_region_rotates() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 
@@ -148,7 +150,7 @@ fn many_frames_do_not_deadlock_and_ring_region_rotates() {
 #[test]
 fn per_frame_path_allocates_nothing_across_the_in_flight_cycle() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 

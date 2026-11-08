@@ -37,6 +37,8 @@ use kaman_render_api::{
     TextureData, VertexAttribute, VertexFormat, VertexLayout,
 };
 
+mod common;
+
 /// Offscreen render size.
 const WIDTH: u32 = 64;
 /// Offscreen render size.
@@ -207,10 +209,7 @@ fn distinct_pixels(pixels: &[u8]) -> usize {
 #[test]
 fn textured_quad_is_non_uniform_and_matches_committed_hash() {
     let Some(pixels) = render_textured() else {
-        eprintln!(
-            "skipping textured pixel-hash test: no Metal device available (GPU-less runner). \
-             Runs and asserts on a real Mac."
-        );
+        common::no_gpu();
         return;
     };
 
@@ -224,7 +223,7 @@ fn textured_quad_is_non_uniform_and_matches_committed_hash() {
     );
 
     let hash = fnv1a_64(&pixels);
-    if std::env::var("BLESS").is_ok() {
+    if common::blessing() {
         println!("BLESS: new textured reference hash = {hash:#018x}");
         return;
     }

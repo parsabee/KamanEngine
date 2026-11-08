@@ -27,6 +27,8 @@ use kaman_render::backend::MAX_FRAMES_IN_FLIGHT;
 use kaman_render::MetalRenderer;
 use kaman_render_api::{FrameRecorder, SunSky};
 
+mod common;
+
 /// Offscreen render size.
 const WIDTH: u32 = 64;
 /// Offscreen render size.
@@ -49,7 +51,7 @@ fn western_afternoon_sun() -> SunSky {
 #[test]
 fn pushed_sun_becomes_the_light_the_shader_reads() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 
@@ -82,7 +84,7 @@ fn pushed_sun_becomes_the_light_the_shader_reads() {
 #[test]
 fn camera_reaches_the_fragment_shader_and_the_sun_is_sticky() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 
@@ -111,7 +113,7 @@ fn camera_reaches_the_fragment_shader_and_the_sun_is_sticky() {
 #[test]
 fn light_upload_rotates_one_slot_per_in_flight_frame() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 
@@ -123,20 +125,23 @@ fn light_upload_rotates_one_slot_per_in_flight_frame() {
     let frames = (2 * MAX_FRAMES_IN_FLIGHT) + 1;
     for i in 0..frames {
         let expected = (i % MAX_FRAMES_IN_FLIGHT) * stride;
+        r.begin_frame();
+        // The offset the frame actually wrote its light to and binds it at.
+        let offset = r.light_offset_for_test().expect("a frame is open");
         assert_eq!(
-            r.light_offset_for_test(),
+            offset,
             expected,
             "frame {i}: the light must be written to slot {} of the ring",
             i % MAX_FRAMES_IN_FLIGHT
         );
         assert_eq!(
-            r.light_offset_for_test() % 256,
+            offset % 256,
             0,
             "fragment-buffer offsets must be 256-byte aligned on Apple GPUs"
         );
-        r.begin_frame();
         r.submit();
     }
+    assert_eq!(r.light_offset_for_test(), None, "no frame open");
 }
 
 #[test]
@@ -145,7 +150,7 @@ fn shadow_distance_follows_the_draw_distance_unless_overridden() {
     use kaman_render::shadow::{shadow_distance_for_fog, MIN_SHADOW_DISTANCE};
 
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
     // The playable demo's chase camera (0.3..300 clip), so the far plane never
@@ -192,7 +197,7 @@ fn shadow_distance_follows_the_draw_distance_unless_overridden() {
 #[test]
 fn per_frame_light_upload_allocates_nothing() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 

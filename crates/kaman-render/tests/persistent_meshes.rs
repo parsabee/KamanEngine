@@ -18,7 +18,7 @@
 //!    draw.
 //!
 //! Like the pixel-hash test, these **skip** when no Metal device is available
-//! (GPU-less CI), and run + assert on a real Mac.
+//! (a failure instead under `KAMAN_REQUIRE_GPU=1`, as in CI).
 
 use kaman_math::Transform;
 use kaman_render::MetalRenderer;
@@ -26,6 +26,8 @@ use kaman_render_api::{
     FrameRecorder, MaterialParams, MeshData, MeshHandle, RenderDevice, VertexAttribute,
     VertexFormat, VertexLayout,
 };
+
+mod common;
 
 /// Offscreen render size.
 const WIDTH: u32 = 64;
@@ -96,7 +98,7 @@ fn draw_one(r: &mut MetalRenderer, handle: MeshHandle) {
 #[test]
 fn per_frame_path_allocates_no_mesh_buffers() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 
@@ -131,7 +133,7 @@ fn per_frame_path_allocates_no_mesh_buffers() {
 #[test]
 fn uniform_ring_slot_offsets_are_256_byte_aligned() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 
@@ -144,25 +146,36 @@ fn uniform_ring_slot_offsets_are_256_byte_aligned() {
 
     let mesh = make_mesh(&mut r);
 
-    // Draw several meshes in one frame and check that EACH bound uniform offset
-    // is 256-byte aligned (the Apple GPU `set_vertex_buffer` offset rule).
+    // Draw several meshes in one frame and check the offset EACH recorded draw
+    // binds its uniforms at: 256-byte aligned (the Apple GPU `set_vertex_buffer`
+    // offset rule), and one slot per draw, so no draw overwrites another's MVP.
     r.begin_frame();
     for _ in 0..8 {
-        let offset = r.ring_next_offset_for_test();
+        r.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
+    }
+    let offsets = r.recorded_uniform_offsets_for_test();
+    r.submit();
+    assert_eq!(offsets.len(), 8, "every draw was recorded");
+    for pair in offsets.windows(2) {
+        assert_eq!(
+            pair[1],
+            pair[0] + r.ring_stride_for_test(),
+            "consecutive draws take consecutive slots: {offsets:?}"
+        );
+    }
+    for offset in offsets {
         assert_eq!(
             offset % 256,
             0,
             "uniform ring slot offset {offset} is not 256-byte aligned"
         );
-        r.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
     }
-    r.submit();
 }
 
 #[test]
 fn drawing_a_destroyed_mesh_is_a_defined_no_op() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 
