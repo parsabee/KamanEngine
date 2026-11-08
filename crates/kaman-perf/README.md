@@ -8,8 +8,8 @@ CPU-side profiling and frame timing for KamanEngine.
 last `WINDOW_SIZE` (60) frames: frame time, per-subsystem breakdown
 (physics / spatial-query / render), FPS, and buffer allocation/upload/free
 accounting. It has no dependencies on the renderer or GPU — GPU-side timing
-(command-buffer completion handlers) is a later phase (KE-0602) and is
-explicitly out of scope here.
+(command-buffer completion handlers) is not implemented yet (it is planned with the
+v0.1.0 benchmarking work).
 
 ## API tour
 

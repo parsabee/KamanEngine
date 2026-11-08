@@ -246,7 +246,7 @@ argument parsing and asserts the stdout contract line in a unit test.
 
 ### Graphics settings: the built-in menu, or your own UI
 
-Every windowed run gets graphics settings for free (KE-0408). There are two ways to expose them to
+Every windowed run gets graphics settings for free. There are two ways to expose them to
 the player, and both drive the **same** model, `kaman_core::GraphicsSettings`:
 
 | Setting | Options (default **bold**) | What it does |

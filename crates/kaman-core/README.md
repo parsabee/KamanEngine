@@ -38,7 +38,7 @@ not necessarily 1. `init` never runs twice; `render` never runs before `init` an
 runs **exactly once per frame**; each `update` receives the constant `FIXED_DT`.
 A game must not assume one `update` per `render`.
 
-### Fixed timestep (KE-0201)
+### Fixed timestep
 
 Each frame banks the real elapsed time in a shared `Accumulator` and runs
 `update(FIXED_DT)` a whole number of times (draining full steps), then `render`
@@ -55,23 +55,24 @@ once. Consequences:
   `driver::tests::loop_clamps_catch_up_on_a_long_stall`.
 - **Interpolation alpha:** `EngineCtx::alpha()` (`0.0..=1.0`) is exposed on the
   render path (`remainder / FIXED_DT`) so `render` can lerp between the previous
-  and current fixed states. Phase 2 games may ignore it.
+  and current fixed states. A game may ignore it.
 
 ### What `EngineCtx` exposes (and only this)
 
 - `world()` / `world_mut()` — the ECS `hecs::World`.
 - `renderer()` — a `&mut dyn Renderer` (`RenderDevice` + `FrameRecorder`), the
-  `kaman-render-api` seam. `NullRenderer` in Phase 1; the Metal backend
-  (KE-0102) later. No Metal type is ever visible.
+  `kaman-render-api` seam: the Metal backend in a window, `NullRenderer` when
+  headless. No Metal type is ever visible.
 - `input()` — a read-only `InputState` snapshot (pressed keys, mouse buttons,
   cursor position). Backend-agnostic `Key`/`MouseButton` enums, not `winit`
-  types. The full input abstraction is KE-0304.
+  types, with just-pressed/just-released edges. Remapping, gamepad and touch
+  input are out of scope.
 - `perf()` — a `PerfSnapshot` (frame timing) from `kaman-perf`.
 - `alpha()` — the fixed-timestep interpolation factor in `0.0..=1.0`, meaningful
   on the render path (`0.0` in `init`/`update`).
 - `graphics_settings()` / `set_graphics_settings()` — the engine's
-  `GraphicsSettings` (shadows, shadow distance, draw distance, render scale;
-  KE-0408). A request is queued and applied at the start of the next frame, and
+  `GraphicsSettings` (shadows, shadow distance, draw distance, render scale).
+  A request is queued and applied at the start of the next frame, and
   the optional `Game::graphics_settings_changed` hook is called after it applies.
 
 `EngineCtx` is the borrow-checker chokepoint: the engine builds a fresh
@@ -96,9 +97,9 @@ step per frame); the windowed driver measures a real monotonic `Instant` delta
   driving the identical hook sequence. `run` wires the GPU-free `NullRenderer`;
   `run_with_backend` takes a **backend factory**
   (`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`) that the game binary uses to
-  inject the Metal backend, so `kaman-core` never depends on `metal` (KE-0102).
+  inject the Metal backend, so `kaman-core` never depends on `metal`.
   The factory runs once in `resumed`, after the window exists.
-  **`run_with_config`** takes a `RunConfig` as well (KE-0408). By default the
+  **`run_with_config`** takes a `RunConfig` as well. By default the
   windowed runner installs a native **Graphics** menu in the macOS menu bar (the
   `settings_menu` model rendered by `platform::macos` with `objc2`: an
   `NSMenu`, and clicks posted back through winit's `EventLoopProxy`). It also
@@ -106,9 +107,9 @@ step per frame); the windowed driver measures a real monotonic `Instant` delta
   `native_settings_menu: false` / `persist_graphics_settings: false` opt out, for
   games with their own UI. The headless driver never touches either. macOS-only bits
   (window creation, event translation) are kept in small free functions to ease
-  the KE-0301 `#[cfg]` split.
+  a future `#[cfg]` platform split.
 
-## The render backend (KE-0102)
+## The render backend
 
 The real Metal renderer lives below the seam in `kaman-render` and is injected
 through the backend factory above; `kaman-core` stays metal-free (a firewall CI

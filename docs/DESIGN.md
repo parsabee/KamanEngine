@@ -5,8 +5,8 @@ key contracts, and sequence diagrams of the runtime flows. The authoritative *co
 live in [ARCHITECTURE.md](ARCHITECTURE.md); this document shows how the pieces fit and move.
 Diagrams are [Mermaid](https://mermaid.js.org/) (rendered inline by GitHub).
 
-> Scope: reflects the engine through Phase 4 (KE-0401). `kaman-assets`/`kaman-render` texturing
-> and the look stack are included; the Phase 5 scene editor is not yet built.
+> Scope: reflects the engine as of v0.1.0-alpha.2, including `kaman-assets`/`kaman-render`
+> texturing, the look stack and shadows. The C API planned for v0.1 is not drawn here yet.
 
 ---
 
@@ -271,7 +271,7 @@ sequenceDiagram
     Game->>R: submit()
     R->>GPU: commit command buffer + present drawable
     GPU-->>Sem: completion handler → release()
-    Note over R,GPU: no new_buffer* on the per-frame path (KR1.2); mesh & uniform storage persistent
+    Note over R,GPU: no new_buffer* on the per-frame path; mesh & uniform storage persistent
 ```
 
 ---
@@ -361,37 +361,37 @@ sequenceDiagram
 
 ---
 
-## 10. Render passes / look stack (KE-0401, KE-0407)
+## 10. Render passes / look stack
 
-All below the seam in `kaman-render`. Lighting is computed in linear space; the final present is
-ACES-tonemapped + sRGB-encoded. Each frame is **two render passes** on one command buffer: a
+All below the seam in `kaman-render`. Lighting is computed in linear space, and each lit fragment
+is ACES-tonemapped and sRGB-encoded in the shader (`present_color`) before the MSAA resolve. Each frame is **two render passes** on one command buffer: a
 depth-only shadow pass from the sun, then the scene pass that samples it. Draws are recorded during
 the frame and replayed into both passes at `submit`, so every caster is known before the scene
 pass starts.
 
 ```mermaid
 graph LR
-    S["Shadow pass (KE-0407)<br/>depth-only from the sun<br/>4096² Depth32Float · store: Store"] --> A
+    S["Shadow pass<br/>depth-only from the sun<br/>4096² Depth32Float · store: Store"] --> A
     A["Sky (fullscreen gradient + sun disc, depth off)"] --> B
-    B["Lit draws<br/>4x MSAA color+depth<br/>Blinn-Phong · shadow-map PCF · fog"] --> O
-    O["2D overlay (KE-0404)"] --> C
+    B["Lit draws<br/>4x MSAA color+depth<br/>Blinn-Phong · shadow-map PCF · fog<br/>ACES tonemap → sRGB in the fragment shader"] --> O
+    O["2D overlay"] --> C
     C["MSAA resolve (in-tile)<br/>MultisampleResolve store"] --> D
-    D["Present<br/>ACES tonemap → sRGB<br/>drawable / offscreen texture"]
+    D["Present<br/>drawable / offscreen texture"]
     classDef msaa fill:#eef;
     class A,B,O,C msaa;
 ```
 
-MSAA/depth storage is behind one `cfg` hook (`msaa_storage_mode()`) so KE-0305 can make the
-attachments **memoryless** on iOS. The shadow map is deliberately *not* behind it: it is sampled by
+MSAA/depth storage is behind one `cfg` hook (`msaa_storage_mode()`) so the iOS build can make
+the attachments **memoryless**. The shadow map is deliberately *not* behind it: it is sampled by
 the pass after the one that writes it, so it is `Private` with a `Store` store action on every
 platform (both asserted). The light's orthographic projection is refitted each frame to the camera
 frustum cut at the draw distance, where the fog goes opaque (165 units by default). A
 renderer-level override (`MetalRenderer::set_shadow_distance`) can shorten it but never extend it
 past the fog. The frustum slice is enclosed in a sphere and snapped to whole shadow texels (~6.9 cm at the
 default fit on the 4096² map), so it
-follows the camera without shimmering; its direction is the KE-0406 sun's. Receivers are biased by
+follows the camera without shimmering; its direction is the seam-driven sun's. Receivers are biased by
 their own triangle's plane plus a constant 2 cm (see `kaman-render/src/shadow.rs`). Bloom is
-deferred.
+not implemented.
 
 ---
 
@@ -399,8 +399,8 @@ deferred.
 
 | Invariant | Where | Enforced by |
 |---|---|---|
-| No Metal above the seam | `kaman-core`, `kaman-render-api`, … | CI `cargo tree \| grep metal` firewall |
-| No game types in engine crates | all `kaman-*` | self-scanning `no_game_specific_symbols` tests |
+| No Metal above the seam | `kaman-render-api` (and so everything that only depends on it) | CI `cargo tree -p kaman-render-api \| grep metal` firewall |
+| No game types in engine crates | `kaman-core`, `-scene`, `-ecs`, `-assets`, `-audio` | self-scanning boundary tests in each |
 | Rendered output unchanged across a refactor | `kaman-render` | offscreen **pixel-hash** tests (re-bless w/ justification) |
 | Zero per-frame GPU allocations | `kaman-render` | `allocation_count()` asserted `== 0` on the frame path |
 | Audio never requires a device | `kaman-audio` | `Loop` starts `Audio::silent()`; headless/`--smoke` never open one, and every audio test asserts against silent mode |
@@ -408,7 +408,6 @@ deferred.
 | Physics body removed atomically with its entity | `kaman-scene` | despawn removes body **before** ECS entity + test |
 | Simulation is framerate-independent | `kaman-core` | fixed `FIXED_DT`; 60 vs 120 Hz step-count tests |
 | No prototype identifiers ship | `crates/`, `games/` | CI de-brand grep |
-| Ticket format + progress | `tickets/` | `scripts/check-tickets.py` (CI) |
 
 ---
 
@@ -417,5 +416,5 @@ deferred.
 - [PLAYABLE_DEMO.md](PLAYABLE_DEMO.md) — these seams as the demo actually uses them, with pointers
   into its code. · [GETTING_STARTED.md](GETTING_STARTED.md) — build your own game on them.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — authoritative constraints (the *why*).
-- [ROADMAP.md](ROADMAP.md) — phases + OKRs. · [INTEGRATION.md](INTEGRATION.md) — test/migration discipline.
+- [ROADMAP.md](ROADMAP.md) — what v0.1 and v0.2 contain. · [INTEGRATION.md](INTEGRATION.md) — test/migration discipline.
 - Inline API docs: `cargo doc --workspace --no-deps --open`.

@@ -70,7 +70,7 @@ The HUD shows the live score while you drive, and a centered `GAME OVER` banner 
 the final score, the session best and the replay prompt after a crash. Progress and
 the crash report are also printed to stdout.
 
-Sound (KE-0405): the music starts when you do — the title screen is silent — and then
+Sound: the music starts when you do — the title screen is silent — and then
 loops for the rest of the session, across crashes and replays alike; an impact plays
 once each time a run ends. The `--smoke` path and every test are **silent and open no
 audio device**, so neither needs sound hardware.
@@ -127,7 +127,7 @@ font's full licence text is committed alongside it as `assets/font-OFL.txt`.
 | `runner_loop.wav` (music), `car_crash_impact_only.wav` (impact) | Generated for this project with **Claude** (Anthropic) | CC0 1.0 — public domain, no attribution required |
 
 `cube.gltf` is no longer imported by the demo — it was the placeholder player mesh
-before the real car models landed (KE-0703). Do not delete it: it is still a live
+before the real car models landed. Do not delete it: it is still a live
 test fixture. `kaman-assets`' `committed_game_asset_imports_from_path`
 ([import.rs:220](../../crates/kaman-assets/tests/import.rs#L220)) imports it from
 this directory to prove the glTF path works against a real committed file, and
@@ -137,7 +137,7 @@ The credits above are given as courtesy; the CC0 assets impose no attribution
 requirement. Only the OFL font ships with a licence file, because only the OFL
 requires one.
 
-The two `.wav` files (KE-0405) are original to this project: they were generated with
+The two `.wav` files are original to this project: they were generated with
 Claude at the project author's direction, contain no third-party samples, and are
 dedicated to the public domain under
 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) — to the extent any

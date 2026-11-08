@@ -1,7 +1,7 @@
 # kaman-ecs
 
 The ECS component vocabulary for KamanEngine — the stable surface that the
-Phase-1 `Game` trait and any other engine consumer bind against.
+`Game` trait and any other engine consumer bind against.
 
 ## Responsibility
 
@@ -41,8 +41,8 @@ the convenience constructors most callers use.
 - **Handle ownership.** `PhysicsBodyComponent` stores a *non-owning* copy of a
   `RigidBodyHandle`. The rigid body itself is owned by the physics world; the
   component is only a reference. Keeping the handle valid (not dereferencing a
-  handle whose body was removed) is the caller's responsibility. Safe removal is
-  tracked in KE-0202.
+  handle whose body was removed) is the caller's responsibility. Safe removal lives in
+  `kaman-physics` (stale-handle-safe removal) and `kaman-scene` (atomic despawn).
 - **Static vs dynamic.** `StaticTag` and `DynamicTag` are mutually-exclusive
   intent markers: a static entity's transform is authored once and never touched
   by physics; a dynamic entity's transform is overwritten from the simulation

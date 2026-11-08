@@ -10,7 +10,7 @@ To **start your own** game rather than read this one, see
 [GETTING_STARTED.md](GETTING_STARTED.md). For the constraints behind these seams see
 [ARCHITECTURE.md](ARCHITECTURE.md); for the diagrams see [DESIGN.md](DESIGN.md).
 
-> Scope: the demo as of Phase 7 (KE-0701 … KE-0707). Everything described here exists in the
+> Scope: the demo as of v0.1.0-alpha.2. Everything described here exists in the
 > code today. Where the demo deliberately *doesn't* use an engine facility (physics contact
 > queries, `EngineCtx::alpha`, a non-default streaming axis), that is called out rather than
 > glossed over.
@@ -194,7 +194,7 @@ Every model the demo draws is a committed glTF file imported exactly once throug
   mesh (the road tile, the skyline billboard).
 
 Both go through [`AssetCache::load`](../crates/kaman-assets/src/lib.rs), which dedups by path so
-one file is parsed and uploaded once (KE-0103's "upload once, reference by handle"). The *fit*
+one file is parsed and uploaded once (the engine's "upload once, reference by handle" rule). The *fit*
 functions turn a model's authored bounds into a placement transform:
 [`fit_transform`](../games/playable-demo/src/assets.rs#L112) scales a car so its longer horizontal
 extent is `CAR_LEN`, yaws it to face `-Z`, and lifts its underside to the road;
@@ -277,7 +277,7 @@ Role is read off the entity, not tracked separately: the player is `self.player`
 any entity with a `PhysicsBodyComponent`, a building carries `BuildingVariant`, a guardrail
 `GuardrailTag`, and whatever is left is a road tile.
 
-### The sun (a demo decision, KE-0406)
+### The sun (a demo decision)
 
 The engine has no idea what time of day it is. It accepts a
 [`SunSky`](../crates/kaman-render-api/src/sun.rs) — sun **elevation and azimuth in degrees**,
@@ -292,12 +292,12 @@ due west, with `-Z` as north and `+X` as east, which is the seam's convention). 
 north, so the sun sits off its left flank and slightly ahead. The sunlight is a *gentle* warm white
 (`1.0, 0.96, 0.88`), not an orange golden-hour cast, because a summer 4pm sun is still nearly
 white; the sky fill is `0.22` against a sun of `1.15`, so a face the sun misses sits at about 19%
-of a lit one — a deep shadow side rather than the flat, overcast look the pre-KE-0406 balance gave.
+of a lit one — a deep shadow side rather than the flat, overcast look the earlier balance gave.
 The horizon colour is load-bearing beyond the sky: the ground-hugging distance fog blends toward
 it, so it is also what the streaming spawn edge, the far hills and the skyline backdrop dissolve
 into.
 
-That same sun casts the demo's **shadows** (KE-0407) — there is no separate shadow light. At 32°
+That same sun casts the demo's **shadows** — there is no separate shadow light. At 32°
 from the west-northwest, shadows fall east and a little toward the camera: the roadside buildings on
 the left throw long bands across the road, the guardrail posts stripe the asphalt beside them, and
 the cars shade the road to their right and their own bodywork. The demo does nothing to get this:
@@ -320,8 +320,8 @@ shading round together, since the two share one direction vector.
 through the engine. It owns no game logic — it reads `CarRunner`'s state and turns it into
 overlay quads.
 
-The seam is the **2D overlay** (KE-0404,
-[overlay.rs](../crates/kaman-render-api/src/overlay.rs)): a game records
+The seam is the **2D overlay**
+([overlay.rs](../crates/kaman-render-api/src/overlay.rs)): a game records
 [`OverlayQuad`](../crates/kaman-render-api/src/overlay.rs#L71)s during its frame with
 `draw_overlay_quad`, and the backend batches them and flushes them at `submit` in its own
 orthographic, depth-disabled, alpha-blended pass **after** every 3D draw. So the HUD composites
@@ -341,12 +341,12 @@ the score at 30 px and the banner headline at 64 px from the same texture.
 **Allocation-free.** `layout` allocates nothing, and the demo formats its numbers into
 [`StackStr`](../games/playable-demo/src/hud.rs#L52), a fixed-capacity `fmt::Write` buffer on the
 stack (overflow is dropped rather than panicking — HUD text is short and cosmetic). So the whole
-per-frame HUD path is heap-free (KR1.2).
+per-frame HUD path is heap-free.
 
 **Safe area.** Positions are derived from `surface_size` shrunk by
 [`safe_area_insets`](../crates/kaman-render-api/src/device.rs#L147) (`[top, right, bottom, left]`
 in pixels), so the HUD stays clear of notches, rounded corners and home indicators. A desktop
-window reports zeros; the iOS path reports real insets. The score sits at
+window reports zeros; an iOS host (planned for v0.2) would report real insets. The score sits at
 `inset + HUD_MARGIN`, and the game-over banner is centered in the *safe* rectangle, not the raw
 drawable ([hud.rs:254](../games/playable-demo/src/hud.rs#L254)).
 
@@ -354,7 +354,7 @@ The HUD also carries the demo's full-screen washes, recorded first so everything
 them: opaque black on `Ready` (the title screen), that black retiring over `HUD_FADE_SECONDS`
 once a run starts, and a partial dim behind the `GAME OVER` banner.
 
-### Sound (KE-0405)
+### Sound
 
 The engine's audio layer ([kaman-audio](../crates/kaman-audio/src/mixer.rs), reached as
 `ctx.audio()`) is five operations over an opaque handle: `load`, `play_once`, `play_looping`,
@@ -509,7 +509,7 @@ Controls are handled at [game.rs:242](../games/playable-demo/src/game.rs#L242) (
 by the engine's windowed entry.
 
 The **Graphics** menu in the macOS menu bar adjusts shadows, shadow distance, draw distance and
-resolution (KE-0408). It comes from the engine's windowed entry, not the demo. The only demo-side
+resolution. It comes from the engine's windowed entry, not the demo. The only demo-side
 code is the HUD's UI scale in [hud.rs](../games/playable-demo/src/hud.rs), which keeps the text the
 same size at every resolution. Draw distance scales the demo's 180-unit reach and its fog together
 (0.5× / 0.75× / 1×). See [GETTING_STARTED.md](GETTING_STARTED.md#graphics-settings-the-built-in-menu-or-your-own-ui).

@@ -34,16 +34,16 @@ iPhone**. Because both platforms use Metal natively, raw Metal is *one* code pat
 backend-agnostic render seam keeps the door open for a future portable backend without touching
 engine logic.
 
-Its first title is an **infinite car runner** (static meshes, no animation rigs, arcade physics).
-A native scene editor for macOS on Apple Silicon is planned as
-[Phase 5](docs/ROADMAP.md#phase-5--scene-editor-native-macos-apple-silicon).
+The engine is **rasterization-only**. For v0.1 it is becoming a lean graphics library with a C
+API, so that any host app (C, C++, Swift) can drive it; see the [roadmap](docs/ROADMAP.md). Its
+reference title is the [playable demo](#the-playable-demo), an endless car runner on a freeway.
 
 > [!NOTE]
 > KamanEngine is **pre-release and under active development**. Releases start at
 > [`v0.1.0-alpha.1`](https://github.com/parsabee/KamanEngine/releases) (source only); from
 > `v0.1.0-alpha.2` each release also ships a prebuilt Apple Silicon build, installable with
 > [Homebrew](#install-with-homebrew). The public API may change between releases (see [CHANGELOG.md](CHANGELOG.md)). macOS is the supported
-> platform today; iOS bring-up is planned (Phase 3).
+> platform today; iOS support is planned for v0.2 ([#2](https://github.com/parsabee/KamanEngine/issues/2)).
 
 ## Table of contents
 
@@ -124,7 +124,7 @@ KamanEngine is **Apple-only** (macOS today, iOS planned). Check your toolchain b
 
 ```sh
 ./scripts/preflight.sh          # deps needed to build the engine today
-./scripts/preflight.sh --ios    # also require the Phase 3 (iOS) + .metallib toolchain
+./scripts/preflight.sh --ios    # also require the iOS + precompiled .metallib toolchain
 ```
 
 There are two tiers of dependencies:
@@ -132,14 +132,14 @@ There are two tiers of dependencies:
 | Tier | Tools | Needed for |
 |---|---|---|
 | **Required now** | macOS · Rust ≥ 1.91 (`cargo`/`rustc`, MSRV enforced by cargo) · Apple `clang` + macOS SDK (Command Line Tools) | Building and running the engine on macOS |
-| **iOS / KE-0107** | Full **Xcode** (`metal`/`metallib` shader compiler) · `rustup` + `aarch64-apple-ios`(`-sim`) targets | iOS bring-up (Phase 3) and precompiled `.metallib` shaders |
+| **iOS / `.metallib`** | Full **Xcode** (`metal`/`metallib` shader compiler) · `rustup` + `aarch64-apple-ios`(`-sim`) targets | Precompiled `.metallib` shaders (planned for v0.1.0) and iOS builds (v0.2) |
 
 The Command Line Tools alone (`xcode-select --install`) cover the engine today, because shaders
-currently compile at runtime. Full Xcode becomes required at Phase 3; installing it then also
-unblocks KE-0107. The iOS targets are not needed yet:
+currently compile at runtime. Full Xcode becomes required once shaders are precompiled (v0.1.0)
+and for iOS (v0.2). The iOS targets are not needed yet:
 
 ```sh
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim   # Phase 3 only
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim   # iOS (v0.2) only
 ```
 
 **Toolchain:** `rust-toolchain.toml` pins `1.91.0` (with `rustfmt`, `clippy` and
@@ -190,27 +190,19 @@ Graphics settings (shadows, shadow distance, draw distance, resolution, full scr
 
 ## Project status
 
-KamanEngine is built by **migrating and refactoring** an earlier prototype into this repo, module
-by module, under a test-and-document-as-you-go discipline: nothing is migrated without unit tests
-and rustdoc. The work runs as a **phase-gated pipeline**. Each phase defines work, writes tickets,
-implements them, runs SQA, and must hit its OKRs before the next phase starts. The prototype's
-provenance is recorded in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+KamanEngine was built by **migrating and refactoring** an earlier prototype into this repo, module
+by module, under a test-and-document-as-you-go discipline: nothing was migrated without unit tests
+and rustdoc. The prototype's provenance is recorded in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-**33 / 39 tickets done.** For live per-phase progress, run `python3 scripts/check-tickets.py`.
-
-| Phase | State |
+| Release | State |
 |---|---|
-| 0 — Foundation & migration harness | ✅ Complete |
-| 1 — Renderer foundation | ✅ Complete except KE-0107 (precompiled `.metallib`), which is blocked on full Xcode |
-| 2 — Gameplay core | ✅ Complete |
-| 3 — iOS bring-up | ⏳ Not started; needs full Xcode + iOS rustup targets |
-| 4 — Look & feel + content | ✅ Complete: glTF import, textures, modern-look stack, 2D HUD/SDF text, audio (kira), sun/sky seam, real fitted shadow maps (KE-0407), and graphics settings with a native macOS Graphics menu (KE-0408) |
-| 5 — Scene editor (native macOS, Apple Silicon) | ⏳ Not started; Key Results are draft |
-| 6 — Release | ⏳ Not started |
-| 7 — Playable Demo *(pulled forward)* | ✅ Complete: 3-lane freeway runner with real CC0 cars, buildings, road and skyline, HUD, title/game-over/replay, music + SFX |
+| `v0.1.0-alpha.2` (current) | macOS on Apple Silicon: the engine crates, the playable demo, and a Homebrew install |
+| `v0.1.0-beta.1` | In progress: ticket system removed, docs made to match the code, the C API, a test and bug-fix pass |
+| `v0.1.0` | Planned: precompiled `.metallib` shaders and benchmarking |
+| `v0.2` | Planned: iOS ([#2](https://github.com/parsabee/KamanEngine/issues/2)) |
 
-- Roadmap and phase OKRs: [docs/ROADMAP.md](docs/ROADMAP.md)
-- Ticket system and backlog: [tickets/README.md](tickets/README.md)
+- Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
+- Open work: [GitHub issues](https://github.com/parsabee/KamanEngine/issues)
 
 ## Documentation
 
@@ -231,7 +223,7 @@ Guides and design docs:
 | [docs/PLAYABLE_DEMO.md](docs/PLAYABLE_DEMO.md) | The demo walked through as a reference example |
 | [docs/DESIGN.md](docs/DESIGN.md) | Diagrams: component, UML class and sequence diagrams (Mermaid) of the layers, the render seam, the frame loop, streaming, and asset load |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Intentional constraints, the render seam, and workspace layout |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Phases and OKRs |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What v0.1 and v0.2 contain |
 | [docs/INTEGRATION.md](docs/INTEGRATION.md) | Integration, testing and migration discipline |
 | [CHANGELOG.md](CHANGELOG.md) | Release history and notable changes |
 
@@ -255,13 +247,12 @@ smoke oracle). The layout follows [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) �
 | [`kaman-scene`](crates/kaman-scene) | The `Scene`: ECS world + physics world, world streaming, and floating-origin rebase |
 | [`games/playable-demo`](games/playable-demo) | The reference example game (an endless runner) and host of the headless smoke oracle |
 
-Physics uses rapier for now; a custom arcade-physics / spatial-query layer will replace it later.
+Physics uses [rapier](https://rapier.rs) through `kaman-physics`.
 
 ## Contributing
 
-Work is tracked as tickets in [`tickets/`](tickets/README.md), grouped by roadmap phase. Each
-ticket has a Scope & Acceptance checklist. Run `python3 scripts/check-tickets.py` after creating
-or editing a ticket; CI lints the ticket format.
+Work is tracked as [GitHub issues](https://github.com/parsabee/KamanEngine/issues); the
+[roadmap](docs/ROADMAP.md) says what each release contains.
 
 Every change must keep the CI gates green (see [docs/INTEGRATION.md](docs/INTEGRATION.md)):
 
@@ -279,8 +270,7 @@ RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links -D rustdoc::private_intra_doc_l
 - **Test as you go.** New or migrated code ships with unit tests, and renderer changes keep the
   pixel-hash tests passing.
 - **Respect the render seam.** Nothing above `kaman-render` may depend on `metal`.
-- **Commit style:** a short subject line (prefixed with the ticket ID where there is one, e.g.
-  `KE-0407: …`) followed by an itemised list of the actual changes.
+- **Commit style:** a short subject line followed by an itemised list of the actual changes.
 
 ## License
 

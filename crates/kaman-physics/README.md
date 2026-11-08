@@ -20,8 +20,8 @@ consumers — notably `kaman-ecs`, whose `PhysicsBodyComponent` stores a
   and never panics or dereferences freed storage (enforced by the
   `use_after_free_*` tests).
 - **Handle ownership.** A handle stored in a `PhysicsBodyComponent` must be
-  removed from physics atomically with clearing the component (despawn
-  orchestration lands in KE-0203); stale-handle safety is the memory-safety
+  removed from physics atomically with clearing the component (the despawn
+  orchestration in `kaman-scene` does this); stale-handle safety is the memory-safety
   backstop.
 
 Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.

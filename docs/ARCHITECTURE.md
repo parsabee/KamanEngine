@@ -7,7 +7,7 @@ Status: authoritative. Decisions here are intentional constraints, not defaults.
 
 ## 1. Targets and the rendering choice
 
-KamanEngine targets **macOS and iPhone only**. On both, Metal is the single native GPU
+KamanEngine targets **macOS and iPhone only** (macOS today; iOS is planned for v0.2). On both, Metal is the single native GPU
 API, so the engine uses **raw Metal** (`metal` crate) directly — this is *one* rendering
 code path across both targets, not two, and it gives direct access to TBDR features
 (memoryless attachments, tile memory) that portable abstractions expose late or not at all.
@@ -27,17 +27,17 @@ touching ECS, physics, scene, or game code.
 No crate above the seam may import `metal` types. This is enforced by crate boundaries so a
 full renderer rewrite is provably contained.
 
-**Camera crosses the seam as a matrix (KE-0205).** `FrameRecorder::set_view_projection(Mat4)`
+**Camera crosses the seam as a matrix.** `FrameRecorder::set_view_projection(Mat4)`
 carries the view — a plain `kaman_math::glam::Mat4`, **no GPU type**. The engine owns a
 `kaman_camera::Camera`; the driver pushes its `view_projection_matrix()` through the seam once per
 frame before `Game::render`, and the backend forms `mvp = view_proj * model` per draw. The value is
 sticky (retained until replaced) so the engine's push survives the game's `begin_frame`. This
-**replaced and deleted** the minimal camera KE-0102 had temporarily inlined into `kaman-render`
+**replaced and deleted** the minimal camera that was temporarily inlined into `kaman-render`
 (`kaman-render/src/camera.rs`); the real camera now lives in `kaman-camera`, which also provides the
 `ChaseController` follow camera the `playable-demo` uses. `kaman-core → kaman-camera → kaman-math` keeps
 the dependency direction acyclic and `kaman-core` metal-free.
 
-As of KE-0102 the concrete backend exists **below** this seam: `kaman-render` provides
+The concrete backend lives **below** this seam: `kaman-render` provides
 `MetalRenderer`, a raw-Metal type implementing both `RenderDevice` and `FrameRecorder` (and
 therefore `kaman-core`'s `Renderer` marker). `kaman-render` is the *only* crate that depends on
 `metal`. Crucially, `kaman-core` does **not** depend on `kaman-render`: the windowed entry
@@ -45,47 +45,48 @@ therefore `kaman-core`'s `Renderer` marker). `kaman-render` is the *only* crate 
 (`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`), and the game binary (`playable-demo`, which does
 depend on `kaman-render`) constructs the Metal backend and injects it. So `metal` reaches the
 process only through `kaman-render` and the game binary — never through `kaman-core` — and the CI
-firewall (`cargo tree -p kaman-core | grep metal` → nothing) still holds. The migrated renderer is
-guarded by an offscreen render pixel-hash (KR1.3, `kaman-render/tests/pixel_hash.rs`).
+`cargo tree -p kaman-core` shows no `metal` (CI enforces the stricter rule on `kaman-render-api`
+itself). The migrated renderer is
+guarded by an offscreen render pixel-hash (`kaman-render/tests/pixel_hash.rs`).
 
-**Flexible vertex layout through the seam (KE-0402).** The backend now builds its Metal vertex
+**Flexible vertex layout through the seam.** The backend now builds its Metal vertex
 descriptor **from the `VertexLayout` in `MeshData`** — mapping each `VertexAttribute`'s
 `location`/`offset`/`format` (including `Float32x2` for UVs) and taking the buffer stride from
 `layout.stride` — instead of a hardcoded `[pos,normal,color]` 0/12/24 `Float3` triple. `upload_mesh`
 likewise deindexes at the layout's byte stride. For the `[pos,normal,color]` layout the resulting
-descriptor and bytes are identical to the prior hardcoded path, so the KR1.3 pixel hash is unchanged
-(`0x292c5df343b5eba8`). This lets arbitrary imported layouts flow through the one seam.
+descriptor and bytes are identical to the prior hardcoded path, so the pixel hash was unchanged by
+that refactor. This lets arbitrary imported layouts flow through the one seam.
 
-**Static glTF import (`kaman-assets`, KE-0402).** The new **engine-generic, metal-free**
+**Static glTF import (`kaman-assets`).** The new **engine-generic, metal-free**
 `kaman-assets` crate imports static glTF (`.gltf`/`.glb`) into a `SceneAsset` (meshes + a baked node
 tree) packed onto the render seam's `MeshData`/`VertexLayout`, with a load-once/dedup `AssetCache`
-("upload once, reference by handle", one level up from KE-0103) and a `spawn_scene` ECS helper. It
+("upload once, reference by handle", one level up from the renderer's mesh registry) and a `spawn_scene` ECS helper. It
 depends only on `gltf`, `kaman-math`, `kaman-render-api`, and `kaman-ecs` — the `kaman-assets →
 kaman-ecs` edge stays acyclic (`kaman-ecs` never depends on `kaman-assets`) and no `metal` enters the
 tree. Imported geometry packs onto `[pos,normal,color]` with a default vertex color so it renders
-through the existing pipeline immediately; parsed UVs are retained on `MeshAsset::uvs` for the KE-0403
-textured pipeline. `playable-demo` loads every mesh it draws this way: since KE-0703 the player and
+through the existing pipeline immediately; parsed UVs are retained on `MeshAsset::uvs` for the
+textured pipeline. `playable-demo` loads every mesh it draws this way: the player and
 traffic are real committed CC0 car models (`assets/*.glb`), and the road, skyline, and scenery come
 from committed glTF too — see the [demo guide](PLAYABLE_DEMO.md). The earlier placeholder,
 `assets/cube.gltf`, is retained only as a `kaman-assets` import fixture.
 
-**Modern-look rendering stack (KE-0401).** Below the seam, `kaman-render` applies a small,
+**Modern-look rendering stack.** Below the seam, `kaman-render` applies a small,
 mobile/TBDR-safe look stack — nothing above the seam learns about it. In pass order per frame:
 (1) **sRGB + tonemap** — lighting is computed in linear space and presented through an explicit
 ACES filmic tonemap + sRGB encode in the fragment shaders (`present_color`), so colors are correct
 and not washed out even though both render targets are `*Unorm`; (2) a **gradient sky** fullscreen
 triangle replaces the flat clear, drawn depth-test/write-disabled; (3) **distance fog** blends far
-geometry into the sky horizon color, hiding the streaming spawn edge (pairs with KE-0203);
-(4) **real sun shadows** (KE-0407, which replaced KE-0401's fake blob shadow) — see below. **MSAA**
+geometry into the sky horizon color, hiding the streaming spawn edge (pairs with world streaming);
+(4) **real sun shadows** (which replaced an earlier fake blob shadow) — see below. **MSAA**
 (4x) wraps all of it: the scene renders into a multisampled color + depth attachment
 and resolves **in-tile** into the single-sample target via the `MultisampleResolve` store action, so
 the multisampled buffers never spill to system memory. The MSAA color/depth attachments are
 **memoryless-ready**: their storage mode is a single cfg hook (`MSAA_MEMORYLESS`, iOS ⇒
-`Memoryless`), which **KE-0305** flips for iOS; macOS uses `Private`. The offscreen pixel-hash path
-still produces a readable, resolved single-sample texture. **Bloom is deferred** (see the KE-0401
-report). Because the look changed intentionally, both pixel-hash references were re-blessed.
+`Memoryless`), which the iOS build will use; macOS uses `Private`. The offscreen pixel-hash path
+still produces a readable, resolved single-sample texture. **Bloom is not implemented**
+(it needs extra half-resolution targets and ping-pong passes). Because the look changed intentionally, both pixel-hash references were re-blessed.
 
-**Drivable sun + sky (KE-0406).** KE-0401's look stack was hardcoded: the light was written into a
+**Drivable sun + sky.** The look stack was originally hardcoded: the light was written into a
 Metal buffer once at renderer construction and never updated, so nothing above the seam could set
 the sun. The seam now carries an engine-generic `SunSky` — sun **elevation and azimuth in degrees**,
 colour, intensity, an ambient **sky-fill** level, and the sky gradient's zenith/horizon colours —
@@ -102,7 +103,7 @@ playable demo's "summer 4pm" sun is a set of named constants in the *demo's* con
 the seam. The two 3D pixel-hash baselines were re-blessed; the screen-space overlay baseline is
 unchanged, which is the proof the change stayed in the 3D passes.
 
-**Real shadows (KE-0407).** The fake blob shadow is gone. Each frame now runs a **depth-only shadow
+**Real shadows.** The fake blob shadow is gone. Each frame now runs a **depth-only shadow
 pass** from the sun into a 4096² `Depth32Float` map *before* the scene pass, and both lit pipelines
 (untextured and textured) sample it. To know every caster before the scene pass starts, the backend
 records draws during the frame and encodes both passes at `submit` — invisible above the seam, where
@@ -110,14 +111,14 @@ a game still just draws meshes and sets a `SunSky`. The light's orthographic pro
 every frame to the slab of camera frustum the fog leaves visible (the draw distance, 165 units by
 default; a backend-level shadow-distance override may shorten it), enclosed in a sphere and **snapped
 to whole shadow texels** so it follows the camera without shimmering, and its direction is the
-KE-0406 sun's — one source of truth for shading, sun disc and shadows. On a TBDR GPU the map is the
+seam-driven sun's — one source of truth for shading, sun disc and shadows. On a TBDR GPU the map is the
 one depth attachment that must be **stored** (the MSAA scene targets are resolved in-tile and
 discarded), which the backend asserts. Receivers are biased by their own triangle's plane plus a
 constant 2 cm, and filtered with 4×4 tent PCF. The fitting and bias math is GPU-free and unit-tested
 in `kaman-render/src/shadow.rs`; a new shadow pixel-hash proves occlusion by re-rendering with the
 casters disabled. A GPU-less runner never constructs the Metal backend, so it never reaches the pass.
 
-**Graphics settings (KE-0408).** Quality settings cross the seam as plain data, like `SunSky`:
+**Graphics settings.** Quality settings cross the seam as plain data, like `SunSky`:
 
 - `RenderDevice::set_render_settings(&RenderSettings)` carries a `ShadowQuality` tier, a shadow
   range as a fraction of the draw distance, and a draw-distance scale on the backend's fog. All of
@@ -135,7 +136,7 @@ out of every crate but `kaman-core`, and `metal` stays out of `kaman-core`.
 ```
 kaman-engine/
 ├── crates/
-│   ├── kaman-math          # glam re-export + Ray/AABB/Frustum       (reuse)
+│   ├── kaman-math          # glam re-export + Transform              (reuse)
 │   ├── kaman-perf          # profiling / frame timing                (reuse)
 │   ├── kaman-ecs           # hecs wrapper + components               (reuse)
 │   ├── kaman-physics       # rapier3d wrapper (+ removal API)        (refactor)
@@ -147,14 +148,17 @@ kaman-engine/
 │   ├── kaman-assets        # glTF + textures                         (new)
 │   └── kaman-audio         # kira wrapper: sounds/one-shots/loops    (new)
 ├── games/
-│   └── playable-demo          # first title; only uses engine public API
-├── shaders/                # MSL source → precompiled .metallib
-└── platform/{macos,ios}    # thin app wrappers (iOS added in Phase 3)
+│   └── playable-demo       # reference title; only uses engine public API
+├── docs/                   # architecture, design, guides, roadmap
+├── scripts/                # preflight, release packaging, doc-anchor check
+└── packaging/homebrew/     # the Homebrew formula
 ```
+
+The Metal shader source lives in `crates/kaman-render/shaders/`.
 
 Dependency direction is acyclic: `kaman-math` is a leaf; `kaman-core` and `games/*` sit at
 the top. Game concepts (car, road, score) never enter engine crates — the boundary is a
-`Game` trait + `EngineCtx` seam (Phase 1), and self-scanning guard tests in `kaman-core`,
+`Game` trait + `EngineCtx` seam, and self-scanning guard tests in `kaman-core`,
 `kaman-scene`, `kaman-assets`, `kaman-audio` and `kaman-ecs` fail if a game-named symbol appears in
 them.
 
@@ -167,15 +171,14 @@ API today — see [PLAYABLE_DEMO.md](PLAYABLE_DEMO.md); for standing up a new ga
 | Concern | Choice | Notes |
 |---|---|---|
 | Rendering | raw Metal (`metal`) | Apple-only; behind `kaman-render-api` |
-| Windowing | `winit` (macOS) / UIKit+CADisplayLink (iOS) | `#[cfg]`-split in `kaman-core` |
+| Windowing | `winit` (macOS, in the Rust runner) | iOS (v0.2): the host app owns the view and the display link |
 | Math | `glam` | leaf crate |
 | ECS | `hecs` | already integrated in the prototype |
-| Physics | `rapier3d` **now**, custom arcade/spatial-query **later** | v1 keeps rapier + adds a removal API; arcade feel migrates to a custom query layer post-v1 |
+| Physics | `rapier3d` | behind `kaman-physics`, with a body/collider removal API |
 | Audio | `kira` | behind `kaman-audio`; see §4b |
 | Assets | `gltf` + `image` | static meshes only for v1 |
-| Tooling | Scene editor: native AppKit app, Apple Silicon (planned, Phase 5) | hosts the engine's Metal viewport through the render seam; scope is draft (see [ROADMAP.md](ROADMAP.md) Phase 5) |
 
-### 4a. Fixed-timestep loop (KE-0201)
+### 4a. Fixed-timestep loop
 
 `kaman-core` drives simulation on a **fixed timestep decoupled from the display
 rate**. `FIXED_DT = 1/60 s` is the single source of truth (`kaman-core`'s
@@ -196,7 +199,7 @@ step/frame — deterministic tests + `--smoke`) and the winit windowed driver (r
 monotonic clock, variable steps) share **one** loop implementation
 (`driver::drive_frame`); only the clock source differs.
 
-### 4b. Audio (KE-0405)
+### 4b. Audio
 
 `kaman-audio` wraps `kira` in five operations — `load` a file into an opaque `SoundHandle`,
 `play_once`, `play_looping`, `stop_looping`, `set_master_volume` — with levels in decibels
@@ -207,7 +210,7 @@ and no other engine crate, gains an audio dependency. `kira`'s feature set is tr
 demo's assets are 16-bit PCM WAV and this engine is Apple-only, so mp3/ogg/vorbis/flac/aac and
 `cpal-realtime-dbus` are dead weight).
 
-Sounds are decoded **once, at load**, keyed by path (the KE-0103 handle discipline again), so no
+Sounds are decoded **once, at load**, keyed by path (the "upload once, reference by handle" discipline again), so no
 play call touches the filesystem and nothing on the per-frame path allocates. Playback is driven by
 game *events*, never polled from `update`. There is exactly **one loop channel**: re-asking for the
 sound already looping starts nothing, which makes a doubled music bed structurally impossible from
@@ -226,25 +229,24 @@ policy: the engine takes a handle and a level.
 
 ## 5. Physics decision (v1)
 
-rapier3d is retained for v1 because it is already integrated and gets us to the "is it fun?"
-gate fastest. v1 adds the missing **body/collider removal API** (required to despawn
+rapier3d is retained for v1 because it was already integrated and got the runner
+playable fastest. v1 adds the missing **body/collider removal API** (required to despawn
 obstacles in an infinite runner). The car's lateral/lane motion is **kinematic and
-game-owned**, not solver-driven. A custom arcade-physics + spatial-query layer replaces
-rapier on the shipping path in a later release; the `kaman-physics` wrapper hides rapier so
-that swap does not ripple.
+game-owned**, not solver-driven. The `kaman-physics` wrapper hides rapier, so replacing it
+later would not ripple through the engine; no replacement is planned.
 
-**Status (KE-0202):** the wrapper has migrated into `crates/kaman-physics` and the removal
+**Status:** the wrapper has migrated into `crates/kaman-physics` and the removal
 API has landed — `PhysicsWorld::remove_body` (removes the body and its attached colliders)
 and `remove_collider`. Both uphold a **stale-handle-safety** invariant: after removal every
 query on the freed handle returns `None` / is a no-op and never derefs freed storage
 (rapier's generational handles + tests enforce this). The companion **handle-ownership**
 invariant — a handle in a `PhysicsBodyComponent` is removed from physics atomically with
 clearing the component — is documented here and in the crate; the despawn orchestration that
-upholds it is KE-0203. `PhysicsWorld::step` advances at the crate-local `FIXED_DT`, which
+upholds it lives in `kaman-scene` (below). `PhysicsWorld::step` advances at the crate-local `FIXED_DT`, which
 mirrors `kaman-core`'s `FIXED_DT` (`kaman-physics` does **not** depend on `kaman-core`, to
 avoid a dependency cycle; a test pins the value).
 
-**Status (KE-0203):** `crates/kaman-scene` now owns the hecs `World` + `PhysicsWorld` and adds
+**Status:** `crates/kaman-scene` now owns the hecs `World` + `PhysicsWorld` and adds
 engine-generic **streaming** (spawn-ahead / despawn-behind by focus distance) and **floating-origin
 rebase**. Despawn is **atomic** — the physics body is removed before the ECS entity, upholding the
 handle-ownership invariant above. Rebase shifts ECS transforms and physics bodies together, only
