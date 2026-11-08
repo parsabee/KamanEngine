@@ -55,10 +55,12 @@
 
 #![deny(missing_docs)]
 
+use std::collections::{HashMap, HashSet};
+
 use kaman_ecs::hecs::{Entity, World};
 use kaman_ecs::{DynamicTag, PhysicsBodyComponent, TransformComponent};
 use kaman_math::glam::Vec3;
-use kaman_physics::{PhysicsWorld, FIXED_DT};
+use kaman_physics::{PhysicsWorld, RigidBodyHandle, FIXED_DT};
 
 /// Configuration for the [`Scene`]'s spawn-ahead / despawn-behind streaming and
 /// its floating-origin rebase, along a single travel axis.
@@ -151,6 +153,11 @@ pub struct Scene {
     /// Total offset (along the axis, in slot-distance) that rebases have shifted
     /// the world by, so slot indexing stays consistent across a rebase.
     rebase_shift_units: f32,
+    /// Which entity owns which rigid body, as last seen by a
+    /// [`step_physics`](Self::step_physics) or [`stream`](Self::stream) pass.
+    /// Lets the scene free a body whose entity was despawned through
+    /// [`world_mut`](Self::world_mut) instead of [`despawn`](Self::despawn).
+    body_owners: HashMap<Entity, RigidBodyHandle>,
 }
 
 impl Scene {
@@ -170,6 +177,7 @@ impl Scene {
             streamed: Vec::new(),
             spawn_frontier: None,
             rebase_shift_units: 0.0,
+            body_owners: HashMap::new(),
         }
     }
 
@@ -180,6 +188,14 @@ impl Scene {
     }
 
     /// Mutable access to the ECS [`World`] — spawn, despawn, mutate components.
+    ///
+    /// Prefer [`despawn`](Self::despawn) for an entity that carries a
+    /// [`PhysicsBodyComponent`]: it frees the body in the same call. Despawning
+    /// such an entity here directly is still safe once the scene has seen it in a
+    /// [`step_physics`](Self::step_physics) or [`stream`](Self::stream) pass: the
+    /// next `step_physics` frees the orphaned body before stepping, so no ghost
+    /// collider is left behind. A body created and orphaned before the scene ever
+    /// saw its entity is not tracked and stays in the physics world.
     #[must_use]
     pub fn world_mut(&mut self) -> &mut World {
         &mut self.world
@@ -261,10 +277,18 @@ impl Scene {
     /// authored transform). Call this exactly once per fixed engine update so the
     /// solver stays in lockstep with `kaman_core`'s fixed-timestep driver.
     ///
+    /// Only the position and rotation are synced; the entity's authored `scale`
+    /// is kept (rigid bodies have no scale).
+    ///
+    /// Before stepping, any body whose owning entity has been despawned through
+    /// [`world_mut`](Self::world_mut) is freed (see that method), so it cannot
+    /// collide as a ghost.
+    ///
     /// A stale handle on a component (should not occur under the atomic-despawn
     /// invariant) is skipped safely — [`PhysicsWorld::get_transform`] returns
     /// `None` — rather than panicking.
     pub fn step_physics(&mut self) {
+        self.reclaim_orphaned_bodies();
         self.physics.step();
 
         for (_e, (transform, body, _dynamic)) in
@@ -272,8 +296,38 @@ impl Scene {
                 .query_mut::<(&mut TransformComponent, &PhysicsBodyComponent, &DynamicTag)>()
         {
             if let Some(t) = self.physics.get_transform(body.handle) {
-                transform.transform = t;
+                transform.transform.position = t.position;
+                transform.transform.rotation = t.rotation;
             }
+        }
+    }
+
+    /// Frees the bodies of entities that are gone, then records the current
+    /// owner of every body still attached to a live entity.
+    fn reclaim_orphaned_bodies(&mut self) {
+        let world = &self.world;
+        if self.body_owners.keys().any(|&e| !world.contains(e)) {
+            // Rare path: an entity was despawned behind the scene's back. Free its
+            // body, unless a live entity has since taken that body over.
+            let held: HashSet<RigidBodyHandle> = world
+                .query::<&PhysicsBodyComponent>()
+                .iter()
+                .map(|(_e, b)| b.handle)
+                .collect();
+            let physics = &mut self.physics;
+            self.body_owners.retain(|&entity, &mut handle| {
+                if world.contains(entity) {
+                    return true;
+                }
+                if !held.contains(&handle) {
+                    physics.remove_body(handle);
+                }
+                false
+            });
+        }
+        self.body_owners.clear();
+        for (entity, body) in self.world.query::<&PhysicsBodyComponent>().iter() {
+            self.body_owners.insert(entity, body.handle);
         }
     }
 
@@ -303,6 +357,7 @@ impl Scene {
         if !self.world.contains(entity) {
             return false;
         }
+        self.body_owners.remove(&entity);
         // Remove the physics body first (if any), then the entity — the two
         // freed together, no stale handle in between.
         if let Ok(body) = self.world.get::<&PhysicsBodyComponent>(entity) {
@@ -411,6 +466,11 @@ impl Scene {
             };
             spawn(&mut cx);
             let spawned = cx.out;
+            for &e in &spawned {
+                if let Ok(body) = self.world.get::<&PhysicsBodyComponent>(e) {
+                    self.body_owners.insert(e, body.handle);
+                }
+            }
             self.streamed.extend(spawned);
             self.spawn_frontier = Some(slot);
         }
@@ -552,6 +612,114 @@ mod tests {
             .position
             .y;
         assert!(y < 10.0, "body fell under gravity and synced to ECS: y={y}");
+    }
+
+    /// Rigid bodies have no scale, so syncing a body back must keep the entity's
+    /// authored scale (it used to reset it to 1, halving a scale-2 mesh).
+    #[test]
+    fn step_physics_preserves_authored_scale() {
+        use kaman_math::glam::Quat;
+        use kaman_math::Transform;
+        let mut scene = Scene::new();
+        let authored = Transform {
+            position: Vec3::new(0.0, 5.0, 0.0),
+            rotation: Quat::IDENTITY,
+            scale: Vec3::splat(2.0),
+        };
+        let h = scene.physics_mut().create_dynamic_body(authored);
+        scene.physics_mut().add_box_collider(h, Vec3::splat(1.0));
+        let e = scene.world_mut().spawn((
+            TransformComponent::new(authored),
+            PhysicsBodyComponent::new(h),
+            DynamicTag,
+        ));
+
+        scene.step_physics();
+
+        let t = scene
+            .world()
+            .get::<&TransformComponent>(e)
+            .unwrap()
+            .transform;
+        assert_eq!(t.scale, Vec3::splat(2.0), "authored scale kept");
+        assert!(t.position.y < 5.0, "position still syncs from the body");
+    }
+
+    /// An entity despawned through `world_mut()` (not `Scene::despawn`) must not
+    /// leave its body behind as a ghost collider.
+    #[test]
+    fn world_mut_despawn_frees_the_orphaned_body() {
+        let mut scene = Scene::new();
+        let e = spawn_body(&mut scene, Vec3::new(0.0, 5.0, 0.0));
+        scene.step_physics();
+        assert_eq!(scene.physics().rigid_body_set.len(), 1);
+
+        scene.world_mut().despawn(e).unwrap();
+        scene.step_physics();
+
+        assert_eq!(
+            scene.physics().rigid_body_set.len(),
+            0,
+            "orphaned body freed"
+        );
+        assert_eq!(scene.physics().collider_set.len(), 0, "and its collider");
+    }
+
+    /// The orphan sweep only frees a body nobody holds: if a live entity took the
+    /// body over before its first owner was despawned, the body stays.
+    #[test]
+    fn orphan_sweep_keeps_a_body_another_entity_took_over() {
+        let mut scene = Scene::new();
+        let first = spawn_body(&mut scene, Vec3::ZERO);
+        scene.step_physics();
+        let handle = scene
+            .world()
+            .get::<&PhysicsBodyComponent>(first)
+            .unwrap()
+            .handle;
+
+        let second = scene.world_mut().spawn((
+            TransformComponent::from_position(Vec3::ZERO),
+            PhysicsBodyComponent::new(handle),
+        ));
+        scene.world_mut().despawn(first).unwrap();
+        scene.step_physics();
+
+        assert_eq!(scene.physics().rigid_body_set.len(), 1, "body kept");
+        assert!(scene.physics().get_transform(handle).is_some());
+        assert!(scene.world().contains(second));
+    }
+
+    /// Streaming across floating-origin rebases fills every slot exactly once:
+    /// no slot is spawned twice and none is skipped.
+    #[test]
+    fn stream_across_rebases_has_no_duplicate_or_missing_slots() {
+        let mut scene = Scene::with_config(StreamingConfig {
+            despawn_behind: 1e9,
+            ..StreamingConfig::default()
+        });
+        let mut slots: Vec<i64> = Vec::new();
+        let mut travel = 0.0f32;
+        let mut rebases = 0;
+        for _ in 0..3000 {
+            travel += 0.75;
+            let offset = scene.maybe_rebase(Vec3::new(0.0, 0.0, -travel));
+            if offset != Vec3::ZERO {
+                rebases += 1;
+            }
+            travel += offset.dot(Vec3::NEG_Z);
+            scene.stream(Vec3::new(0.0, 0.0, -travel), |cx| {
+                slots.push(cx.slot);
+                let e = cx
+                    .world
+                    .spawn((TransformComponent::from_position(cx.position),));
+                cx.spawned(e);
+            });
+        }
+        assert!(rebases > 0, "the run crossed at least one rebase");
+        for w in slots.windows(2) {
+            assert_eq!(w[1], w[0] + 1, "slots are contiguous and unique");
+        }
     }
 
     /// Despawn atomicity: after a streamed entity crosses the despawn threshold,
