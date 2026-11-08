@@ -24,9 +24,9 @@ The engine owns the loop. A game is any type implementing
 
 | Hook | Called | The demo's implementation |
 |---|---|---|
-| `init(&mut EngineCtx)` | exactly once, before the first `update` | [game.rs:492](../games/playable-demo/src/game.rs#L492) |
-| `update(&mut EngineCtx, dt)` | 0..N times per frame, `dt` always `FIXED_DT` | [game.rs:628](../games/playable-demo/src/game.rs#L628) |
-| `render(&mut EngineCtx)` | exactly once per frame, after that frame's updates | [game.rs:748](../games/playable-demo/src/game.rs#L748) → [render.rs:38](../games/playable-demo/src/render.rs#L38) |
+| `init(&mut EngineCtx)` | exactly once, before the first `update` | [game.rs:495](../games/playable-demo/src/game.rs#L495) |
+| `update(&mut EngineCtx, dt)` | 0..N times per frame, `dt` always `FIXED_DT` | [game.rs:635](../games/playable-demo/src/game.rs#L635) |
+| `render(&mut EngineCtx)` | exactly once per frame, after that frame's updates | [game.rs:757](../games/playable-demo/src/game.rs#L757) → [render.rs:38](../games/playable-demo/src/render.rs#L38) |
 
 [`EngineCtx`](../crates/kaman-core/src/context.rs#L86) is the only channel into the engine. It
 is built fresh by the driver for each hook call and dropped immediately after, so a game cannot
@@ -40,7 +40,7 @@ is no accessor for a window, a platform handle, a Metal device, or game state �
 **What the engine owns.** The event loop and the clock; the `Scene` (ECS `World` + `PhysicsWorld`
 + streaming bookkeeping); the `Camera`; input collection; the render backend; the frame cadence.
 The demo's own struct holds none of these — see the field list on
-[`CarRunner`](../games/playable-demo/src/game.rs#L48): it holds lane, travel, score, best, PRNG,
+[`CarRunner`](../games/playable-demo/src/game.rs#L54): it holds lane, travel, score, best, PRNG,
 game state, and the resource *handles* it created in `init`. That is all.
 
 **What the game owns.** Its rules and its vocabulary. Lanes, obstacles, score, the state machine,
@@ -52,7 +52,7 @@ the collision test, the difficulty ramp, and the game-side ECS components
 renderer. The *game binary* does: `main.rs` calls
 [`run_with_backend`](../crates/kaman-core/src/app.rs#L154) with a factory closure that builds a
 `kaman_render::MetalRenderer` and boxes it as `dyn Renderer`
-([main.rs:109](../games/playable-demo/src/main.rs#L109)). `metal` therefore reaches the process
+([main.rs:112](../games/playable-demo/src/main.rs#L112)). `metal` therefore reaches the process
 through `kaman-render` and the game binary only, never through `kaman-core` (ARCHITECTURE §2).
 The `kaman-render` dependency is even `cfg`-gated to macOS in
 [Cargo.toml](../games/playable-demo/Cargo.toml#L35).
@@ -101,16 +101,16 @@ same frames, on any machine, with or without a GPU.
 ## 3. Scene streaming and the floating-origin rebase
 
 The world is endless, so the demo never builds it — it streams it. The engine half is
-[`Scene::stream`](../crates/kaman-scene/src/lib.rs#L315): the *game* supplies a **focus point**
+[`Scene::stream`](../crates/kaman-scene/src/lib.rs#L355): the *game* supplies a **focus point**
 and a **spawn callback**; the scene owns the bookkeeping (which slots ahead are filled, which
 streamed entities have fallen behind).
 
 The demo's focus is the player's position
-([`player_position`](../games/playable-demo/src/game.rs#L163)) and its callback is
-[`spawn_slot`](../games/playable-demo/src/game.rs#L386), called from `update` at
-[game.rs:736](../games/playable-demo/src/game.rs#L736). Per slot it spawns a road tile, an
+([`player_position`](../games/playable-demo/src/game.rs#L166)) and its callback is
+[`spawn_slot`](../games/playable-demo/src/game.rs#L373), called from `update` at
+[game.rs:745](../games/playable-demo/src/game.rs#L745). Per slot it spawns a road tile, an
 obstacle on a cadence, two roadside buildings and two guardrail segments — reporting each via
-[`SpawnCtx::spawned`](../crates/kaman-scene/src/lib.rs#L471) so the scene despawns it once it
+[`SpawnCtx::spawned`](../crates/kaman-scene/src/lib.rs#L511) so the scene despawns it once it
 falls behind. Despawn is **atomic**: the physics rigid body is removed with the ECS entity, so no
 live `PhysicsBodyComponent` ever holds a freed handle
 ([`Scene::despawn`](../crates/kaman-scene/src/lib.rs#L262)).
@@ -130,13 +130,13 @@ authored size so it frames the view exactly as it did at 45), and the renderer's
 clear to 105 view-depth units, ~98% opaque at 165 — dissolves everything short of it into the
 horizon, so nothing is ever seen popping in. Road tiles and the guardrail
 mesh are sized from `ctx.scene().config().spawn_interval` rather than a literal
-([game.rs:531](../games/playable-demo/src/game.rs#L531),
-[game.rs:604](../games/playable-demo/src/game.rs#L604)), so streamed segments abut flush whatever
+([game.rs:534](../games/playable-demo/src/game.rs#L534),
+[game.rs:605](../games/playable-demo/src/game.rs#L605)), so streamed segments abut flush whatever
 the interval is.
 
 ### The rebase, and what the game must carry through it
 
-[`Scene::maybe_rebase`](../crates/kaman-scene/src/lib.rs#L395) keeps world coordinates out of
+[`Scene::maybe_rebase`](../crates/kaman-scene/src/lib.rs#L435) keeps world coordinates out of
 float-precision trouble: once the focus is more than `rebase_threshold` from the origin, **every**
 position — every `TransformComponent` and every physics body translation — is shifted by one
 offset back toward the origin, and the offset actually applied is returned. Relative positions are
@@ -149,31 +149,31 @@ demo holds two such things.
 
 1. **`travel`**, the monotonic along-axis distance the player's transform is rebuilt from. The
    demo folds the offset into it: `self.travel += offset.dot(axis)`
-   ([game.rs:686](../games/playable-demo/src/game.rs#L686)). Without this the player would be
+   ([game.rs:695](../games/playable-demo/src/game.rs#L695)). Without this the player would be
    rebuilt at its old coordinate in a world that has moved.
 2. **The camera.** The engine owns the `Camera`, but its position and target are world
    coordinates, so a rebase strands it a full threshold away. The demo translates both by the
-   same offset — [game.rs:688–702](../games/playable-demo/src/game.rs#L688), which carries a
+   same offset — [game.rs:697–711](../games/playable-demo/src/game.rs#L697), which carries a
    worked comment on exactly this. Note *why* it translates rather than re-deriving the pose from
    the car: a smoothed follow always trails its desired pose slightly, and snapping to the
    desired pose would erase that lag in one frame — a visible jolt. Shifting preserves the lag
    exactly, so the rebase is invisible.
 
 The demo's ordering within `update` is: **rebase → write the player transform → follow the camera
-→ stream** ([game.rs:681](../games/playable-demo/src/game.rs#L681) onward). Everything downstream
+→ stream** ([game.rs:684](../games/playable-demo/src/game.rs#L684) onward). Everything downstream
 of the rebase therefore sees one consistent coordinate space for the whole step.
 
 A third pattern worth noting: content that should *not* move with the world at all is drawn
 **camera-locked** instead of streamed — the ground terrain
-([render.rs:163](../games/playable-demo/src/render.rs#L163)) and the skyline backdrop
-([render.rs:172](../games/playable-demo/src/render.rs#L172)) are positioned from the player's `Z`
+([render.rs:177](../games/playable-demo/src/render.rs#L177)) and the skyline backdrop
+([render.rs:186](../games/playable-demo/src/render.rs#L186)) are positioned from the player's `Z`
 every frame, so neither a stream nor a rebase can slide them.
 
 Two headless tests pin all of this: `a_dodging_run_never_ends_without_an_actual_collision`
-([game.rs:976](../games/playable-demo/src/game.rs#L976)) drives far enough to cross the rebase
+([game.rs:1016](../games/playable-demo/src/game.rs#L1016)) drives far enough to cross the rebase
 threshold while steering clear of traffic and asserts the run never ends, and
 `the_camera_stays_with_the_car_across_a_rebase`
-([game.rs:1035](../games/playable-demo/src/game.rs#L1035)) asserts the camera's pose *relative to
+([game.rs:1082](../games/playable-demo/src/game.rs#L1082)) asserts the camera's pose *relative to
 the car* changes no more on a rebase step than on an ordinary one. Both fail if the rebase
 bookkeeping above is dropped.
 
@@ -190,15 +190,15 @@ Every model the demo draws is a committed glTF file imported exactly once throug
   material carries a base-color image get a texture and draw on the textured pipeline; parts
   without one draw on the Phong pipeline with the material color the importer packed as vertex
   color.
-- [`load_textured_mesh`](../games/playable-demo/src/assets.rs#L149) — a single always-textured
+- [`load_textured_mesh`](../games/playable-demo/src/assets.rs#L151) — a single always-textured
   mesh (the road tile, the skyline billboard).
 
 Both go through [`AssetCache::load`](../crates/kaman-assets/src/lib.rs), which dedups by path so
 one file is parsed and uploaded once (KE-0103's "upload once, reference by handle"). The *fit*
 functions turn a model's authored bounds into a placement transform:
-[`fit_transform`](../games/playable-demo/src/assets.rs#L110) scales a car so its longer horizontal
+[`fit_transform`](../games/playable-demo/src/assets.rs#L112) scales a car so its longer horizontal
 extent is `CAR_LEN`, yaws it to face `-Z`, and lifts its underside to the road;
-[`building_fit`](../games/playable-demo/src/assets.rs#L80) scales a prefab to a common footprint
+[`building_fit`](../games/playable-demo/src/assets.rs#L82) scales a prefab to a common footprint
 (heights preserved) with its base at the model origin. Both work from baked world-space bounds, so
 they are robust to whatever scale and orientation a model was authored at.
 
@@ -261,7 +261,7 @@ The seam is two traits in `kaman-render-api`, bundled for the game as one
 The demo creates everything in `init`: two pipelines (`vertex_main`/`fragment_main` on the
 `[pos,normal,color]` layout, `textured_vertex_main`/`textured_fragment_main` on
 `[pos,normal,uv]`), the imported meshes and textures, the two procedural meshes, and the font
-atlas — [game.rs:492–626](../games/playable-demo/src/game.rs#L492). It keeps only the handles.
+atlas — [game.rs:495–633](../games/playable-demo/src/game.rs#L495). It keeps only the handles.
 
 [`render_frame`](../games/playable-demo/src/render.rs#L38) then records a frame with **no
 allocation of GPU resources and no pipeline thrash**: it first gathers this frame's transforms out
@@ -326,7 +326,7 @@ The seam is the **2D overlay** (KE-0404,
 `draw_overlay_quad`, and the backend batches them and flushes them at `submit` in its own
 orthographic, depth-disabled, alpha-blended pass **after** every 3D draw. So the HUD composites
 on top regardless of record order — which is why
-[`draw_hud`](../games/playable-demo/src/hud.rs#L173) can simply be the last thing
+[`draw_hud`](../games/playable-demo/src/hud.rs#L172) can simply be the last thing
 `render_frame` records. Coordinates are pixels with the origin top-left. A quad's fill is
 `Solid`, `Textured`, or `Sdf`.
 
@@ -348,7 +348,7 @@ per-frame HUD path is heap-free (KR1.2).
 in pixels), so the HUD stays clear of notches, rounded corners and home indicators. A desktop
 window reports zeros; the iOS path reports real insets. The score sits at
 `inset + HUD_MARGIN`, and the game-over banner is centered in the *safe* rectangle, not the raw
-drawable ([hud.rs:258](../games/playable-demo/src/hud.rs#L258)).
+drawable ([hud.rs:254](../games/playable-demo/src/hud.rs#L254)).
 
 The HUD also carries the demo's full-screen washes, recorded first so everything composites over
 them: opaque black on `Ready` (the title screen), that black retiring over `HUD_FADE_SECONDS`
@@ -414,12 +414,12 @@ building is drawn beside them.
 **The `--smoke` oracle.** `cargo run -p playable-demo -- --smoke` boots the same `Game` under the
 headless driver, runs **120 frames** against a `NullRenderer` with no GPU and no Metal device,
 asserts the driver ran exactly that many frames, prints `smoke: 120 frames OK`, and exits 0
-([main.rs:128](../games/playable-demo/src/main.rs#L128)). It taps `Space` on the first frame —
+([main.rs:131](../games/playable-demo/src/main.rs#L131)). It taps `Space` on the first frame —
 without that it would replay 120 frames of a motionless title screen and assert nothing — then
 releases it, so the car runs straight down the middle lane on empty input. It is the workspace's
 continuous oracle: CI runs it on every push with Metal API Validation enabled
 (`.github/workflows/ci.yml`), and two unit tests pin both the run and the exact stdout contract
-line ([main.rs:156](../games/playable-demo/src/main.rs#L156)).
+line ([main.rs:159](../games/playable-demo/src/main.rs#L159)).
 
 **The headless harness.** [`Headless`](../crates/kaman-core/src/headless.rs#L93) is what makes
 gameplay testable at all. It owns the engine state a `Game` runs against — scene, input, perf,
@@ -430,7 +430,7 @@ game asked to hear** (`audio`). Those last two accessors are why the demo can te
 behaviour with no GPU and no speakers — `the_camera_stays_with_the_car_across_a_rebase` asserts on
 real camera poses, and the two audio tests on real play requests, in a plain `cargo test`.
 
-The demo's own suite ([game.rs:754](../games/playable-demo/src/game.rs#L754) onward) covers, all
+The demo's own suite ([game.rs:763](../games/playable-demo/src/game.rs#L763) onward) covers, all
 headlessly: lane geometry and edge clamping, edge-triggered input (a held key moves exactly one
 lane), the frozen title state and the opening fade retiring on the fixed timestep, the difficulty
 ramp and its cap (including that the cap keeps per-step motion below the AABB overlap window, so
@@ -440,7 +440,7 @@ two long-run rebase tests from [§3](#3-scene-streaming-and-the-floating-origin-
 
 Two things the demo deliberately does *not* do, so you don't go looking for them: collision is a
 game-side AABB test over entity transforms
-([`overlaps`](../games/playable-demo/src/game.rs#L256)), not a physics contact query — the
+([`overlaps`](../games/playable-demo/src/game.rs#L259)), not a physics contact query — the
 obstacles carry static bodies and colliders to exercise streaming's atomic despawn, not to drive
 the player; and player motion is **kinematic**, its transform written directly, never solved
 (ARCHITECTURE §5).
@@ -458,10 +458,10 @@ Five crates carry a self-scanning **guard test** that embeds the crate's own sou
 | Guard test | Crate |
 |---|---|
 | `boundary_tests::no_game_specific_symbols` ([lib.rs:104](../crates/kaman-core/src/lib.rs#L104)) | `kaman-core` |
-| `tests::no_game_specific_symbols` ([lib.rs:723](../crates/kaman-scene/src/lib.rs#L723)) | `kaman-scene` |
+| `tests::no_game_specific_symbols` ([lib.rs:738](../crates/kaman-scene/src/lib.rs#L738)) | `kaman-scene` |
 | `guard_tests::no_game_specific_symbols` ([lib.rs:72](../crates/kaman-assets/src/lib.rs#L72)) | `kaman-assets` |
 | `guard_tests::no_game_specific_symbols` ([lib.rs](../crates/kaman-audio/src/lib.rs)) | `kaman-audio` |
-| `tests::test_no_game_specific_symbols` ([lib.rs:695](../crates/kaman-ecs/src/lib.rs#L695)) | `kaman-ecs` |
+| `tests::test_no_game_specific_symbols` ([lib.rs:715](../crates/kaman-ecs/src/lib.rs#L715)) | `kaman-ecs` |
 
 The forbidden words are assembled from ASCII byte codes rather than written as literals, so each
 test's own body contains no occurrence of them and can scan every file in its crate — itself
@@ -504,8 +504,8 @@ cargo run -p playable-demo -- --smoke # headless oracle: 120 frames, prints "smo
 | `Space` | Start the run from the title screen; replay after a crash |
 | `Escape` | Quit |
 
-Controls are handled at [game.rs:239](../games/playable-demo/src/game.rs#L239) (lanes) and
-[game.rs:633](../games/playable-demo/src/game.rs#L633) (`Space`, per state); `Escape` is handled
+Controls are handled at [game.rs:242](../games/playable-demo/src/game.rs#L242) (lanes) and
+[game.rs:640](../games/playable-demo/src/game.rs#L640) (`Space`, per state); `Escape` is handled
 by the engine's windowed entry.
 
 The **Graphics** menu in the macOS menu bar adjusts shadows, shadow distance, draw distance and
