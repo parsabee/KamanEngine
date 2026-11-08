@@ -15,7 +15,7 @@ use kaman_assets::scene::{
     textured_vertex_layout, DEFAULT_IMPORT_COLOR, RENDER_VERTEX_STRIDE, TEXTURED_VERTEX_STRIDE,
 };
 use kaman_assets::{
-    import_gltf, import_slice, render_vertex_layout, AssetCache, MeshAsset, SceneAsset,
+    import_gltf, import_slice, render_vertex_layout, AssetCache, ImportError, MeshAsset, SceneAsset,
 };
 use kaman_render_api::{MeshData, MeshHandle, NullRenderer, RenderDevice, VertexFormat};
 
@@ -36,26 +36,129 @@ fn cube_scene() -> SceneAsset {
 }
 
 fn textured_cube_scene() -> SceneAsset {
-    // The `gltf` slice importer rejects `data:` **image** URIs
-    // (`ExternalReferenceInSliceImport`), so write the fixture to a temp file and
-    // import it by path — which resolves embedded images.
-    //
-    // Use a dir unique **per call** (process id + an atomic counter): multiple
-    // tests call this concurrently under `cargo test`, and a process-id-only dir
-    // let one test's `remove_dir_all` race another's read.
+    // The fixture embeds its PNG as a `data:` URI, which a slice import decodes.
+    import_slice(TEXTURED_CUBE_GLTF).expect("textured cube fixture parses")
+}
+
+/// Import a copy of `bytes` written to a temporary `.gltf` file, by path.
+fn import_via_file(bytes: &[u8]) -> SceneAsset {
+    // A dir unique per call (process id + counter): tests run concurrently.
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "kaman-assets-tex-{}-{}",
+        "kaman-assets-file-{}-{}",
         std::process::id(),
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("textured_cube.gltf");
-    std::fs::write(&path, TEXTURED_CUBE_GLTF).unwrap();
-    let scene = import_gltf(&path).expect("textured cube fixture parses");
+    let path = dir.join("model.gltf");
+    std::fs::write(&path, bytes).unwrap();
+    let scene = import_gltf(&path).expect("imports by path");
     let _ = std::fs::remove_dir_all(&dir);
     scene
+}
+
+/// Wrap a glTF JSON document and its binary chunk into a GLB.
+fn glb(json: &str, bin: &[u8]) -> Vec<u8> {
+    let mut json = json.as_bytes().to_vec();
+    json.resize(json.len().next_multiple_of(4), b' ');
+    let mut bin = bin.to_vec();
+    bin.resize(bin.len().next_multiple_of(4), 0);
+    let total = 12 + 8 + json.len() + 8 + bin.len();
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(b"glTF");
+    out.extend_from_slice(&2u32.to_le_bytes());
+    out.extend_from_slice(&(total as u32).to_le_bytes());
+    out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"JSON");
+    out.extend_from_slice(&json);
+    out.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"BIN\0");
+    out.extend_from_slice(&bin);
+    out
+}
+
+fn le_bytes<T: Copy, const N: usize>(values: &[T], to: fn(T) -> [u8; N]) -> Vec<u8> {
+    values.iter().flat_map(|&v| to(v)).collect()
+}
+
+/// A GLB with one primitive over float `positions` and, optionally, an index
+/// accessor over `(bytes, component type, count)`.
+fn primitive_glb(mode: u32, positions: &[f32], indices: Option<(&[u8], u32, usize)>) -> Vec<u8> {
+    let count = positions.len() / 3;
+    primitive_glb_with(mode, positions, indices, ("VEC3", count), None)
+}
+
+/// [`primitive_glb`] with the POSITION accessor's `(type, count)` and its
+/// buffer view's `byteStride` spelled out, so a test can make them malformed.
+fn primitive_glb_with(
+    mode: u32,
+    positions: &[f32],
+    indices: Option<(&[u8], u32, usize)>,
+    (pos_type, pos_count): (&str, usize),
+    pos_stride: Option<usize>,
+) -> Vec<u8> {
+    let mut bin = le_bytes(positions, f32::to_le_bytes);
+    let pos_len = bin.len();
+    let stride = pos_stride.map_or(String::new(), |s| format!(r#", "byteStride": {s}"#));
+    let (index_view, index_accessor, index_ref) = match indices {
+        Some((bytes, component, count)) => {
+            let offset = bin.len();
+            bin.extend_from_slice(bytes);
+            (
+                format!(
+                    r#", {{"buffer": 0, "byteOffset": {offset}, "byteLength": {}}}"#,
+                    bytes.len()
+                ),
+                format!(
+                    r#", {{"bufferView": 1, "componentType": {component}, "count": {count}, "type": "SCALAR"}}"#
+                ),
+                r#", "indices": 1"#.to_string(),
+            )
+        }
+        None => Default::default(),
+    };
+    let json = format!(
+        r#"{{
+  "asset": {{"version": "2.0"}},
+  "buffers": [{{"byteLength": {}}}],
+  "bufferViews": [{{"buffer": 0, "byteOffset": 0, "byteLength": {pos_len}{stride}}}{index_view}],
+  "accessors": [
+    {{"bufferView": 0, "componentType": 5126, "count": {pos_count}, "type": "{pos_type}",
+      "min": [0,0,0], "max": [1,1,0]}}{index_accessor}
+  ],
+  "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0}}, "mode": {mode}{index_ref}}}]}}],
+  "nodes": [{{"mesh": 0}}],
+  "scenes": [{{"nodes": [0]}}],
+  "scene": 0
+}}"#,
+        bin.len(),
+    );
+    glb(&json, &bin)
+}
+
+/// The four corners of a unit quad in the XY plane.
+const QUAD: [f32; 12] = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0];
+
+fn u32_indices(indices: &[u32]) -> Vec<u8> {
+    le_bytes(indices, u32::to_le_bytes)
+}
+
+/// glTF primitive modes.
+const LINES: u32 = 1;
+const TRIANGLES: u32 = 4;
+const TRIANGLE_STRIP: u32 = 5;
+const TRIANGLE_FAN: u32 = 6;
+const U8: u32 = 5121;
+const U16: u32 = 5123;
+const U32: u32 = 5125;
+const FLOAT: u32 = 5126;
+
+fn import_err(doc: &[u8]) -> ImportError {
+    match import_slice(doc) {
+        Ok(_) => panic!("malformed document imported"),
+        Err(e) => e,
+    }
 }
 
 #[test]
@@ -205,16 +308,195 @@ fn uvs_are_retained_even_when_source_has_none() {
 
 #[test]
 fn mesh_data_round_trips_through_the_seam() {
-    // The packed MeshAsset drops straight into MeshData and uploads on a device.
+    // The packed MeshAsset drops straight into MeshData, and the device draws it:
+    // its layout is the vertex-colour pipeline's and it has whole triangles.
+    use kaman_math::Transform;
+    use kaman_render_api::{
+        FrameRecorder, MaterialParams, PipelineDescriptor, PipelineKind, ProtocolViolation,
+    };
     let scene = cube_scene();
     let mesh: &MeshAsset = &scene.meshes[0];
+    assert_eq!(mesh.vertices.len() % mesh.layout.stride as usize, 0);
     let mut device = NullRenderer::new();
     let handle: MeshHandle = device.create_mesh(&MeshData {
         vertices: &mesh.vertices,
         indices: &mesh.indices,
         layout: mesh.layout.clone(),
     });
+    let pipeline = device.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor));
+    device.begin_frame();
+    device.set_pipeline(pipeline);
+    device.draw_mesh(handle, &Transform::identity(), &MaterialParams::default());
+    device.submit();
+    assert_eq!(device.draw_count(), 1, "the uploaded mesh is drawable");
+    assert!(device.protocol_violations().is_empty());
+
     device.destroy_mesh(handle);
+    assert_eq!(device.live_mesh_count(), 0);
+    device.destroy_mesh(handle);
+    assert_eq!(
+        device.protocol_violations(),
+        &[ProtocolViolation::UnknownMesh(handle)],
+        "a second destroy is caught"
+    );
+}
+
+#[test]
+fn slice_and_path_imports_of_a_textured_gltf_agree() {
+    // A `data:` image decodes from memory exactly as it does from a file.
+    let from_memory = textured_cube_scene();
+    let from_file = import_via_file(TEXTURED_CUBE_GLTF);
+    let (a, b) = (&from_memory.meshes[0], &from_file.meshes[0]);
+    let (ta, tb) = (
+        a.base_color.as_ref().unwrap(),
+        b.base_color.as_ref().unwrap(),
+    );
+    assert_eq!(
+        (ta.width, ta.height, &ta.rgba8),
+        (tb.width, tb.height, &tb.rgba8)
+    );
+    assert_eq!(a.vertices, b.vertices);
+}
+
+#[test]
+fn a_slice_import_still_rejects_external_file_references() {
+    let doc = br#"{"asset": {"version": "2.0"}, "images": [{"uri": "texture.png"}]}"#;
+    assert!(matches!(
+        import_err(doc),
+        ImportError::Gltf(gltf::Error::ExternalReferenceInSliceImport)
+    ));
+}
+
+#[test]
+fn triangle_strips_expand_to_a_triangle_list() {
+    let doc = primitive_glb(
+        TRIANGLE_STRIP,
+        &QUAD,
+        Some((&u32_indices(&[0, 1, 2, 3]), U32, 4)),
+    );
+    let mesh = &import_slice(&doc).unwrap().meshes[0];
+    // Two triangles, the second wound (1, 3, 2) as the spec defines.
+    assert_eq!(mesh.indices, vec![0, 1, 2, 1, 3, 2]);
+    assert_eq!(mesh.triangle_count(), 2);
+}
+
+#[test]
+fn a_non_indexed_strip_expands_over_its_vertices_in_order() {
+    let doc = primitive_glb(TRIANGLE_STRIP, &QUAD, None);
+    let mesh = &import_slice(&doc).unwrap().meshes[0];
+    assert_eq!(mesh.indices, vec![0, 1, 2, 1, 3, 2]);
+}
+
+#[test]
+fn strip_stitching_triangles_are_dropped() {
+    // Repeating index 2 stitches two strips; the zero-area triangles that
+    // produces, (1, 2, 2) and (2, 2, 3), are dropped.
+    let positions: Vec<f32> = (0..5)
+        .flat_map(|i| [i as f32, (i % 2) as f32, 0.0])
+        .collect();
+    let doc = primitive_glb(
+        TRIANGLE_STRIP,
+        &positions,
+        Some((&u32_indices(&[0, 1, 2, 2, 3, 4]), U32, 6)),
+    );
+    let mesh = &import_slice(&doc).unwrap().meshes[0];
+    assert_eq!(mesh.indices, vec![0, 1, 2, 2, 4, 3]);
+}
+
+#[test]
+fn triangle_fans_expand_around_the_first_vertex() {
+    let doc = primitive_glb(
+        TRIANGLE_FAN,
+        &QUAD,
+        Some((&u32_indices(&[0, 1, 3, 2]), U32, 4)),
+    );
+    let mesh = &import_slice(&doc).unwrap().meshes[0];
+    assert_eq!(mesh.indices, vec![1, 3, 0, 3, 2, 0]);
+}
+
+#[test]
+fn small_index_types_import() {
+    let u8_doc = primitive_glb(TRIANGLES, &QUAD, Some((&[0, 1, 2], U8, 3)));
+    assert_eq!(
+        import_slice(&u8_doc).unwrap().meshes[0].indices,
+        vec![0, 1, 2]
+    );
+    let u16_doc = primitive_glb(
+        TRIANGLES,
+        &QUAD,
+        Some((&le_bytes(&[3u16, 2, 1], u16::to_le_bytes), U16, 3)),
+    );
+    assert_eq!(
+        import_slice(&u16_doc).unwrap().meshes[0].indices,
+        vec![3, 2, 1]
+    );
+}
+
+#[test]
+fn points_and_lines_are_rejected() {
+    let doc = primitive_glb(LINES, &QUAD, Some((&u32_indices(&[0, 1, 2, 3]), U32, 4)));
+    assert!(matches!(
+        import_err(&doc),
+        ImportError::UnsupportedPrimitiveMode("LINES")
+    ));
+    let doc = primitive_glb(0, &QUAD, None);
+    assert!(matches!(
+        import_err(&doc),
+        ImportError::UnsupportedPrimitiveMode("POINTS")
+    ));
+}
+
+#[test]
+fn malformed_primitives_are_errors_not_panics() {
+    let invalid = |doc: Vec<u8>| {
+        assert!(
+            matches!(import_err(&doc), ImportError::InvalidPrimitive(_)),
+            "expected InvalidPrimitive"
+        );
+    };
+    // Float indices (the gltf reader hits `unreachable!`).
+    invalid(primitive_glb(
+        TRIANGLES,
+        &QUAD,
+        Some((&le_bytes(&[0.0f32, 1.0, 2.0], f32::to_le_bytes), FLOAT, 3)),
+    ));
+    // An index past the last vertex.
+    invalid(primitive_glb(
+        TRIANGLES,
+        &QUAD,
+        Some((&u32_indices(&[0, 1, 99]), U32, 3)),
+    ));
+    // A triangle list that is not a whole number of triangles.
+    invalid(primitive_glb(
+        TRIANGLES,
+        &QUAD,
+        Some((&u32_indices(&[0, 1, 2, 3]), U32, 4)),
+    ));
+    // A strip too short to make a triangle.
+    invalid(primitive_glb(
+        TRIANGLE_STRIP,
+        &QUAD,
+        Some((&u32_indices(&[0, 1]), U32, 2)),
+    ));
+}
+
+#[test]
+fn malformed_position_accessors_are_errors_not_panics() {
+    let invalid = |accessor: (&str, usize), stride: Option<usize>| {
+        let doc = primitive_glb_with(TRIANGLES, &QUAD[..9], None, accessor, stride);
+        assert!(
+            matches!(import_err(&doc), ImportError::InvalidPrimitive(_)),
+            "{accessor:?} stride {stride:?}"
+        );
+    };
+    // A count of zero (the reader's range arithmetic underflows).
+    invalid(("VEC3", 0), None);
+    // VEC2 positions (the reader assumes three floats).
+    invalid(("VEC2", 3), None);
+    // A stride shorter than one 12-byte position.
+    invalid(("VEC3", 3), Some(8));
+    // More positions than the buffer view holds.
+    invalid(("VEC3", 4), None);
 }
 
 #[test]

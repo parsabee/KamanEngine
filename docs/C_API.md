@@ -394,7 +394,7 @@ typedef struct KamanTextureDesc {
 | Function | |
 |---|---|
 | `KamanResult kaman_model_load_file(KamanContext *ctx, const char *path, const KamanCompletion *completion, KamanModel *out)` | `.gltf` (external or embedded buffers) or `.glb`. |
-| `KamanResult kaman_model_load_memory(KamanContext *ctx, KamanData bytes, const KamanCompletion *completion, KamanModel *out)` | A self-contained `.glb`, or a `.gltf` with `data:` buffers. Images must be in buffer views (as in `.glb`); a `.gltf` with `data:` image URIs fails with `KAMAN_ERROR_PARSE` here, so load it with `kaman_model_load_file`. |
+| `KamanResult kaman_model_load_memory(KamanContext *ctx, KamanData bytes, const KamanCompletion *completion, KamanModel *out)` | A self-contained `.glb`, or a `.gltf` whose buffers and images are embedded (`data:` URIs or buffer views). A reference to an external file fails with `KAMAN_ERROR_PARSE`: there is no directory to resolve it against. |
 | `KamanResult kaman_model_destroy(KamanContext *ctx, KamanModel model)` | |
 | `KamanResult kaman_model_get_bounds(KamanContext *ctx, KamanModel model, KamanVec3 *min, KamanVec3 *max)` | Model-space bounding box. `NOT_READY` until ready. |
 

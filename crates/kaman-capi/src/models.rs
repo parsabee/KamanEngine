@@ -392,8 +392,8 @@ pub unsafe extern "C" fn kaman_model_load_file(
     })
 }
 
-/// Start loading a self-contained `.glb` or `.gltf` (embedded buffers) from
-/// memory. Returns at once with a pending model.
+/// Start loading a self-contained `.glb` or `.gltf` (embedded buffers and
+/// images) from memory. Returns at once with a pending model.
 ///
 /// # Safety
 /// `ctx` must be NULL or a live context; `bytes` valid as documented for

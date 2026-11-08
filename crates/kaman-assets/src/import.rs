@@ -28,23 +28,82 @@ use crate::scene::{
 ///
 /// # Errors
 /// Returns [`ImportError`] if the file cannot be read or parsed, or if a mesh
-/// primitive is missing required position data.
+/// primitive is missing, malformed or not made of triangles. Malformed input
+/// never panics.
 pub fn import_gltf(path: impl AsRef<Path>) -> Result<SceneAsset, ImportError> {
-    let (document, buffers, images) = gltf::import(path.as_ref())?;
-    build_scene(&document, &buffers, &images)
+    let path = path.as_ref();
+    let base = path.parent().unwrap_or_else(|| Path::new("./"));
+    let file = std::fs::File::open(path).map_err(gltf::Error::Io)?;
+    let gltf = gltf::Gltf::from_reader(std::io::BufReader::new(file))?;
+    import_document(gltf, Some(base))
 }
 
 /// Import a glTF/GLB document from an in-memory byte slice.
 ///
-/// Used for embedded fixtures and tests: the slice must be a self-contained
-/// document (embedded/`data:` buffers or GLB), since there is no path to resolve
-/// external resources against.
+/// The slice must be self-contained: a GLB, or a `.gltf` whose buffers and
+/// images are embedded as `data:` URIs or buffer views. There is no path to
+/// resolve external files against, so a reference to one is an error.
 ///
 /// # Errors
-/// Returns [`ImportError`] on a parse failure or missing geometry.
+/// Returns [`ImportError`] on a parse failure, an external file reference, or a
+/// missing, malformed or non-triangle primitive. Malformed input never panics.
 pub fn import_slice(bytes: &[u8]) -> Result<SceneAsset, ImportError> {
-    let (document, buffers, images) = gltf::import_slice(bytes)?;
+    import_document(gltf::Gltf::from_slice(bytes)?, None)
+}
+
+/// Load a parsed document's buffers and images, then build the scene.
+///
+/// `base` is the directory external files resolve against; `None` for a slice.
+fn import_document(gltf: gltf::Gltf, base: Option<&Path>) -> Result<SceneAsset, ImportError> {
+    let gltf::Gltf { document, blob } = gltf;
+    let buffers = gltf::import_buffers(&document, base, blob)?;
+    let images = import_images(&document, &buffers, base)?;
     build_scene(&document, &buffers, &images)
+}
+
+/// Decode every image the document declares.
+///
+/// `gltf::import_slice` refuses every image given by URI when it has no base
+/// path, `data:` URIs included, so a self-contained `.gltf` with an embedded
+/// texture could not be imported from memory. Here a `data:` URI decodes
+/// without a base (nothing is read from disk for it), while any other URI still
+/// needs one. An image stored in a buffer view is range-checked first, because
+/// the `gltf` crate slices the buffer without checking.
+fn import_images(
+    document: &gltf::Document,
+    buffers: &[gltf::buffer::Data],
+    base: Option<&Path>,
+) -> Result<Vec<gltf::image::Data>, ImportError> {
+    document
+        .images()
+        .map(|image| {
+            let source = image.source();
+            let base = match &source {
+                gltf::image::Source::Uri { uri, .. } if uri.starts_with("data:") => {
+                    Some(base.unwrap_or_else(|| Path::new(".")))
+                }
+                gltf::image::Source::Uri { .. } if base.is_none() => {
+                    return Err(gltf::Error::ExternalReferenceInSliceImport.into());
+                }
+                gltf::image::Source::Uri { .. } => base,
+                gltf::image::Source::View { view, .. } => {
+                    let buffer_len = buffers.get(view.buffer().index()).map_or(0, |b| b.0.len());
+                    let in_range = view
+                        .offset()
+                        .checked_add(view.length())
+                        .is_some_and(|end| end <= buffer_len);
+                    if !in_range {
+                        return Err(ImportError::InvalidPrimitive(format!(
+                            "image {} runs past the end of its buffer",
+                            image.index()
+                        )));
+                    }
+                    base
+                }
+            };
+            Ok(gltf::image::Data::from_source(source, base, buffers)?)
+        })
+        .collect()
 }
 
 /// Shared scene builder over a parsed document + its buffer and image data.
@@ -159,6 +218,40 @@ fn import_primitive(
     buffers: &[gltf::buffer::Data],
     images: &[gltf::image::Data],
 ) -> Result<MeshAsset, ImportError> {
+    use gltf::accessor::{DataType, Dimensions};
+    use gltf::Semantic;
+
+    // The `gltf` reader trusts each accessor's type, shape and range, and panics
+    // (or hits `unreachable!`) when they are wrong, so check them first.
+    let position_accessor = primitive
+        .get(&Semantic::Positions)
+        .ok_or(ImportError::MissingPositions)?;
+    check_accessor(
+        &position_accessor,
+        "POSITION",
+        Dimensions::Vec3,
+        &[DataType::F32],
+    )?;
+    if let Some(accessor) = primitive.get(&Semantic::Normals) {
+        check_accessor(&accessor, "NORMAL", Dimensions::Vec3, &[DataType::F32])?;
+    }
+    if let Some(accessor) = primitive.get(&Semantic::TexCoords(0)) {
+        check_accessor(
+            &accessor,
+            "TEXCOORD_0",
+            Dimensions::Vec2,
+            &[DataType::F32, DataType::U8, DataType::U16],
+        )?;
+    }
+    if let Some(accessor) = primitive.indices() {
+        check_accessor(
+            &accessor,
+            "indices",
+            Dimensions::Scalar,
+            &[DataType::U8, DataType::U16, DataType::U32],
+        )?;
+    }
+
     let reader = primitive.reader(|buffer| buffers.get(buffer.index()).map(|d| &d.0[..]));
 
     let positions: Vec<[f32; 3]> = reader
@@ -182,6 +275,13 @@ fn import_primitive(
         Some(idx) => idx.into_u32().collect(),
         None => (0..positions.len() as u32).collect(),
     };
+    if let Some(&bad) = indices.iter().find(|&&i| i as usize >= positions.len()) {
+        return Err(ImportError::InvalidPrimitive(format!(
+            "index {bad} is past the last of {} vertices",
+            positions.len()
+        )));
+    }
+    let indices = triangle_list(primitive.mode(), indices)?;
 
     // Normalize per-vertex attribute lengths to the position count.
     let mut normals = normals;
@@ -246,6 +346,96 @@ fn import_primitive(
         normal_map,
         metallic_roughness,
     })
+}
+
+/// Check what the `gltf` reader assumes about an accessor before it reads it:
+/// the element shape and component type, a non-zero count, a stride no smaller
+/// than one element, and a byte range inside its buffer view.
+fn check_accessor(
+    accessor: &gltf::Accessor,
+    what: &str,
+    dimensions: gltf::accessor::Dimensions,
+    data_types: &[gltf::accessor::DataType],
+) -> Result<(), ImportError> {
+    let invalid = |why: String| Err(ImportError::InvalidPrimitive(format!("{what} {why}")));
+    if accessor.dimensions() != dimensions || !data_types.contains(&accessor.data_type()) {
+        return invalid(format!(
+            "accessor is {:?} {:?}, expected {dimensions:?} of {data_types:?}",
+            accessor.data_type(),
+            accessor.dimensions(),
+        ));
+    }
+    let count = accessor.count();
+    if count == 0 {
+        return invalid("accessor has count 0".into());
+    }
+    if let Some(view) = accessor.view() {
+        let size = accessor.size();
+        let stride = view.stride().unwrap_or(size);
+        if stride < size {
+            return invalid(format!(
+                "buffer view stride {stride} is smaller than one {size}-byte element"
+            ));
+        }
+        let end = (count - 1)
+            .checked_mul(stride)
+            .and_then(|n| n.checked_add(size))
+            .and_then(|n| n.checked_add(accessor.offset()));
+        if end.is_none_or(|end| end > view.length()) {
+            return invalid("accessor runs past the end of its buffer view".into());
+        }
+    }
+    Ok(())
+}
+
+/// Expand a primitive's indices into a plain triangle list.
+///
+/// Triangle lists pass through (their length must be a whole number of
+/// triangles); strips and fans expand per the glTF 2.0 spec, keeping each
+/// triangle's winding and dropping the zero-area triangles strips use for
+/// stitching. Points and lines are rejected.
+fn triangle_list(mode: gltf::mesh::Mode, indices: Vec<u32>) -> Result<Vec<u32>, ImportError> {
+    use gltf::mesh::Mode;
+    let list = match mode {
+        Mode::Triangles => {
+            if !indices.len().is_multiple_of(3) {
+                return Err(ImportError::InvalidPrimitive(format!(
+                    "{} triangle-list indices is not a whole number of triangles",
+                    indices.len()
+                )));
+            }
+            indices
+        }
+        // Triangle i is (v[i], v[i + 1 + i % 2], v[i + 2 - i % 2]).
+        Mode::TriangleStrip => indices
+            .windows(3)
+            .enumerate()
+            .map(|(i, w)| {
+                if i % 2 == 0 {
+                    [w[0], w[1], w[2]]
+                } else {
+                    [w[0], w[2], w[1]]
+                }
+            })
+            .filter(|t| t[0] != t[1] && t[1] != t[2] && t[0] != t[2])
+            .flatten()
+            .collect(),
+        // Triangle i is (v[i + 1], v[i + 2], v[0]).
+        Mode::TriangleFan => match indices.split_first() {
+            Some((&hub, rest)) => rest.windows(2).flat_map(|w| [w[0], w[1], hub]).collect(),
+            None => Vec::new(),
+        },
+        Mode::Points => return Err(ImportError::UnsupportedPrimitiveMode("POINTS")),
+        Mode::Lines => return Err(ImportError::UnsupportedPrimitiveMode("LINES")),
+        Mode::LineLoop => return Err(ImportError::UnsupportedPrimitiveMode("LINE_LOOP")),
+        Mode::LineStrip => return Err(ImportError::UnsupportedPrimitiveMode("LINE_STRIP")),
+    };
+    if list.is_empty() {
+        return Err(ImportError::InvalidPrimitive(
+            "primitive has no whole triangle".into(),
+        ));
+    }
+    Ok(list)
 }
 
 /// Decode one glTF texture's source image into an RGBA8 [`BaseColorTexture`].
