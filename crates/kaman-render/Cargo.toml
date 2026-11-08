@@ -43,7 +43,6 @@ objc.workspace = true
 cocoa.workspace = true
 core-graphics-types.workspace = true
 raw-window-handle.workspace = true
-winit.workspace = true
 
 [dev-dependencies]
 # Tests build a real Camera to produce the view-projection they push through the

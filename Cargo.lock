@@ -1149,7 +1149,6 @@ dependencies = [
  "metal",
  "objc",
  "raw-window-handle",
- "winit",
 ]
 
 [[package]]
