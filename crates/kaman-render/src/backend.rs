@@ -818,6 +818,12 @@ struct FrameState {
     /// Captured when the frame opens so the sky pass and every later `draw_mesh`
     /// bind the identical bytes — the sun cannot change mid-frame.
     light_offset: u64,
+    /// Whether this frame runs the shadow pass, and the map it renders and
+    /// samples. Captured with the light block (whose shadow strength and fit
+    /// match them), so a settings change before `submit` applies from the next
+    /// frame instead of half-way through this one.
+    casts_shadows: bool,
+    shadow_map: metal::Texture,
     /// A requested read-back: the buffer the pixels are copied into at submit,
     /// and the flag the completion handler sets when they are there.
     readback: Option<(metal::Buffer, Arc<AtomicBool>)>,
@@ -1306,13 +1312,15 @@ impl MetalRenderer {
     ///
     /// The staging `Vec`s are cleared but keep their capacity, so a steady-state
     /// HUD performs no per-frame allocation.
-    fn flush_overlay(&mut self, encoder: &metal::RenderCommandEncoderRef) {
+    fn flush_overlay(&mut self, encoder: &metal::RenderCommandEncoderRef, size: (u64, u64)) {
         if self.overlay_vertices.is_empty() {
             self.overlay_textures.clear();
             return;
         }
 
-        let (surface_w, surface_h) = self.surface_size();
+        // The frame's own size, not the live surface's: a resize after
+        // `begin_frame` must not squash this frame's HUD.
+        let (surface_w, surface_h) = (size.0 as u32, size.1 as u32);
         if surface_w == 0 || surface_h == 0 {
             self.overlay_vertices.clear();
             self.overlay_textures.clear();
@@ -1953,7 +1961,7 @@ impl MetalRenderer {
     /// must cast too.
     fn encode_shadow_pass(&self, frame: &FrameState) {
         let descriptor = metal::RenderPassDescriptor::new();
-        configure_shadow_depth_attachment(descriptor, &self.shadow_map);
+        configure_shadow_depth_attachment(descriptor, &frame.shadow_map);
         let encoder = frame.command_buffer.new_render_command_encoder(descriptor);
         encoder.set_label("Shadow pass");
         encoder.set_depth_stencil_state(&self.depth_stencil_state);
@@ -2042,7 +2050,7 @@ impl MetalRenderer {
         // drew its sun from, and the shadow pass fitted with) and the shadow map
         // the pass above just stored.
         encoder.set_depth_stencil_state(&self.depth_stencil_state);
-        encoder.set_fragment_texture(1, Some(&self.shadow_map));
+        encoder.set_fragment_texture(1, Some(&frame.shadow_map));
         let mut bound_textured: Option<bool> = None;
         for draw in &self.draws {
             if bound_textured != Some(draw.textured) {
@@ -2067,7 +2075,7 @@ impl MetalRenderer {
 
         // 2D overlay / HUD pass: flush everything recorded this frame
         // on the same encoder, after all 3D draws, so it composites on top.
-        self.flush_overlay(&encoder);
+        self.flush_overlay(&encoder, (frame.width, frame.height));
 
         encoder.end_encoding();
     }
@@ -2146,6 +2154,8 @@ impl MetalRenderer {
             textured_pipeline: false,
             bound_texture: None,
             light_offset,
+            casts_shadows: self.render_settings.shadows.casts_shadows(),
+            shadow_map: self.shadow_map.clone(),
             readback: None,
         });
     }
@@ -2266,7 +2276,7 @@ impl MetalRenderer {
             // (sky, lit draws sampling that map, and the 2D overlay on top).
             // With shadows off the pass is skipped outright: the light block's
             // zero `shadow_strength` makes the lit shaders ignore the map.
-            if self.render_settings.shadows.casts_shadows() {
+            if frame.casts_shadows {
                 self.encode_shadow_pass(&frame);
             }
             self.encode_scene_pass(&frame);
