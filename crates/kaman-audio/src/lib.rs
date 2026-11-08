@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Engine-generic audio for KamanEngine (KE-0405).
+//! Engine-generic audio for KamanEngine.
 //!
 //! `kaman-audio` wraps [`kira`] in the smallest surface a game actually needs:
 //! **load a sound from a path**, **play it once**, **play it looping**, **stop the
@@ -17,7 +17,7 @@
 //! # Load once, reference by handle
 //!
 //! [`Audio::load`] keys sounds by path, so asking for the same file twice hands
-//! back the same [`SoundHandle`] and decodes nothing the second time — the KE-0103
+//! back the same [`SoundHandle`] and decodes nothing the second time — the engine's
 //! "load once, reference by handle" rule applied to audio. All decoding happens at
 //! load time, so no play call touches the filesystem and nothing on the per-frame
 //! path allocates.

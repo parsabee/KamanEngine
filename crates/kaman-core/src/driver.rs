@@ -9,7 +9,7 @@
 //! their clock. The *cadence* — init-once, then fixed-timestep `update`s draining
 //! the [`Accumulator`] followed by one `render` — is
 //! identical, so it lives here as [`drive_frame`], operating on the shared
-//! engine state in [`Loop`]. This is the single loop implementation the ticket
+//! engine state in [`Loop`]. This is the single loop implementation the design
 //! calls for: neither driver reimplements the accumulator.
 
 use kaman_audio::Audio;
@@ -34,12 +34,12 @@ use crate::timestep::{Accumulator, FIXED_DT};
 /// the windowed app) and passes it into [`drive_frame`] by `&mut dyn Renderer`.
 pub struct Loop {
     /// The simulation scene (ECS world + physics world + streaming/rebase state)
-    /// the game mutates. Replaces the bare `World` the loop used to own (KE-0203).
+    /// the game mutates. Replaces the bare `World` the loop used to own.
     pub scene: Scene,
     /// The current input snapshot the game reads.
     pub input: InputState,
     /// The audio layer the game reaches through
-    /// [`EngineCtx::audio`](crate::EngineCtx::audio) (KE-0405).
+    /// [`EngineCtx::audio`](crate::EngineCtx::audio).
     ///
     /// [`Loop::new`] leaves this **silent**: a fresh loop opens no audio device, so
     /// headless runs, unit tests and the `--smoke` oracle are quiet and need no
@@ -48,7 +48,7 @@ pub struct Loop {
     /// silence if the machine has no output. Either way the game's calls are
     /// identical.
     pub audio: Audio,
-    /// The engine-owned [`Camera`] (KE-0205). The game drives it through
+    /// The engine-owned [`Camera`]. The game drives it through
     /// [`EngineCtx::camera_mut`](crate::EngineCtx::camera_mut) (e.g. via a chase
     /// controller); each frame the driver pushes its view-projection across the
     /// render seam before [`Game::render`], so the game owns
@@ -60,7 +60,7 @@ pub struct Loop {
     pub accumulator: Accumulator,
     /// Whether [`Game::init`] has already run.
     pub initialized: bool,
-    /// The graphics settings in effect, plus any queued change (KE-0408). Games
+    /// The graphics settings in effect, plus any queued change. Games
     /// reach it through [`EngineCtx::graphics_settings`](crate::EngineCtx::graphics_settings)
     /// / [`set_graphics_settings`](crate::EngineCtx::set_graphics_settings); a
     /// platform layer (the built-in menu) queues changes with
@@ -100,7 +100,7 @@ impl Loop {
     /// drivers call this before their first frame (the windowed driver on first
     /// `resumed`, headless on the first `run`).
     ///
-    /// Graphics settings (KE-0408): a change queued before init (e.g. settings a
+    /// Graphics settings: a change queued before init (e.g. settings a
     /// windowed run restored from the last launch) takes effect *before*
     /// [`Game::init`], so the game reads the real value there. Right after init
     /// the loop records the scene's streaming reach as the 100% draw distance and
@@ -131,7 +131,7 @@ impl Loop {
     }
 
     /// Apply a queued graphics-settings change, if there is one and it differs
-    /// from the current value (KE-0408).
+    /// from the current value.
     ///
     /// Pushes the renderer half across the seam, rescales the scene's streaming
     /// reach, bumps [`GraphicsState::revision`], and calls
@@ -222,7 +222,7 @@ pub fn drive_frame<G: Game>(
     elapsed: Duration,
 ) -> u32 {
     // A graphics-settings change queued last frame (by the game or a settings
-    // UI) lands here, between frames, before any simulation (KE-0408).
+    // UI) lands here, between frames, before any simulation.
     lp.apply_pending_graphics(game, renderer);
 
     lp.perf.begin_frame();
@@ -247,18 +247,18 @@ pub fn drive_frame<G: Game>(
             game.update(&mut ctx, FIXED_DT);
         }
         // Snapshot input edges for the next step so a held key fires
-        // `is_key_just_pressed` exactly once (KE-0702).
+        // `is_key_just_pressed` exactly once.
         lp.input.advance_frame();
         lp.scene.step_physics();
     }
 
     // Push the engine camera's view-projection across the render seam BEFORE the
-    // game records its frame (KE-0205). The seam value is sticky, so the game's
+    // game records its frame. The seam value is sticky, so the game's
     // own `begin_frame` inside `render` preserves it and every draw this frame is
     // drawn from the camera the game last positioned (e.g. a chase controller in
     // `update`). The backend below the seam owns no camera — only this matrix.
     renderer.set_view_projection(lp.camera.view_projection_matrix());
-    // The camera's world position goes with it (KE-0406): view-dependent shading
+    // The camera's world position goes with it: view-dependent shading
     // (specular) needs to know where the eye is, and the matrix alone does not say
     // — recovering it by inverting the view-projection would be both wasteful and
     // numerically fragile. Pushed here, next to the matrix it must agree with, so
@@ -378,7 +378,7 @@ mod tests {
     }
 
     /// The engine owns the camera and pushes its view-projection across the render
-    /// seam each frame **before** `Game::render` (KE-0205). A game that moves the
+    /// seam each frame **before** `Game::render`. A game that moves the
     /// camera in `update` sees that pose reflected in the recorder before it draws.
     #[test]
     fn driver_pushes_the_engine_camera_view_projection_before_render() {
@@ -419,7 +419,7 @@ mod tests {
     }
 
     /// The loop owns the audio layer and hands it to the game through
-    /// [`EngineCtx::audio`] (KE-0405) — and a loop built by [`Loop::new`] opens
+    /// [`EngineCtx::audio`] — and a loop built by [`Loop::new`] opens
     /// **no output device**. So a game loads and plays unconditionally (no `cfg`,
     /// no availability check) while a device-less test still asserts exactly what
     /// it asked to hear.

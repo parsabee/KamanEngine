@@ -2,25 +2,25 @@
 //
 // This software is released under the Apache-2.0 License.
 //
-// Rasterization Shader - Phong Lighting Model + modern-look stack (KE-0401)
+// Rasterization Shader - Phong Lighting Model + modern-look stack
 //
 // This shader implements traditional GPU rasterization with Blinn-Phong lighting,
-// plus the KE-0401 "modern look" stack that lives entirely below the render seam:
+// plus the "modern look" stack that lives entirely below the render seam:
 //
 //   * Linear-space lighting presented through an explicit sRGB encode + ACES
 //     tonemap (colors correct, not washed out) — see `present_color`.
 //   * A gradient sky drawn as a fullscreen pass (`sky_vertex_main` /
 //     `sky_fragment_main`) instead of a flat clear, carrying the **sun disc and
-//     its glow** (KE-0406) at the direction the light actually comes from.
+//     its glow** at the direction the light actually comes from.
 //   * Distance fog that blends far geometry into the sky/horizon color, hiding
 //     the streaming spawn edge (`apply_fog`).
-//   * Real sun shadows (KE-0407): a depth-only pass from the sun
+//   * Real sun shadows: a depth-only pass from the sun
 //     (`shadow_vertex_main`) renders every caster into a fitted shadow map
 //     *before* the scene pass, and both lit pipelines look themselves up in it
 //     with receiver-plane-biased, tent-filtered 4x4 PCF (`shadow_visibility`). The
 //     fitting, stability and bias reasoning live in `src/shadow.rs`.
 //
-// Bloom is deferred for this pass (see KE-0401 report): it needs several extra
+// Bloom is not implemented: it needs several extra
 // half-res offscreen targets + ping-pong pipelines that could not be validated
 // in this environment. The MSAA / resolve wiring is all on the Rust side
 // (`backend.rs`); this file only provides the per-fragment math. Both the
@@ -63,8 +63,8 @@ struct Uniforms {
 };
 
 /// Lighting parameters (directional light with Phong components) plus the
-/// KE-0401 look parameters (fog, sky), the KE-0407 shadow-map parameters, the
-/// KE-0406 camera block and the KE-0407 light matrix.
+/// look parameters (fog, sky), the shadow-map parameters, the
+/// camera block and the light matrix.
 /// Mirrors the Rust `LightUniforms` **byte for byte** — 256 bytes.
 ///
 /// LAYOUT WARNING: an MSL `float3` occupies 16 bytes, so each one below sits at a
@@ -80,7 +80,7 @@ struct Light {
     float specularIntensity;           // Specular highlight strength (view-dependent)
     float shininess;                   // Phong exponent (controls highlight tightness)
 
-    // --- KE-0401 look params ---
+    // --- Look params (sky, fog) ---
     float3 skyTopColor;                // Linear zenith color of the gradient sky
     float3 skyHorizonColor;            // Linear horizon color (fog blends toward this)
     float  fogDensity;                 // Exponential fog density (0 disables fog)
@@ -88,22 +88,22 @@ struct Light {
     float  fogHeight;                  // World Y at/below which fog is full strength
     float  fogFalloff;                 // e-fold the fog thins over above fogHeight (0 = no falloff)
 
-    // --- KE-0407 shadow map (see src/shadow.rs for the reasoning) ---
+    // --- Shadow map (see src/shadow.rs for the reasoning) ---
     float  shadowDepthBias;            // Constant bias, map depth units (0.02 world / depth range)
     float  shadowReceiverSlopeCap;     // Cap on the receiver plane's per-texel depth gradient, map depth units
     float  shadowDistance;             // View depth the map covers; shadows fade out before it
     float  shadowStrength;             // 1 = shadowed fragments keep only sky fill, 0 = off
 
-    // --- KE-0406 camera block (the frame's camera, not its light) ---
+    // --- Camera block (the frame's camera, not its light) ---
     float3 cameraPosition;             // Camera world position -> view-dependent specular
     float4x4 inverseViewProjection;    // clip -> world, for the sky pass's view ray
 
-    // --- KE-0407 ---
+    // --- Shadow light matrix ---
     float4x4 lightViewProjection;      // world -> shadow-map clip (fitted ortho * light view)
 };
 
 // ============================================================================
-// Sun disc + glow tuning (KE-0406)
+// Sun disc + glow tuning
 // ============================================================================
 //
 // Angular sizes, stored as cosines so the fragment shader only ever needs one dot
@@ -130,7 +130,7 @@ constant float SUN_DISC_GAIN = 12.0;
 constant float SUN_GLOW_GAIN = 0.55;
 
 // ============================================================================
-// Color management: linear -> ACES tonemap -> sRGB encode (KE-0401)
+// Color management: linear -> ACES tonemap -> sRGB encode
 // ============================================================================
 
 /// Narkowicz ACES filmic tonemap approximation, operating on linear HDR color.
@@ -160,7 +160,7 @@ inline float3 present_color(float3 linearHdr) {
 }
 
 // ============================================================================
-// Distance fog (KE-0401)
+// Distance fog
 // ============================================================================
 
 /// Exponential-squared distance fog blending `color` toward the horizon/sky
@@ -185,7 +185,7 @@ inline float3 apply_fog(float3 color, float viewDist, float worldY, constant Lig
 }
 
 // ============================================================================
-// Shadow map (KE-0407)
+// Shadow map
 // ============================================================================
 //
 // Pass order: `shadow_vertex_main` renders every caster depth-only into the map
@@ -340,7 +340,7 @@ inline float3 lit_linear(float3 albedo, float3 worldNormal, float3 worldPos,
     float diff = max(dot(normal, lightDir), 0.0);
     float3 diffuse = light.diffuseIntensity * diff * light.color;
 
-    // View-dependent specular (KE-0406): the eye position comes across the seam
+    // View-dependent specular: the eye position comes across the seam
     // each frame, so highlights track the camera. This used to be a constant
     // float3(0,0,1), which pinned every highlight to a fixed screen direction —
     // most visible on car bodywork under a low sun, where the highlight should
@@ -369,14 +369,14 @@ fragment float4 fragment_main(VertexOut in [[stage_in]],
 }
 
 // ============================================================================
-// Gradient sky (KE-0401)
+// Gradient sky
 // ============================================================================
 //
 // A fullscreen triangle drawn first (depth test disabled) that paints a vertical
 // gradient from `skyHorizonColor` up to `skyTopColor`, replacing the flat clear.
 // Far geometry fogs toward `skyHorizonColor`, so the horizon reads seamlessly.
 //
-// KE-0406 adds the **sun** to it: a small disc with a soft halo, placed at
+// The **sun** is added to it: a small disc with a soft halo, placed at
 // `-light.direction` — the very vector `lit_linear` shades with, so turning the
 // sun moves the disc and the lighting together and they cannot drift apart. It
 // stays a single fullscreen pass with no new geometry: the per-pixel view ray is
@@ -412,7 +412,7 @@ inline float3 sky_view_ray(float2 ndc, constant Light& light) {
     return normalize(farH.xyz / farH.w - nearH.xyz / nearH.w);
 }
 
-/// Vertical gradient sky **plus the sun disc and its glow** (KE-0406), tonemapped
+/// Vertical gradient sky **plus the sun disc and its glow**, tonemapped
 /// + sRGB-encoded like the rest of the scene — so a blazing disc clips to white
 /// through the same ACES curve as everything else instead of blowing out.
 fragment float4 sky_fragment_main(SkyOut in [[stage_in]],
@@ -445,7 +445,7 @@ fragment float4 sky_fragment_main(SkyOut in [[stage_in]],
 }
 
 // ============================================================================
-// Textured pipeline (KE-0403)
+// Textured pipeline
 // ============================================================================
 //
 // A second pipeline reading the `[pos,normal,uv]` layout. It samples the bound
@@ -506,7 +506,7 @@ fragment float4 textured_fragment_main(TexturedVertexOut in [[stage_in]],
 }
 
 // ============================================================================
-// 2D overlay / HUD pass (KE-0404)
+// 2D overlay / HUD pass
 // ============================================================================
 //
 // Screen-space quads drawn AFTER the 3D scene: orthographic, no depth test or

@@ -26,7 +26,7 @@
 //!    a streamed entity removes its ECS entity **and** its physics rigid body (via
 //!    [`PhysicsWorld::remove_body`]) together, so no live
 //!    [`PhysicsBodyComponent`] is ever left
-//!    holding a freed handle (the KE-0202 / KE-0005 handle-ownership invariant).
+//!    holding a freed handle (the physics/ECS handle-ownership invariant).
 //! 3. **Floating-origin rebase** ([`maybe_rebase`](Scene::maybe_rebase)). When the
 //!    focus drifts past a threshold from the origin, every position — ECS
 //!    [`TransformComponent`] *and* every physics
@@ -290,7 +290,7 @@ impl Scene {
     /// carries a [`PhysicsBodyComponent`], removes that rigid body from the
     /// physics world in the same call.
     ///
-    /// This upholds the handle-ownership invariant (KE-0202 / KE-0005): the ECS
+    /// This upholds the handle-ownership invariant: the ECS
     /// entity and its physics body are torn down together, so no live component is
     /// ever left holding a freed [`RigidBodyHandle`](kaman_physics::RigidBodyHandle),
     /// and no rigid body outlives the entity that owned it. The body is removed
@@ -359,7 +359,7 @@ impl Scene {
         let axis = self.config.axis;
         let focus_d = focus.dot(axis);
 
-        // --- Phase 1: despawn-behind ---------------------------------------
+        // --- Step 1: despawn-behind ----------------------------------------
         let cutoff = focus_d - self.config.despawn_behind;
         // Collect victims first so we don't mutate the world while borrowing it.
         let mut kept = Vec::with_capacity(self.streamed.len());
@@ -381,7 +381,7 @@ impl Scene {
             self.despawn(e);
         }
 
-        // --- Phase 2: spawn-ahead ------------------------------------------
+        // --- Step 2: spawn-ahead -------------------------------------------
         let interval = self.config.spawn_interval;
         if interval <= 0.0 || self.config.spawn_ahead <= 0.0 {
             return;
@@ -820,7 +820,7 @@ mod tests {
         assert_eq!(offset, Vec3::ZERO);
     }
 
-    /// A2 boundary guard: `kaman-scene` must stay engine-generic — no game-named
+    /// Engine/game boundary guard: `kaman-scene` must stay engine-generic — no game-named
     /// symbol may appear anywhere in its source. Mirrors the `kaman-ecs` /
     /// `kaman-core` guards: forbidden words are built from ASCII byte codes so
     /// this test's own body contains no literal occurrence, letting it scan the
@@ -852,7 +852,7 @@ mod tests {
                 assert_ne!(
                     &lower, bad,
                     "game-specific identifier `{token}` found in lib.rs: \
-                     kaman-scene must stay engine-generic (A2 boundary)",
+                     kaman-scene must stay engine-generic (engine/game boundary)",
                 );
             }
         }

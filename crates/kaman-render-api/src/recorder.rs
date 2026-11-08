@@ -92,7 +92,7 @@ pub trait FrameRecorder {
     /// - Until the first call, the implementation uses the identity matrix.
     fn set_view_projection(&mut self, view_proj: Mat4);
 
-    /// Set the camera's **world-space position** for this frame's draws (KE-0406).
+    /// Set the camera's **world-space position** for this frame's draws.
     ///
     /// The view-projection matrix alone is not enough to shade a frame: any
     /// view-dependent term — specular highlights, and anything else that needs to
@@ -112,7 +112,7 @@ pub trait FrameRecorder {
     /// - Until the first call, the implementation uses the world origin.
     fn set_camera_position(&mut self, position: Vec3);
 
-    /// Set the **sun and sky** the frame is lit by (KE-0406).
+    /// Set the **sun and sky** the frame is lit by.
     ///
     /// [`SunSky`] is the whole lighting description the seam accepts: the sun's
     /// elevation/azimuth in degrees, its colour and intensity, the ambient sky-fill
@@ -167,7 +167,7 @@ pub trait FrameRecorder {
     ///   (if any) apply.
     fn draw_mesh(&mut self, mesh: MeshHandle, transform: &Transform, material: &MaterialParams);
 
-    /// Record a screen-space quad into this frame's **2D overlay** (KE-0404).
+    /// Record a screen-space quad into this frame's **2D overlay**.
     ///
     /// Overlay quads are not part of the 3D scene: the backend collects them
     /// during the frame and flushes them in a single orthographic pass at

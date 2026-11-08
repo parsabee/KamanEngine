@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Textured-quad pixel-hash guard (KE-0403).
+//! Textured-quad pixel-hash guard.
 //!
 //! Renders a fixed quad on the **textured** pipeline into an offscreen texture,
 //! binding a small non-uniform (checkerboard) base-color texture, then:
@@ -47,10 +47,10 @@ const HEIGHT: u32 = 64;
 /// Blessed from this renderer's first correct textured frame. Re-bless only via
 /// the documented `BLESS=1` path with a justification note.
 ///
-/// # KE-0401 re-bless (value CHANGES — intentional look change)
+/// # Modern-look re-bless (value CHANGES — intentional look change)
 ///
-/// The textured pipeline now runs the same KE-0401 present stack (ACES tonemap +
-/// sRGB encode), distance fog, blob shadow (deleted in KE-0407), and 4x MSAA resolve as the untextured
+/// The textured pipeline now runs the same modern-look present stack (ACES tonemap +
+/// sRGB encode), distance fog, blob shadow (since replaced by the shadow-map pass), and 4x MSAA resolve as the untextured
 /// path. The mesh, texture (checkerboard), camera, and transform are unchanged,
 /// so this is a pure look change — the non-uniformity assertion below still holds
 /// — but the pixel bytes shift, so the hash MUST be re-blessed:
@@ -58,13 +58,13 @@ const HEIGHT: u32 = 64;
 /// ```text
 /// BLESS=1 cargo test -p kaman-render --test textured_pixel_hash -- --nocapture
 /// ```
-// KE-0401: re-blessed. Was 0x2bb6c070d635c975 (KE-0403); the modern-look stack
+// re-blessed. Was 0x2bb6c070d635c975; the modern-look stack
 // (linear+ACES tonemap+sRGB, sky, fog, shadow, 4x MSAA) intentionally changes the
 // pixels. Geometry/camera/transform and the checkerboard texture are unchanged.
 // Re-blessed: the LightUniforms<->MSL Light padding fix makes fog/shadow/lighting
 // apply correctly, changing the textured quad's shaded pixels.
 //
-// KE-0406: re-bless REQUIRED (intended look change). The textured pipeline shares
+// re-bless REQUIRED (intended look change). The textured pipeline shares
 // `lit_linear` with the untextured one, so it moves with the 3D reference for the
 // same reasons: ambient rebalanced as sky fill (0.6 -> 0.2), specular now derived
 // from the camera position pushed through the seam instead of a constant (0,0,1),
@@ -74,7 +74,7 @@ const HEIGHT: u32 = 64;
 //
 // Blessed 2026-09-26: 0xdb98efc9ab5028c9 -> 0x4aa6c2b1732c4ac7.
 //
-// KE-0407: re-bless REQUIRED (intended look change): 0x4aa6c2b1732c4ac7 ->
+// re-bless REQUIRED (intended look change): 0x4aa6c2b1732c4ac7 ->
 // 0x95a7782d5aea44e4. The fake `ground_shadow` blob is deleted; it was centred on
 // the world origin (radius 1.2, strength 0.5), where this quad sits, so it was
 // darkening the middle of the quad. The quad now samples the real shadow map
@@ -185,8 +185,8 @@ fn render_textured() -> Option<Vec<u8>> {
     });
 
     // Camera pushed before the frame opens, matching the engine loop: the sky pass
-    // runs inside `begin_frame` and needs the frame's camera to place the sun
-    // (KE-0406). The camera's position/target/defaults are unchanged.
+    // runs inside `begin_frame` and needs the frame's camera to place the sun.
+    // The camera's position/target/defaults are unchanged.
     renderer.set_view_projection(camera.view_projection_matrix());
     renderer.set_camera_position(camera.position());
 

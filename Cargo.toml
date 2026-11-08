@@ -36,8 +36,8 @@ publish = false
 
 # Shared dependency versions (pinned from the original prototype; see docs/ARCHITECTURE.md
 # Provenance). Crates opt in via
-# `dep.workspace = true`. No crate migrates real logic in KE-0001 — these are here so later
-# migration tickets (KE-0003+, Phase 1) inherit a single source of truth for versions.
+# `dep.workspace = true`. One table so every crate inherits
+# a single source of truth for versions.
 [workspace.dependencies]
 # Intra-workspace crates. Path deps live here too so every consumer resolves the
 # same local copy without repeating the relative path.
@@ -54,12 +54,12 @@ kaman-audio = { path = "crates/kaman-audio" }
 kaman-core = { path = "crates/kaman-core" }
 
 glam = "0.29"
-# glTF import (KE-0402): pure-Rust parser, builds on the Command Line Tools (no
+# glTF import: pure-Rust parser, builds on the Command Line Tools (no
 # Metal / no C toolchain beyond std). `default-features` is disabled and only the
 # `import` + `utils` features are enabled so no image/extras baggage is pulled in
-# (textures are KE-0403).
+# (image decoding is the separate `image` dependency below).
 gltf = { version = "1.4", default-features = false, features = ["import", "utils"] }
-# Image decoding (KE-0403): decode glTF base-color images (PNG/JPEG) to RGBA8 in
+# Image decoding: decode glTF base-color images (PNG/JPEG) to RGBA8 in
 # `kaman-assets`. Pure-Rust codecs (no C toolchain beyond std); default features
 # off so only the two codecs glTF assets commonly embed are pulled in — no metal,
 # no game baggage. `kaman-assets` stays engine-generic and metal-free.
@@ -67,7 +67,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # Pure-Rust TrueType rasterizer. Dev-dependency only: the demo's `gen_font`
 # example uses it to bake the committed SDF font atlas; no runtime crate links it.
 fontdue = "0.9"
-# Audio (KE-0405): game-audio library — mixer, static sounds, loop regions,
+# Audio: game-audio library — mixer, static sounds, loop regions,
 # tweened volume. Pure Rust over `cpal` (CoreAudio on Apple), so no C toolchain
 # beyond std and no metal. Engine-generic; the game supplies the sounds.
 #
@@ -91,7 +91,7 @@ objc = "0.2"
 cocoa = "0.25"
 core-graphics-types = "0.1"
 raw-window-handle = "0.6"
-# Native platform UI in `kaman-core` (KE-0408): the built-in Graphics menu and
+# Native platform UI in `kaman-core`: the built-in Graphics menu and
 # settings persistence. Pinned to the objc2 generation winit 0.30 already uses
 # (so no duplicate AppKit bindings are built), with only the AppKit/Foundation
 # classes the menu and `NSUserDefaults` need; no Metal/QuartzCore features.

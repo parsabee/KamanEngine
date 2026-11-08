@@ -24,7 +24,7 @@ Geometry is packed onto the canonical **`[position_xyz, normal_xyz, color_rgb]`*
 render layout (`render_vertex_layout()`, a 36-byte stride matching the built-in
 Phong pipeline), so an imported mesh renders immediately through the existing
 untextured pipeline. The packed **color** comes from the primitive's material
-base-color factor (KE-0703) — so a multi-material mesh (e.g. a car body + dark
+base-color factor — so a multi-material mesh (e.g. a car body + dark
 wheels) renders each part's authored color — falling back to a neutral default
 color when the primitive has no explicit material. Each `MeshAsset` carries:
 
@@ -34,9 +34,9 @@ color when the primitive has no explicit material. Each `MeshAsset` carries:
 | `indices`   | 32-bit triangle indices                                        |
 | `layout`    | the `[pos,normal,color]` `VertexLayout`                        |
 | `positions` / `normals` | parsed source attributes                          |
-| `uvs`       | parsed texture coordinates — **retained for KE-0403** (not packed) |
+| `uvs`       | parsed texture coordinates — **retained for the textured pipeline** (not packed) |
 
-The UVs are deliberately kept out of the packed render bytes; KE-0403's textured
+The UVs are deliberately kept out of the packed render bytes; the textured
 pipeline builds a UV-carrying vertex buffer from them without re-parsing the file.
 
 ```rust
@@ -53,7 +53,7 @@ let data = MeshData { vertices: &mesh.vertices, indices: &mesh.indices, layout: 
 
 `AssetCache` parses (and optionally uploads) a file **once**, keyed by path, and
 shares it across N instances — the "upload once, reference by handle" discipline
-(KE-0103) applied to whole asset files.
+ applied to whole asset files.
 
 - `load_parse_only(path)` — parse and cache; no GPU upload.
 - `load(device, path)` — parse and upload the meshes into a `RenderDevice` once,
@@ -70,7 +70,7 @@ graph. It lives in this crate (not a game) so any title reuses it; the
 
 ## The vertex-layout-through-the-seam fix
 
-KE-0402 also made the `kaman-render` backend build its Metal vertex descriptor
+The glTF import work also made the `kaman-render` backend build its Metal vertex descriptor
 **from** the `VertexLayout` in `MeshData` (mapping each attribute's
 `location`/`offset`/`format`, including `Float32x2` for UVs, and taking the stride
 from the layout) instead of a hardcoded 0/12/24 `Float3` triple. For the

@@ -13,8 +13,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 - **CI fails on unformatted code.** A new `cargo fmt --all -- --check` step runs first in the
   macOS CI job, and the whole workspace was reformatted with rustfmt's defaults (a
   formatting-only change). Run `cargo fmt --all` before pushing.
+- **A new roadmap.** `docs/ROADMAP.md` now lists what v0.1 (beta.1, then 0.1.0) and v0.2 contain,
+  replacing the phase/OKR plan. The native scene editor is no longer planned for this repository.
+- **The docs match the code.** Docs and doc comments that described things the code does not do
+  were corrected, among them:
+  - the uniform ring that replaced per-draw uniform buffers, and the two built-in pipelines;
+  - how `MaterialParams` is used: only `base_color`, and only by the textured pipeline;
+  - that bloom, ASTC transcoding and an iOS path do not exist yet;
+  - that CI's macOS runner runs the GPU pixel-hash tests, rather than skipping them;
+  - workspace-tree entries (`shaders/`, `platform/`, Ray/AABB/Frustum in `kaman-math`) that do
+    not exist;
+  - that there is no golden physics-trajectory test or coverage tooling yet.
 
 ### Removed
+
+- **The in-repo ticket system.** `tickets/`, `scripts/check-tickets.py` and the CI ticket-format
+  lint are gone, and code comments no longer cite ticket IDs, phases or key results. Open work is
+  tracked in GitHub issues, starting with
+  [#2 iOS support (v0.2)](https://github.com/parsabee/KamanEngine/issues/2).
 
 - **The `raytracer` feature.** KamanEngine is rasterization-only. The off-by-default
   `kaman-render` feature, its `raytracer` module (a CPU `trace_ray` and GPU triangle layouts that

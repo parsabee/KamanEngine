@@ -13,14 +13,14 @@ publish.workspace = true
 [features]
 default = []
 
-# ASTC compressed base-color textures on device (KE-0403). OFF by default: macOS
+# ASTC compressed base-color textures on device. OFF by default: macOS
 # on the Command Line Tools has no ASTC transcoder, so RGBA8 is the accepted
 # fallback and `create_texture` uploads uncompressed. A device/mobile build turns
 # this on to upload pre-compressed ASTC blocks (`texture_pixel_format` flips to
 # `ASTC_4x4_LDR`). Structured behind this feature so the desktop path is unchanged.
 astc-textures = []
 
-# Precompiled shaders (KE-0107, partial). OFF by default so the engine builds with
+# Precompiled shaders (in progress). OFF by default so the engine builds with
 # only the Command Line Tools (shaders compile at runtime via new_library_with_source).
 # When ON, build.rs compiles shaders/*.metal to a .metallib ahead of time and the
 # backend loads it via new_library_with_data — this REQUIRES the Metal toolchain (full
@@ -30,7 +30,7 @@ precompiled-shaders = []
 # The `objc` 0.2 `msg_send!`/`sel_impl!` macros emit a `cfg(cargo-clippy)` check
 # that trips `unexpected_cfgs` on our call sites (the cfg is defined by clippy,
 # not us). Allow that one unknown cfg value so `-D warnings` stays clean; it is a
-# third-party-macro artifact, not our code. KE-0107 revisits the objc glue.
+# third-party-macro artifact, not our code.
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(cargo_clippy)'] }
 

@@ -2,27 +2,27 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Render pixel-hash guard (KR1.3).
+//! Render pixel-hash guard.
 //!
 //! Deterministically renders fixed reference content into an offscreen Metal
 //! texture, reads the pixels back, hashes it, and asserts the hash equals a
 //! committed baseline. This is the golden net that pins the migrated renderer's
-//! output so the buffer/frames-in-flight refactors (KE-0103/0104/0105) can prove
+//! output so the buffer/frames-in-flight refactors can prove
 //! they preserved behavior.
 //!
 //! Three independent references are pinned, each with its own baseline constant:
 //!
 //! 1. **The 3D reference scene** ([`REFERENCE_HASH`]) — a lit, rotated box through
-//!    the Phong pipeline and the KE-0401 look stack.
-//! 2. **The 2D reference overlay** ([`OVERLAY_REFERENCE_HASH`], KE-0404) — the HUD
+//!    the Phong pipeline and the modern-look stack.
+//! 2. **The 2D reference overlay** ([`OVERLAY_REFERENCE_HASH`]) — the HUD
 //!    overlay pass: a solid quad, a textured quad, an SDF quad, and a pair of
 //!    overlapping partial-alpha quads whose record order the blend must respect.
-//! 3. **The sun disc** ([`SUN_REFERENCE_HASH`], KE-0406) — an empty frame (so it is
+//! 3. **The sun disc** ([`SUN_REFERENCE_HASH`]) — an empty frame (so it is
 //!    purely the sky pass) with the sun placed in view, guarding the disc, its glow
 //!    falloff, and the azimuth convention. The other two point *away* from the sun
 //!    on purpose, which is what makes reference 2 a useful canary but also left the
 //!    disc with no coverage until this one existed.
-//! 4. **The shadow map** ([`SHADOW_REFERENCE_HASH`], KE-0407) — a floating cube
+//! 4. **The shadow map** ([`SHADOW_REFERENCE_HASH`]) — a floating cube
 //!    casting onto a ground split between the textured and untextured pipelines.
 //!    Alongside it, two behavioural tests prove the shadow comes from the shadow
 //!    pass (disabling its casters removes it) and follows the sun (turning the sun
@@ -78,9 +78,9 @@ const HEIGHT: u32 = 64;
 /// Committed baseline hash of the reference scene's pixels (FNV-1a 64-bit).
 ///
 /// Blessed from the migrated `kaman-render` first correct frame. Hold stable
-/// across KE-0103/0104/0105; re-bless only via the documented `BLESS=1` path.
+/// across the buffer/ring/pacing refactors; re-bless only via the documented `BLESS=1` path.
 ///
-/// # KE-0205 re-bless review (value unchanged)
+/// # Camera-migration re-bless review (value unchanged)
 ///
 /// The camera **path** changed: the view now flows through the render seam
 /// (`FrameRecorder::set_view_projection`) from a `kaman_camera::Camera` this test
@@ -92,9 +92,9 @@ const HEIGHT: u32 = 64;
 /// matrix. The geometry (`reference_cube`) and its transform are untouched, so the
 /// rendered pixels — and thus the FNV-1a hash — are byte-for-byte the same.
 ///
-/// # KE-0401 re-bless (value CHANGES — intentional look change)
+/// # Modern-look re-bless (value CHANGES — intentional look change)
 ///
-/// KE-0401 intentionally changes the *look* while leaving the geometry, camera,
+/// The modern-look stack intentionally changes the *look* while leaving the geometry, camera,
 /// and transform byte-for-byte identical: the background is now a gradient sky
 /// (not the flat clear), lighting is presented through an ACES tonemap + sRGB
 /// encode, distance fog blends toward the sky horizon, a directional blob shadow
@@ -106,15 +106,15 @@ const HEIGHT: u32 = 64;
 /// ```
 ///
 /// and paste the printed value below. The re-bless is justified because the
-/// pixel change is the *point* of the ticket (look), not a geometry regression.
-// KE-0401: re-blessed. Was 0x292c5df343b5eba8 through KE-0102..0403; the modern-look
+/// pixel change is the *point* of the change (look), not a geometry regression.
+// re-blessed. Was 0x292c5df343b5eba8 before the modern-look stack; the modern-look
 // stack (linear+ACES tonemap+sRGB, gradient sky, distance fog, blob shadow, 4x MSAA)
 // intentionally changes the rendered pixels. Geometry/camera/transform are unchanged.
 // Re-blessed: fixing the LightUniforms<->MSL Light struct padding mismatch made
 // the look stack (fog/shadow/lighting) actually apply as intended, so the
 // reference box now renders lit-red instead of fully fogged to the horizon color.
 //
-// KE-0406: re-bless REQUIRED (intended look change). Three deliberate changes move
+// re-bless REQUIRED (intended look change). Three deliberate changes move
 // this scene's pixels, none of them geometry:
 //   1. Ambient is rebalanced as sky fill (0.6 -> 0.2) against an unchanged diffuse
 //      0.8, so the box's unlit faces darken and it reads sunlit instead of overcast.
@@ -133,10 +133,10 @@ const HEIGHT: u32 = 64;
 // run reprinted OVERLAY_REFERENCE_HASH unchanged, and the frame was checked to be
 // genuinely lit rather than flat (mean luminance 157, sd 66 over 34..216, 144
 // distinct values, the red box covering 1421 of 4096 pixels) — the failure mode
-// the KE-0401 note above describes is a low-variance frame fogged to the horizon
+// the modern-look note above describes is a low-variance frame fogged to the horizon
 // colour, which this is not.
 //
-// KE-0407: re-bless REQUIRED (intended look change): 0xc3bc162d10925b22 ->
+// re-bless REQUIRED (intended look change): 0xc3bc162d10925b22 ->
 // 0xbb6d718f1804993d. The fake `ground_shadow` blob is deleted. It was centred on
 // the world origin (radius 1.2, strength 0.5) — exactly where this box sits — so it
 // was darkening the box's lit faces; without it they are brighter. The real shadow
@@ -149,12 +149,12 @@ const REFERENCE_HASH: u64 = 0xbb6d718f1804993d;
 
 /// Committed baseline hash of the **reference overlay**'s pixels (FNV-1a 64-bit).
 ///
-/// Guards the KE-0404 2D overlay pass end to end: the pixel→NDC mapping with its
+/// Guards the 2D overlay pass end to end: the pixel→NDC mapping with its
 /// `Y` flip, source-over alpha blending in record order, and all three
 /// [`OverlayFill`] modes (solid, textured, SDF) — see
 /// [`reference_overlay_quads`] for exactly what is drawn and why.
 ///
-/// # KE-0404 first blessing
+/// # Overlay first blessing
 ///
 /// Blessed from this machine's first correct overlay frame, on the same Apple GPU
 /// that produces [`REFERENCE_HASH`]. Two things were checked before accepting it,
@@ -171,9 +171,9 @@ const REFERENCE_HASH: u64 = 0xbb6d718f1804993d;
 /// From here it is a normal golden baseline: hold it stable, and re-bless only via
 /// the documented path with a justification note in the commit message.
 ///
-/// # KE-0406 (value must NOT change)
+/// # Sun/sky seam (value must NOT change)
 ///
-/// KE-0406 changes lighting and adds a sun disc to the sky, and this reference
+/// The sun/sky seam changes lighting and adds a sun disc to the sky, and this reference
 /// renders the sky behind its quads — so it is the canary for a look change leaking
 /// into screen space. It must come back **unchanged**, and the change was built so
 /// that it provably does:
@@ -192,12 +192,12 @@ const OVERLAY_REFERENCE_HASH: u64 = 0x2b3859048070b2b6;
 
 /// Committed baseline hash of the **sun-disc reference**'s pixels (FNV-1a 64-bit).
 ///
-/// Guards the KE-0406 sun disc and its glow, which nothing else covers: both other
+/// Guards the sun disc and its glow, which nothing else covers: both other
 /// references deliberately point away from the sun, and the `playable-demo` camera
 /// cannot frame it. See [`render_reference_sun`] for why an empty frame is the
 /// right isolation here.
 ///
-/// # KE-0406 first blessing
+/// # Sun disc first blessing
 ///
 /// Blessed 2026-09-26. Unlike the other two, this frame is *mostly* sun glow, so a
 /// regression that silently dropped the disc would still leave a smooth gradient
@@ -346,7 +346,7 @@ fn render_reference() -> Option<Vec<u8>> {
     let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
 
     // Fixed camera looking at the cube. The view now comes through the seam
-    // (`set_view_projection`, KE-0205) instead of a backend-owned camera: build a
+    // (`set_view_projection`) instead of a backend-owned camera: build a
     // `kaman_camera::Camera` here and push its view-projection below.
     let mut camera = Camera::new(WIDTH as f32 / HEIGHT as f32);
     camera.set_position(Vec3::new(0.0, 0.0, 3.0));
@@ -373,10 +373,10 @@ fn render_reference() -> Option<Vec<u8>> {
 
     // Push the camera *before* opening the frame, the order the engine loop uses:
     // the sky pass runs at `begin_frame`, so the frame's camera must be in effect
-    // by then for it to place the sun (KE-0406). The camera itself — position,
+    // by then for it to place the sun. The camera itself — position,
     // target and every default — is unchanged; only the call order is.
     renderer.set_view_projection(camera.view_projection_matrix());
-    // The eye position for view-dependent specular (KE-0406); the same camera,
+    // The eye position for view-dependent specular; the same camera,
     // just fully described.
     renderer.set_camera_position(camera.position());
 
@@ -399,7 +399,7 @@ fn reference_scene_matches_committed_hash() {
 }
 
 // ---------------------------------------------------------------------------
-// Reference overlay (KE-0404)
+// Reference overlay
 // ---------------------------------------------------------------------------
 
 /// Edge length of the hand-written RGBA pattern the `Textured` quad samples.
@@ -557,7 +557,7 @@ fn reference_overlay_matches_committed_hash() {
 }
 
 // ============================================================================
-// Reference 3: the sun disc (KE-0406)
+// Reference 3: the sun disc
 // ============================================================================
 //
 // Neither reference above frames the sun: both use a camera whose view axis is
@@ -630,12 +630,12 @@ fn reference_sun_matches_committed_hash() {
 }
 
 // ---------------------------------------------------------------------------
-// Shadow reference (KE-0407)
+// Shadow reference
 // ---------------------------------------------------------------------------
 
 /// Committed baseline hash of the **shadow reference**'s pixels (FNV-1a 64-bit).
 ///
-/// Guards the KE-0407 shadow-map pass end to end — the depth-only caster pass, the
+/// Guards the shadow-map pass end to end — the depth-only caster pass, the
 /// fitted light projection, and the receiver lookup in *both* lit pipelines — with
 /// a scene built so a caster demonstrably darkens a receiver: see
 /// [`render_reference_shadow`]. [`reference_shadow_is_cast_by_the_shadow_pass`]
@@ -643,7 +643,7 @@ fn reference_sun_matches_committed_hash() {
 /// frame to change (and the predicted shadow to be where the darkening is), so the
 /// hash cannot be quietly guarding a frame with no shadow in it.
 ///
-/// # KE-0407 first blessing
+/// # Shadow-map first blessing
 ///
 /// Blessed 2026-09-27 on this machine's Apple GPU. Checked before accepting it:
 ///
@@ -1262,7 +1262,7 @@ fn shadow_tolerance_accepts_regridding_and_rejects_regressions() {
 
 #[test]
 fn reference_shadow_is_cast_by_the_shadow_pass() {
-    // The test gate's "verify by disabling it, not by assuming": the same scene
+    // The rule "verify by disabling it, not by assuming": the same scene
     // with the shadow pass's casters switched off must differ, and the difference
     // must be the predicted shadow darkening both receivers — not noise elsewhere.
     let (Some(on), Some(off)) = (
@@ -1300,7 +1300,7 @@ fn reference_shadow_is_cast_by_the_shadow_pass() {
 
 #[test]
 fn turning_the_sun_moves_the_shadow() {
-    // Shadowing is driven by the KE-0406 sun, not a second light: swing the same
+    // Shadowing is driven by the seam's sun, not a second light: swing the same
     // 50° sun from due west to due east and the shadow must leave the east half and
     // appear on the west half, mirrored about the cube.
     let (Some(west_sun), Some(east_sun)) = (

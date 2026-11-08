@@ -27,7 +27,7 @@
 //! headless driver and the plain [`run`] entry keep the GPU-free
 //! [`NullRenderer`].
 //!
-//! # Audio (KE-0405)
+//! # Audio
 //!
 //! This is also the only entry that opens an **audio output device**: it replaces
 //! the loop's silent [`Audio`](kaman_audio::Audio) layer with
@@ -36,7 +36,7 @@
 //! never touch audio hardware; and since the device-bound constructor falls back
 //! to silence when there is no output, even this path cannot fail on that account.
 //!
-//! # Graphics settings and the built-in menu (KE-0408)
+//! # Graphics settings and the built-in menu
 //!
 //! By default the windowed entry installs a native **Graphics** menu in the
 //! macOS menu bar (Shadows, Shadow Distance, Draw Distance, Resolution, Enter Full
@@ -58,7 +58,7 @@
 //! # macOS isolation
 //!
 //! The window-creation and event-translation helpers are kept as small free
-//! functions so the KE-0301 `#[cfg(target_os = ...)]` split can wrap them without
+//! functions so a `#[cfg(target_os = ...)]` platform split can wrap them without
 //! disturbing the loop structure. The engine loop itself
 //! (`drive_frame`) is platform-neutral.
 
@@ -155,7 +155,7 @@ pub fn run_with_backend<G: Game>(game: &mut G, factory: BackendFactory<'_>) {
     run_with_config(game, Some(factory), RunConfig::default());
 }
 
-/// Options for the windowed entry (KE-0408). [`run`] and [`run_with_backend`] use
+/// Options for the windowed entry. [`run`] and [`run_with_backend`] use
 /// [`RunConfig::default`], where everything is on.
 ///
 /// # Example
@@ -204,7 +204,7 @@ impl Default for RunConfig {
     }
 }
 
-/// Open a window and run `game` with explicit [`RunConfig`] options (KE-0408).
+/// Open a window and run `game` with explicit [`RunConfig`] options.
 ///
 /// `factory` is the render backend factory, exactly as for [`run_with_backend`].
 /// `None` runs against the headless [`NullRenderer`], as [`run`] does.
@@ -258,7 +258,7 @@ struct EngineApp<'g, 'f, G: Game> {
     renderer: Box<dyn Renderer>,
     factory: Option<BackendFactory<'f>>,
     last_frame: Option<Instant>,
-    /// Runner options (KE-0408).
+    /// Runner options.
     config: RunConfig,
     /// Where the built-in menu posts clicks; handed to the menu when it is
     /// installed.
@@ -288,7 +288,7 @@ impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
         let mut lp = Loop::new();
         lp.audio = kaman_audio::Audio::with_output_device();
 
-        // Restore last launch's graphics settings (KE-0408). Queued, so they take
+        // Restore last launch's graphics settings. Queued, so they take
         // effect before `Game::init` (see `Loop::init_once`).
         if config.persist_graphics_settings {
             if let Some(saved) = platform::load_settings() {
@@ -311,7 +311,7 @@ impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
     }
 
     /// Size the drawable for the window's native pixels and the current render
-    /// scale (KE-0408), and report the matching UI scale.
+    /// scale, and report the matching UI scale.
     fn resize_surface(&mut self) {
         let Some(window) = &self.window else {
             return;
@@ -393,7 +393,7 @@ impl<G: Game> ApplicationHandler<EngineEvent> for EngineApp<'_, '_, G> {
             let window = create_window(event_loop);
 
             // Match the engine camera's aspect to the real window before the first
-            // frame (KE-0205); resize events keep it current thereafter.
+            // frame; resize events keep it current thereafter.
             let size = window.inner_size();
             self.lp
                 .camera
@@ -413,7 +413,7 @@ impl<G: Game> ApplicationHandler<EngineEvent> for EngineApp<'_, '_, G> {
         // through the shared loop (idempotent).
         self.lp.init_once(self.game, self.renderer.as_mut());
 
-        // Size the drawable for the settings now in effect (KE-0408), then add the
+        // Size the drawable for the settings now in effect, then add the
         // built-in Graphics menu next to winit's application menu.
         self.resize_surface();
         if self.config.native_settings_menu && self.menu.is_none() {
@@ -484,11 +484,11 @@ impl<G: Game> ApplicationHandler<EngineEvent> for EngineApp<'_, '_, G> {
             }
             WindowEvent::Resized(size) => {
                 // Keep the engine camera's projection correct as the window
-                // resizes (KE-0205). The backend below the seam owns no camera, so
+                // resizes. The backend below the seam owns no camera, so
                 // aspect is maintained here on the engine-owned `Camera`.
                 let aspect = size.width as f32 / size.height.max(1) as f32;
                 self.lp.camera.set_aspect_ratio(aspect);
-                // Keep the drawable matched to the window (KE-0408). The window may
+                // Keep the drawable matched to the window. The window may
                 // also have entered or left full screen, so refresh the menu's
                 // full-screen title.
                 self.resize_surface();
@@ -515,10 +515,10 @@ impl<G: Game> ApplicationHandler<EngineEvent> for EngineApp<'_, '_, G> {
 
 // --- macOS-isolated helpers -------------------------------------------------
 //
-// These are deliberately small free functions. The KE-0301 platform split will
+// These are deliberately small free functions. A platform split (iOS, v0.2) can
 // wrap them (or provide iOS variants) without touching `EngineApp`'s loop.
 
-/// Create the application window. Isolated so the platform split (KE-0301) can
+/// Create the application window. Isolated so the platform split can
 /// swap window construction per target.
 fn create_window(event_loop: &ActiveEventLoop) -> Window {
     let attrs = Window::default_attributes()
@@ -531,7 +531,7 @@ fn create_window(event_loop: &ActiveEventLoop) -> Window {
 
 /// Translate a `winit` physical key into the engine's backend-agnostic [`Key`].
 ///
-/// Returns `None` for keys outside the Phase-1 subset (see [`Key`]). Isolated so
+/// Returns `None` for keys outside the supported subset (see [`Key`]). Isolated so
 /// the mapping is a single, testable place and so the platform split can extend
 /// it per target.
 fn translate_key(code: KeyCode) -> Option<Key> {
@@ -554,7 +554,7 @@ fn translate_key(code: KeyCode) -> Option<Key> {
 
 /// Translate a `winit` mouse button into the engine's [`MouseButton`].
 ///
-/// Returns `None` for buttons outside the Phase-1 subset.
+/// Returns `None` for buttons outside the supported subset.
 fn translate_mouse_button(button: WinitMouseButton) -> Option<MouseButton> {
     Some(match button {
         WinitMouseButton::Left => MouseButton::Left,

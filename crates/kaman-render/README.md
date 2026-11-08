@@ -5,7 +5,7 @@ lives *below* the render seam (`docs/ARCHITECTURE.md` §2). This is the **only**
 engine crate that depends on `metal`; everything above the seam talks to the
 `kaman-render-api` traits and never imports a Metal type.
 
-Migrated from the prototype's rasterization renderer in KE-0102.
+Migrated from the prototype's rasterization renderer. It is rasterization-only.
 
 ## How it implements the seam
 
@@ -16,18 +16,20 @@ blanket `impl<T: RenderDevice + FrameRecorder> Renderer for T`:
 - **`RenderDevice`** (load-time): `create_mesh` uploads (deindexes) geometry into
   a **persistent** Metal vertex buffer **once** and stores it in a generational
   registry keyed by the returned `MeshHandle`; `create_texture` uploads an RGBA8
-  texture; `create_pipeline` names the built-in Phong pipeline (this Phase-1 port
-  has a single pipeline). `destroy_mesh` frees the slot and bumps its generation.
+  texture with a full mip chain; `create_pipeline` selects one of the two built-in
+  pipelines from the descriptor's vertex layout (`[pos,normal,color]` → the untextured
+  Phong pipeline, `[pos,normal,uv]` → the textured one). `destroy_mesh` frees the slot
+  and bumps its generation.
 - **`FrameRecorder`** (per-frame): `begin_frame` acquires the color attachment (a
   drawable for a window, or an offscreen texture for tests) and opens a depth-tested
   render encoder; `draw_mesh(handle, transform, material)` **looks the persistent
   vertex buffer up by handle — no mesh allocation on the hot path** — computes an
-  MVP from the backend camera and the instance transform, writes a per-draw uniform
-  buffer (the one remaining per-frame allocation, removed by KE-0104), and records a
-  triangle draw; `submit` ends encoding and presents (window) or synchronizes for
-  CPU readback (offscreen).
+  MVP from the seam-provided view-projection and the instance transform, writes it into
+  the persistent **uniform ring** (no per-frame allocation), and records the draw;
+  `submit` encodes the shadow pass (unless shadows are off) and the scene pass, and presents (window) or
+  synchronizes for CPU readback (offscreen).
 
-### Upload once, reference by handle (KE-0103)
+### Upload once, reference by handle
 
 Mesh geometry is uploaded **once**, at load time (game/scene `init`), into a
 persistent `MTLBuffer` and thereafter referenced by an opaque `MeshHandle`. The
@@ -39,34 +41,31 @@ handle is a **defined no-op error** (`RegistryError::StaleHandle` /
 `UnknownHandle`), never a silent draw of whatever buffer now occupies the reused
 slot. Enforced by `tests/persistent_meshes.rs`.
 
-**Allocation instrument (KR1.2):** `MetalRenderer::allocation_count()` counts every
+**Allocation instrument:** `MetalRenderer::allocation_count()` counts every
 `new_buffer*` the backend issues. `tests/persistent_meshes.rs` snapshots it around
-the per-frame path and asserts **zero mesh uploads** occur after load (the only
-per-frame allocation left is one uniform buffer per draw). The counter is public so
-KE-0104 (uniform ring) and KE-0105 (frames-in-flight) can reuse it.
+the per-frame path and asserts the delta is **zero** after load: meshes are persistent
+and per-draw uniforms live in the ring, so the steady state allocates no buffers. The
+counter is public so the frames-in-flight tests can reuse it.
 
-The `draw_mesh` path is a faithful port of the prototype's
-`render_with_transforms_and_colors`. Color comes from the per-vertex mesh data
-(as in the prototype), so `MaterialParams` is accepted but does not yet drive the
-raster color.
+**Material.** The untextured pipeline takes its color from the per-vertex mesh data
+(as the prototype did), so `MaterialParams` does not change its output. The textured
+pipeline multiplies the sampled base color by `MaterialParams::base_color`. The
+`metallic` and `roughness` fields are accepted but neither pipeline uses them.
 
-### Behavior preservation (KE-0102 / KE-0103)
+### Behavior preservation
 
-KE-0103 removed per-frame **mesh** allocation: geometry is uploaded once and kept
-in the registry, so the hot draw path allocates no vertex buffers. The one per-frame
-allocation still kept on purpose is the per-draw uniform buffer (KE-0104 replaces it
-with a ring); the depth texture is the one cached resource (as in the prototype).
-Making mesh upload persistent does not change any rendered pixel, so the KE-0102
-pixel-hash guard (`0x292c5df343b5eba8`) stays valid and unchanged.
+Making mesh upload persistent and moving per-draw uniforms into the ring changed no
+rendered pixel: the pixel-hash guard held through both refactors. (Its baselines have
+since been re-blessed for deliberate look changes; see below.)
 
-## Sun, sky and camera come through the seam (KE-0406)
+## Sun, sky and camera come through the seam
 
 The backend chooses neither the camera nor the sun. Three sticky per-frame values
 arrive through `FrameRecorder` and are folded into one `LightUniforms` block that is
 uploaded **once per frame** and bound at fragment `[[buffer(0)]]` for every pass
 that shades:
 
-- `set_view_projection(Mat4)` — the world→clip matrix (KE-0205).
+- `set_view_projection(Mat4)` — the world→clip matrix.
 - `set_camera_position(Vec3)` — the eye in world space, so **specular is
   view-dependent**. It used to be a hardcoded `float3(0, 0, 1)`, which pinned every
   highlight to a fixed screen direction. The position is *pushed*, never recovered
@@ -85,20 +84,20 @@ view-projection to get a per-pixel view ray, and the sun is one dot product plus
 `smoothstep`s. Azimuth is a compass bearing with `-Z` as north and `+X` as east; the
 convention is documented and unit-tested in `kaman-render-api`'s `sun` module.
 
-Before KE-0406 the light was written into a Metal buffer once at construction and
+Originally the light was written into a Metal buffer once at construction and
 never updated, so nothing above the seam could set the sun at all. It is now written
 into a small ring — one 256-byte slot per in-flight frame, selected by
 `frame_index % MAX_FRAMES_IN_FLIGHT` — so the per-frame path still allocates nothing
 and the frames-in-flight semaphore proves the CPU never rewrites a slot the GPU is
 still reading.
 
-KE-0406 also rebalanced the ambient term as **sky fill** (0.6 → 0.2 against an
+Moving the sun into the seam also rebalanced the ambient term as **sky fill** (0.6 → 0.2 against an
 unchanged diffuse 0.8): at the old balance an unlit face sat at 43% of a lit one and
 every scene read overcast. Both 3D pixel-hash baselines were re-blessed for it.
 
-## Shadows: a fitted shadow-map pass (KE-0407)
+## Shadows: a fitted shadow-map pass
 
-The sun casts real shadows. (Until KE-0407 the only "shadow" was a fake blob that
+The sun casts real shadows. (Before this pass the only "shadow" was a fake blob that
 darkened a fixed circle around the world origin; it is deleted, uniforms and all.)
 
 **Pass order.** Every frame is two render passes on one command buffer:
@@ -118,7 +117,8 @@ list; `submit` replays that list into both passes. The list keeps its capacity, 
 the steady state still allocates nothing.
 
 **TBDR store actions.** The scene pass's MSAA attachments resolve in-tile and are
-discarded (memoryless on iOS). The shadow map is the opposite: written by one pass
+discarded (and will be memoryless on iOS, via the `MSAA_MEMORYLESS` hook, once iOS is
+supported). The shadow map is the opposite: written by one pass
 and sampled by the next, so it is `Private` (never `Memoryless`) with a `Store` depth
 store action. Getting this wrong is silent — the scene would sample garbage — so the
 texture's storage/usage is asserted at creation and the store action every time the
@@ -140,7 +140,7 @@ bounding sphere (whose size does not change as the camera turns), its radius rou
 up to 0.5 units, and its centre **snapped to whole shadow texels** in a light space
 anchored at the world origin — so as the fit slides with the camera every world
 point stays on the same sub-texel position and static shadow edges cannot shimmer.
-Unit-tested GPU-free in `src/shadow.rs`. The light direction is the KE-0406
+Unit-tested GPU-free in `src/shadow.rs`. The light direction is the
 `SunSky::direction()` already in the light block — there is no second source of
 truth — so turning the sun turns the shadows.
 
@@ -153,7 +153,7 @@ at the demo's fit, so under half a texel. It moves a contact shadow only ~3 cm u
 ~4-texel, ~28 cm penumbra). Full
 reasoning in `src/shadow.rs`.
 
-## Graphics settings through the seam (KE-0408)
+## Graphics settings through the seam
 
 `RenderDevice::set_render_settings(&RenderSettings)` is how the engine's graphics settings (the
 built-in Graphics menu, or a game's own UI) reach the backend. Every field is relative to the
@@ -182,24 +182,26 @@ the factory and hands it to the engine; the factory runs once in `resumed`, afte
 the window is created. The headless driver keeps the GPU-free `NullRenderer`. This
 keeps `metal` out of `kaman-core`'s dependency tree (CI-enforced).
 
-## Camera (temporary inline)
+## The camera is not here
 
-`kaman-camera` is still a stub and Phase 1 has no camera ticket, so a **minimal**
-view/projection `Camera` is inlined here to place the reference scene. A later
-camera-migration ticket should replace it with the real crate and delete
-`src/camera.rs`.
+The backend has no camera of its own: it receives the world→clip matrix and the eye
+position through the seam each frame. The camera type and the chase controller live in
+`kaman-camera`.
 
 ## Runtime shader compilation
 
 Shaders compile at runtime via `include_str!` + `new_library_with_source`
-(`shaders/rasterization.metal`). The `.metallib` precompile is KE-0107.
+(`shaders/rasterization.metal`). An off-by-default `precompiled-shaders` feature compiles
+them to a `.metallib` at build time instead (it needs full Xcode); making that the default
+is planned for v0.1.0.
 
-## Render pixel-hash guard (KR1.3)
+## Render pixel-hash guard
 
 `tests/pixel_hash.rs` renders fixed reference content into an offscreen Metal
 texture, reads the pixels back, hashes it (FNV-1a 64-bit, no external crate), and
 asserts the hash equals a committed baseline. This is the golden net that pins the
-renderer's output so KE-0103/0104/0105 can prove they preserved behavior.
+renderer's output so refactors (persistent buffers, the uniform ring, frames in
+flight) can prove they preserved behavior.
 
 Four independent references are pinned in it, each with its own baseline (plus
 `TEXTURED_REFERENCE_HASH`'s equivalent, `REFERENCE_HASH` in
@@ -208,11 +210,11 @@ Four independent references are pinned in it, each with its own baseline (plus
 | Constant | Guards |
 | --- | --- |
 | `REFERENCE_HASH` | The **3D reference scene**: a lit, rotated box through the Phong pipeline and the look stack (gradient sky, ACES tonemap, fog, shadow-map lookup, 4x MSAA). |
-| `OVERLAY_REFERENCE_HASH` | The **2D overlay pass** (KE-0404): the pixel→NDC mapping and its `Y` flip, source-over blending in record order, and all three `OverlayFill` modes — solid, textured, and SDF. |
-| `SUN_REFERENCE_HASH` | The **sun disc** and glow (KE-0406), in an otherwise empty frame. |
-| `SHADOW_REFERENCE_HASH` | The **shadow map** (KE-0407): a floating cube casting onto a ground half drawn by the textured pipeline and half by the untextured one. Companion tests render it with the shadow pass's casters disabled (the frame must change, and darken exactly where the shadow is predicted) and with the sun turned (the shadow must move). |
+| `OVERLAY_REFERENCE_HASH` | The **2D overlay pass**: the pixel→NDC mapping and its `Y` flip, source-over blending in record order, and all three `OverlayFill` modes — solid, textured, and SDF. |
+| `SUN_REFERENCE_HASH` | The **sun disc** and glow, in an otherwise empty frame. |
+| `SHADOW_REFERENCE_HASH` | The **shadow map**: a floating cube casting onto a ground half drawn by the textured pipeline and half by the untextured one. Companion tests render it with the shadow pass's casters disabled (the frame must change, and darken exactly where the shadow is predicted) and with the sun turned (the shadow must move). |
 
-**KE-0407** re-blessed `REFERENCE_HASH` and the textured baseline: deleting the
+The **shadow-map pass** re-blessed `REFERENCE_HASH` and the textured baseline: deleting the
 fake blob shadow (which was centred on the origin, where both reference meshes sit)
 brightened them. Neither frame gains a real shadow — both re-render byte-identically
 with the shadow pass's casters disabled, which is also the evidence that nothing
@@ -225,7 +227,7 @@ here, where a copy would go stale on each re-blessing.
 
 The overlay reference draws no geometry and pushes no camera, so the two are truly
 independent: a change to the 3D scene cannot move the overlay's pixels, or vice
-versa. **KE-0406** leans on exactly that: it re-blessed the two 3D baselines (a
+versa. Moving the **sun into the seam** leaned on exactly that: it re-blessed the two 3D baselines (a
 deliberate lighting change) and `OVERLAY_REFERENCE_HASH` came back **unchanged**,
 which is the evidence that the new lighting did not leak into screen space.
 
@@ -245,9 +247,9 @@ perfectly stably and, once blessed, pass forever while guarding nothing.
   baseline you did not mean to touch comes back different, something unintended
   moved — investigate rather than pasting it. Blessing is deliberately manual and
   loud.
-- **CI safety:** GitHub macOS runners are headless with no GPU, so
-  `MTLCreateSystemDefaultDevice` can return nil. Both tests detect device absence
-  and **skip** (print a skip line, return) instead of failing, so they never
-  break a GPU-less build. On a real Mac they run and assert.
+- **No GPU, no failure:** when `MTLCreateSystemDefaultDevice` returns nil the tests
+  detect it and **skip** (print a skip line, return) instead of failing, so they never
+  break a GPU-less build. GitHub's macOS runners do expose a (paravirtual) Metal
+  device, so in CI the tests run and assert, as they do on a real Mac.
 
 Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.

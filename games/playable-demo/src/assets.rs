@@ -8,7 +8,7 @@
 //! Every model the demo draws (the player car, the traffic cars, the roadside
 //! buildings, the road tile, the skyline backdrop) is a committed `.glb`/`.gltf`
 //! file loaded exactly once via [`AssetCache`] and then shared by handle
-//! (KE-0103's "upload once, reference by handle" rule, applied to whole asset
+//! (the engine's "upload once, reference by handle" rule, applied to whole asset
 //! files). This module holds the two load paths — [`load_model`] for a
 //! multi-part model whose primitives may or may not carry a texture, and
 //! [`load_textured_mesh`] for a single always-textured mesh — plus the *fit*
@@ -32,7 +32,7 @@ pub(crate) type CarPart = (Transform, MeshHandle, Option<TextureHandle>);
 
 /// Import a model through the asset cache and return its drawable parts: one
 /// `(fitted transform, mesh handle, base-color texture)` per mesh-node. The file is
-/// parsed + its meshes uploaded exactly once (KE-0103); each mesh's decoded
+/// parsed + its meshes uploaded exactly once; each mesh's decoded
 /// base-color image is uploaded here via `create_texture` (the cache uploads
 /// meshes, not textures). `fit` computes the model→world fit transform from the
 /// scene bounds ([`fit_transform`] for cars, [`building_fit`] for buildings); each
@@ -140,13 +140,13 @@ pub(crate) fn fit_transform(scene: &kaman_assets::SceneAsset) -> Transform {
 }
 
 /// Import a **single-mesh textured** glTF (a unit quad whose material carries an
-/// embedded base-color PNG — the asphalt road tile, KE-0704, or the skyline
-/// billboard, KE-0705) and return `(mesh handle, base-color texture handle)`.
+/// embedded base-color PNG — the asphalt road tile or the skyline
+/// billboard) and return `(mesh handle, base-color texture handle)`.
 ///
 /// The importer packs the quad on the `[pos,normal,uv]` textured layout and
 /// `AssetCache::load` uploads it as a textured mesh (one handle); the decoded
-/// base-color RGBA8 is handed straight to `create_texture`. Parsed + uploaded once
-/// (KE-0103); the mesh's node transform is identity (the quad is a unit tile
+/// base-color RGBA8 is handed straight to `create_texture`. Parsed + uploaded once;
+/// the mesh's node transform is identity (the quad is a unit tile
 /// placed/scaled by the caller's transform), so only its handle is needed.
 pub(crate) fn load_textured_mesh(
     cache: &mut AssetCache,

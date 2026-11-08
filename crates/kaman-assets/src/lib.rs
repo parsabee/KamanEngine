@@ -20,7 +20,7 @@
 //! ([`render_vertex_layout`]) with a **default vertex color**, so an imported
 //! mesh renders immediately through the existing (untextured) Phong pipeline. The
 //! parsed **UVs are retained** on [`MeshAsset::uvs`] — deliberately *not* packed
-//! into the render bytes — so KE-0403 can build a UV-carrying, textured vertex
+//! into the render bytes — so the textured path can build a UV-carrying, textured vertex
 //! buffer without re-parsing the file. Each [`MeshAsset`] carries the packed
 //! `vertices`, `indices`, and its [`VertexLayout`](kaman_render_api::VertexLayout),
 //! ready to drop into [`MeshData`](kaman_render_api::MeshData).
@@ -28,7 +28,7 @@
 //! # Load once, reference by handle
 //!
 //! [`AssetCache`] parses (and optionally uploads) a file **once** and shares it
-//! by handle across N instances — the KE-0103 "upload once, reference by handle"
+//! by handle across N instances — the renderer's "upload once, reference by handle"
 //! rule applied to whole asset files. See the [`cache`] module.
 //!
 //! # Spawning

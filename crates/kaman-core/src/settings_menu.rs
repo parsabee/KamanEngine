@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! The built-in **Graphics menu**, as platform-neutral data (KE-0408).
+//! The built-in **Graphics menu**, as platform-neutral data.
 //!
 //! This is everything about the menu that is not AppKit: its layout, the labels,
 //! which item is checked or enabled for given settings, what choosing an item

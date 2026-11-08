@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! The engine-generic **sun + sky** description (KE-0406).
+//! The engine-generic **sun + sky** description.
 //!
 //! [`SunSky`] is how anything above the seam asks for a *specific sun*: where it
 //! is in the sky, what colour and how bright it is, how much light the sky fills
@@ -119,11 +119,11 @@ impl SunSky {
 impl Default for SunSky {
     fn default() -> Self {
         // A high, white, mid-afternoon sun over a calm blue gradient sky. The
-        // angles are the pre-KE-0406 hardcoded backend default expressed in this
+        // angles are the earlier hardcoded backend default expressed in this
         // convention (its direction was `(-0.5, -1.0, -0.3)`, i.e. bearing ~120°
         // at ~60° elevation), so a caller that pushes nothing keeps the engine's
         // historical default look — except for the fill, which is rebalanced as
-        // sky fill rather than a second light (KE-0406).
+        // sky fill rather than a second light.
         Self {
             sun_elevation_deg: 60.0,
             sun_azimuth_deg: 120.0,
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn a_western_afternoon_sun_comes_from_negative_x() {
-        // The demo's case (KE-0406): a ~30° sun in the west-northwest. The light
+        // The demo's case: a ~30° sun in the west-northwest. The light
         // must travel *toward* +X (eastward), i.e. arrive from the left of a
         // camera looking along -Z.
         let sun = SunSky {
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn default_reproduces_the_historical_backend_sun() {
-        // The pre-KE-0406 hardcoded default was `direction: (-0.5, -1.0, -0.3)`.
+        // The earlier hardcoded backend default was `direction: (-0.5, -1.0, -0.3)`.
         // The default angles must reproduce it (normalised) so pushing nothing
         // keeps the engine's historical look.
         let historical = Vec3::new(-0.5, -1.0, -0.3).normalize();
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn default_fill_is_dominated_by_the_sun() {
-        // The KE-0406 rebalance: fill is sky fill, not a second sun.
+        // The sun/sky rebalance: fill is sky fill, not a second sun.
         let sun = SunSky::default();
         assert!((0.15..=0.25).contains(&sun.sky_fill));
         assert!(sun.sky_fill < sun.sun_intensity * 0.5);

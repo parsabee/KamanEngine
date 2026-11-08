@@ -2,16 +2,16 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Persistent-mesh-buffer guards (KE-0103).
+//! Persistent-mesh-buffer guards.
 //!
 //! These tests pin the two load-bearing invariants of the persistent mesh
 //! registry against the real Metal backend:
 //!
-//! 1. **Allocation-free per-frame path (KR1.2).** After meshes are uploaded once
+//! 1. **Allocation-free per-frame path.** After meshes are uploaded once
 //!    at load time, the per-frame path (`begin_frame` … `submit`) issues **zero**
-//!    `new_buffer*` calls. Meshes are persistent (KE-0103) and per-draw uniforms
-//!    are written into the persistent uniform ring (KE-0104), so the per-frame
-//!    allocation delta is exactly `0` — this is the KR1.2 "zero allocations in
+//!    `new_buffer*` calls. Meshes are persistent and per-draw uniforms
+//!    are written into the persistent uniform ring, so the per-frame
+//!    allocation delta is exactly `0` — this is the "zero allocations in
 //!    the per-frame path" proof.
 //! 2. **Stale-handle invariant.** Drawing a `destroy_mesh`'d handle is a defined
 //!    no-op (the generational registry rejects it), never a silent wrong-buffer
@@ -110,7 +110,7 @@ fn per_frame_path_allocates_no_mesh_buffers() {
     draw_one(&mut r, m0);
 
     // Measure a frame that draws both persistent meshes. Meshes are persistent
-    // (KE-0103) and per-draw uniforms come from the persistent ring (KE-0104),
+    // and per-draw uniforms come from the persistent ring,
     // so the per-frame path must allocate NOTHING.
     let before = r.allocation_count();
     r.begin_frame();
@@ -119,7 +119,7 @@ fn per_frame_path_allocates_no_mesh_buffers() {
     r.submit();
     let per_frame = r.allocation_count() - before;
 
-    // KR1.2: zero allocations on the per-frame path. If a mesh were re-uploaded
+    // zero allocations on the per-frame path. If a mesh were re-uploaded
     // or a per-draw uniform buffer allocated, this would be > 0.
     assert_eq!(
         per_frame, 0,
@@ -190,7 +190,7 @@ fn drawing_a_destroyed_mesh_is_a_defined_no_op() {
 
     // A brand-new mesh reusing the freed slot gets a DIFFERENT handle and draws
     // fine — the stale handle never resolves to it. A live draw consumes exactly
-    // one ring slot (and, per KR1.2, allocates nothing).
+    // one ring slot (and allocates nothing).
     let fresh = make_mesh(&mut r);
     assert_ne!(fresh, mesh, "reused slot must yield a new (bumped) handle");
     let before_alloc = r.allocation_count();
@@ -207,7 +207,7 @@ fn drawing_a_destroyed_mesh_is_a_defined_no_op() {
     assert_eq!(
         r.allocation_count(),
         before_alloc,
-        "a live mesh draw must not allocate (uniform ring, KR1.2)"
+        "a live mesh draw must not allocate (uniform ring)"
     );
 
     // The stale handle is still a no-op even after slot reuse.

@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Render quality settings through the seam (KE-0408).
+//! Render quality settings through the seam.
 //!
 //! These pin what `RenderDevice::set_render_settings` and `resize_surface` do to
 //! the real Metal backend: the fog scales with the draw distance, the shadow range

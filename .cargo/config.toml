@@ -1,8 +1,8 @@
 # Cargo configuration for KamanEngine.
 #
-# Phase-3 (iOS bring-up) placeholder. The iOS target triples below are NOT wired up in
-# Phase 0 — this stub reserves the location. When Phase 3 begins, install the targets with
-# `rustup target add aarch64-apple-ios aarch64-apple-ios-sim` and uncomment as needed.
+# iOS placeholder (v0.2, see the "iOS support" tracking issue). The iOS target triples below
+# are not wired up yet — this stub reserves the location. When iOS work starts, install the
+# targets with `rustup target add aarch64-apple-ios aarch64-apple-ios-sim` and uncomment.
 #
 # [target.aarch64-apple-ios]
 # # device build settings (linker/rustflags) go here

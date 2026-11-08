@@ -3,7 +3,7 @@
 // This software is released under the Apache-2.0 License.
 
 //! One-shot generator for the committed **SDF font atlas** the demo's HUD draws
-//! with (KE-0404).
+//! with.
 //!
 //! The source face is a real, permissively-licensed font — Roboto (SIL Open Font
 //! License, committed alongside as `assets/font.ttf` + `assets/font-OFL.txt`).

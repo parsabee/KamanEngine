@@ -11,7 +11,7 @@
 //!
 //! # Why accessors, not fields
 //!
-//! `EngineCtx` is the borrow-checker chokepoint called out in the ticket. Rather
+//! `EngineCtx` is the borrow-checker chokepoint of the engine/game design. Rather
 //! than hand the game long-lived `&mut` handles to individual subsystems (which
 //! would let it alias engine state across a frame), the engine builds a fresh
 //! `EngineCtx` borrowing its state and passes `&mut EngineCtx` into each
@@ -35,9 +35,9 @@ use crate::input::InputState;
 ///
 /// The engine owns one renderer implementing both halves of the
 /// `kaman-render-api` seam and exposes it to the game as a single
-/// `&mut dyn Renderer`. In Phase 1 the concrete backend is
-/// [`NullRenderer`](kaman_render_api::NullRenderer); KE-0102 swaps in the real
-/// Metal backend behind the same trait object, so game code is unaffected.
+/// `&mut dyn Renderer`. The concrete backend is the Metal renderer or a
+/// [`NullRenderer`](kaman_render_api::NullRenderer) (headless runs and tests),
+/// both behind the same trait object, so game code is unaffected.
 ///
 /// This is a pure marker: it adds no methods, only bundles the two seam traits
 /// so a single trait object can be handed across the boundary. A blanket impl
@@ -76,7 +76,7 @@ impl<T: RenderDevice + FrameRecorder> Renderer for T {}
 ///   audio device and never fails, so it is called unconditionally.
 /// - Frame timing — [`perf`](Self::perf), a [`PerfSnapshot`] for the previous
 ///   frame.
-/// - Graphics settings (KE-0408) —
+/// - Graphics settings —
 ///   [`graphics_settings`](Self::graphics_settings) /
 ///   [`set_graphics_settings`](Self::set_graphics_settings), the same model the
 ///   built-in settings menu drives.
@@ -175,8 +175,8 @@ impl<'a> EngineCtx<'a> {
     /// A game creates resources (at load time, typically in
     /// [`init`](crate::Game::init)) and records the frame (in
     /// [`render`](crate::Game::render)) through this one handle. The concrete
-    /// backend is [`NullRenderer`](kaman_render_api::NullRenderer) in Phase 1 and
-    /// the Metal backend from KE-0102 later — the game code is identical either
+    /// backend is [`NullRenderer`](kaman_render_api::NullRenderer) headless and
+    /// the Metal backend in a window — the game code is identical either
     /// way because it only ever sees the trait object.
     #[must_use]
     pub fn renderer(&mut self) -> &mut dyn Renderer {
@@ -192,7 +192,7 @@ impl<'a> EngineCtx<'a> {
         self.camera
     }
 
-    /// Mutable access to the engine [`Camera`] (KE-0205).
+    /// Mutable access to the engine [`Camera`].
     ///
     /// Position it here — typically by driving a
     /// [`kaman_camera::ChaseController`] toward the player each frame in
@@ -202,7 +202,7 @@ impl<'a> EngineCtx<'a> {
     /// last set is the pose the frame is drawn from. The game never touches the
     /// render backend's camera (there isn't one) — the view crosses the seam as a
     /// plain matrix, accompanied by `camera().position()` for view-dependent
-    /// shading (KE-0406).
+    /// shading.
     #[must_use]
     pub fn camera_mut(&mut self) -> &mut Camera {
         self.camera
@@ -217,7 +217,7 @@ impl<'a> EngineCtx<'a> {
         self.input
     }
 
-    /// The engine's [`Audio`] layer (KE-0405) — load sounds, play one-shots, drive
+    /// The engine's [`Audio`] layer — load sounds, play one-shots, drive
     /// the looping bed, set the master level.
     ///
     /// Mutable because every audio operation mutates the mixer (a load registers a
@@ -236,7 +236,7 @@ impl<'a> EngineCtx<'a> {
         self.audio
     }
 
-    /// The [`GraphicsSettings`] currently in effect (KE-0408).
+    /// The [`GraphicsSettings`] currently in effect.
     ///
     /// A request made with [`set_graphics_settings`](Self::set_graphics_settings)
     /// is not visible here until it has been applied, at the start of the next
@@ -246,7 +246,7 @@ impl<'a> EngineCtx<'a> {
         self.graphics.current()
     }
 
-    /// Request new [`GraphicsSettings`] (KE-0408). This is the entry point for a
+    /// Request new [`GraphicsSettings`]. This is the entry point for a
     /// game's **own** settings UI; the built-in macOS menu queues through the same
     /// path.
     ///
@@ -291,7 +291,7 @@ impl<'a> EngineCtx<'a> {
     ///
     /// It is `0.0` in [`init`](crate::Game::init) and
     /// [`update`](crate::Game::update) contexts, where interpolation has no
-    /// meaning. Phase 2 games may ignore it; it is wired through for later use.
+    /// meaning. A game may ignore it.
     #[must_use]
     pub fn alpha(&self) -> f32 {
         self.alpha

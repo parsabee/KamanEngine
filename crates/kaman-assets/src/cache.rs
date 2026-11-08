@@ -3,7 +3,7 @@
 // This software is released under the Apache-2.0 License.
 
 //! Load-once / dedup [`AssetCache`]: parse + upload a glTF file **once**, then
-//! share it by handle across N instances (KE-0103 discipline, one level up).
+//! share it by handle across N instances (the renderer's upload-once discipline, one level up).
 //!
 //! The cache keys imported scenes by their file path. The first request for a
 //! path parses the file and (optionally) uploads its meshes into the render

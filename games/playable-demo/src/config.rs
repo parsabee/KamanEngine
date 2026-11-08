@@ -130,7 +130,7 @@ pub(crate) const CAR_YAW: f32 = std::f32::consts::PI;
 // `assets/` — see `asset_root`). Join with `asset_root::asset_path`, so the paths
 // hold regardless of the process working directory or where the binary lives.
 
-/// The committed **player** car model, imported at startup (KE-0703): the CC0
+/// The committed **player** car model, imported at startup: the CC0
 /// Quaternius Sports Car (`.glb`, public domain).
 pub(crate) const PLAYER_CAR_ASSET: &str = "sports_car.glb";
 
@@ -140,7 +140,7 @@ pub(crate) const PLAYER_CAR_ASSET: &str = "sports_car.glb";
 pub(crate) const TRAFFIC_CAR_ASSETS: [&str; 3] = ["car.glb", "car2.glb", "police_car.glb"];
 
 /// The committed roadside **building** prefabs (CC0 Kenney City Kit, public
-/// domain), imported at startup (KE-0706). Order matches [`BUILDING_WEIGHTS`].
+/// domain), imported at startup. Order matches [`BUILDING_WEIGHTS`].
 pub(crate) const BUILDING_ASSETS: [&str; 8] = [
     "skyscraper_a.glb",
     "skyscraper_b.glb",
@@ -157,19 +157,19 @@ pub(crate) const BUILDING_ASSETS: [&str; 8] = [
 /// (~37%). Tunes how the streamed city reads.
 pub(crate) const BUILDING_WEIGHTS: [u32; 8] = [4, 4, 18, 18, 19, 12, 12, 13];
 
-/// The committed asphalt road-tile glTF (KE-0704), imported at startup: a flat
+/// The committed asphalt road-tile glTF, imported at startup: a flat
 /// textured quad carrying the tiling UVs plus an embedded asphalt base-color PNG.
 pub(crate) const ROAD_ASSET: &str = "road.gltf";
 
-/// The committed city skyline backdrop glTF (KE-0705): a vertical billboard quad
+/// The committed city skyline backdrop glTF: a vertical billboard quad
 /// with an embedded skyline base-color PNG cropped from a CC0 photo.
 pub(crate) const SKYLINE_ASSET: &str = "skyline.gltf";
 
-/// The committed driving-music track (KE-0405): a ~27 s 16-bit stereo PCM WAV,
+/// The committed driving-music track: a ~27 s 16-bit stereo PCM WAV,
 /// looped seamlessly for the whole session once a run starts.
 pub(crate) const MUSIC_ASSET: &str = "runner_loop.wav";
 
-/// The committed impact one-shot (KE-0405): a ~2.3 s 16-bit mono PCM WAV, played
+/// The committed impact one-shot: a ~2.3 s 16-bit mono PCM WAV, played
 /// once at the moment a run ends.
 pub(crate) const IMPACT_ASSET: &str = "car_crash_impact_only.wav";
 
@@ -271,7 +271,7 @@ pub(crate) const BACKDROP_H: f32 = 24.0;
 pub(crate) const BACKDROP_Y: f32 = 1.5;
 
 // ---------------------------------------------------------------------------
-// HUD (KE-0404 / KE-0707)
+// HUD
 // ---------------------------------------------------------------------------
 
 /// The committed SDF font atlas the HUD draws with, baked by the `gen_font`
@@ -299,7 +299,7 @@ pub(crate) const HUD_FADE_SECONDS: f32 = 0.75;
 pub(crate) const HUD_BLACK_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 // ---------------------------------------------------------------------------
-// Sun and sky (KE-0406)
+// Sun and sky
 // ---------------------------------------------------------------------------
 //
 // A **summer afternoon, about 4pm**. This is the demo's *choice*: the engine only
@@ -347,7 +347,7 @@ pub(crate) const SUN_INTENSITY: f32 = 1.15;
 
 /// Ambient **sky fill**. Against [`SUN_INTENSITY`] this leaves a face the sun
 /// misses at ~19% of a fully lit one — a deep but not black shadow side, which is
-/// what open sunlight actually looks like. The pre-KE-0406 0.6-vs-0.8 balance left
+/// what open sunlight actually looks like. The earlier 0.6-vs-0.8 balance left
 /// it at 43%, and the whole scene read overcast.
 pub(crate) const SKY_FILL: f32 = 0.22;
 
@@ -357,16 +357,16 @@ pub(crate) const SKY_ZENITH_COLOR: [f32; 3] = [0.11, 0.27, 0.56];
 
 /// Linear RGB of the sky at the horizon — a bright, faintly warm afternoon haze.
 ///
-/// This one is load-bearing beyond the sky: the distance fog blends *toward* it
-/// (KE-0401/KE-0706), so it is also the colour the streaming spawn edge, the far end
-/// of the hill terrain, and the base of the KE-0705 skyline billboard all dissolve
+/// This one is load-bearing beyond the sky: the distance fog blends *toward* it,
+/// so it is also the colour the streaming spawn edge, the far end
+/// of the hill terrain, and the base of the skyline billboard all dissolve
 /// into. Kept deliberately close to the engine's own default (`0.55, 0.62, 0.72`) —
 /// a touch brighter and warmer for the afternoon sun — because the backdrop stands
 /// in front of it and the two have to meet without a seam.
 pub(crate) const SKY_HORIZON_COLOR: [f32; 3] = [0.62, 0.67, 0.74];
 
 // ---------------------------------------------------------------------------
-// Audio mix (KE-0405)
+// Audio mix
 // ---------------------------------------------------------------------------
 //
 // Levels are in **decibels relative to each file's own recorded level**

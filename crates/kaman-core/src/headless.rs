@@ -14,7 +14,7 @@
 //! tests use, and it runs on headless CI runners.
 //!
 //! The same goes for sound: the harness holds a **silent** [`Audio`] layer
-//! (KE-0405) and opens no audio device, yet it records every play request, so a
+//! and opens no audio device, yet it records every play request, so a
 //! game's audio behaviour is asserted here the same way its draws are — see
 //! [`Headless::audio`].
 //!
@@ -168,12 +168,12 @@ impl Headless {
 
     /// Mutable access to the [`NullRenderer`], so a test can set up the render
     /// seam before a [`run`](Self::run). For example, it can resize the surface
-    /// to check how a HUD scales (KE-0408).
+    /// to check how a HUD scales.
     pub fn renderer_mut(&mut self) -> &mut NullRenderer {
         &mut self.renderer
     }
 
-    /// The [`Audio`] layer the game played through (KE-0405).
+    /// The [`Audio`] layer the game played through.
     ///
     /// A headless harness holds a **silent** layer and opens no output device, so
     /// this run makes no sound and needs no hardware. It is still a full record of
@@ -186,7 +186,7 @@ impl Headless {
         &self.lp.audio
     }
 
-    /// Queue new graphics settings (KE-0408), exactly as the built-in menu or
+    /// Queue new graphics settings, exactly as the built-in menu or
     /// [`EngineCtx::set_graphics_settings`](crate::EngineCtx::set_graphics_settings)
     /// would. They are applied at the start of the next frame (or before `init`,
     /// if the game has not been initialized yet). A headless run has no drawable,
@@ -196,7 +196,7 @@ impl Headless {
         self.lp.graphics.request(settings);
     }
 
-    /// The engine's graphics-settings state (KE-0408): the applied settings, any
+    /// The engine's graphics-settings state: the applied settings, any
     /// queued change, and the revision counter.
     #[must_use]
     pub fn graphics(&self) -> &GraphicsState {

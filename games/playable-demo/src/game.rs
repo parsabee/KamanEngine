@@ -73,35 +73,35 @@ pub(crate) struct CarRunner {
     /// tiles are drawn on it, sampling the asphalt base-color texture.
     pub(crate) textured_pipeline: Option<PipelineHandle>,
     /// The road-tile mesh — a flat quad carrying the tiling UVs, imported once from
-    /// `assets/road.gltf` (KE-0704) and scaled by each tile's transform.
+    /// `assets/road.gltf` and scaled by each tile's transform.
     pub(crate) road_mesh: Option<MeshHandle>,
-    /// The asphalt base-color texture uploaded once in `init` (KE-0704); bound
+    /// The asphalt base-color texture uploaded once in `init`; bound
     /// before the road-tile draws so the textured pipeline samples it.
     pub(crate) asphalt: Option<TextureHandle>,
-    /// The guardrail segment mesh (KE-0706) — a procedural rail + posts one
+    /// The guardrail segment mesh — a procedural rail + posts one
     /// `spawn_interval` long, built once and streamed along both road edges. Drawn
     /// on the untextured pipeline (its metal color is baked into the vertices).
     pub(crate) guardrail_mesh: Option<MeshHandle>,
-    /// The hill-terrain ground mesh (KE-0706) — a wide ground surface built once and
+    /// The hill-terrain ground mesh — a wide ground surface built once and
     /// drawn camera-locked: a flat valley floor **under** the road and buildings
     /// that rises into hills on both flanks, so the buildings sit on ground and the
     /// sky doesn't show through the mid-ground.
     pub(crate) hills_mesh: Option<MeshHandle>,
     /// The distant city skyline backdrop — a billboard quad imported once from
-    /// `assets/skyline.gltf` (KE-0705), drawn far ahead and locked to the camera's
+    /// `assets/skyline.gltf`, drawn far ahead and locked to the camera's
     /// XZ so it reads as a far skyline behind the fog.
     pub(crate) backdrop_mesh: Option<MeshHandle>,
-    /// The skyline base-color texture (KE-0705), uploaded once and bound before the
+    /// The skyline base-color texture, uploaded once and bound before the
     /// backdrop draw.
     pub(crate) backdrop_texture: Option<TextureHandle>,
-    /// The **player** car model, imported once from the CC0 `assets/sports_car.glb`
-    /// (KE-0703): one [`CarPart`] per drawable mesh-node, fit to the road. Uploaded
-    /// once (KE-0103) and reused every frame.
+    /// The **player** car model, imported once from the CC0 `assets/sports_car.glb`:
+    /// one [`CarPart`] per drawable mesh-node, fit to the road. Uploaded
+    /// once and reused every frame.
     pub(crate) player_car: Vec<CarPart>,
     /// The **traffic** car models — the CC0 `assets/{car,car2,police_car}.glb`
     /// ([`crate::config::TRAFFIC_CAR_ASSETS`]). Each obstacle draws one of these,
     /// chosen deterministically per streaming slot ([`variant_for_slot`]). All
-    /// uploaded once (KE-0103) and shared across every obstacle on screen.
+    /// uploaded once and shared across every obstacle on screen.
     pub(crate) traffic_cars: Vec<Vec<CarPart>>,
     /// The roadside **building** prefabs — the CC0 Kenney City Kit models
     /// ([`crate::config::BUILDING_ASSETS`]), imported once and streamed along both
@@ -109,21 +109,21 @@ pub(crate) struct CarRunner {
     /// chosen by a weighted per-slot pick ([`building_for_slot`]); shared across
     /// all instances.
     pub(crate) buildings: Vec<Vec<CarPart>>,
-    /// The chase camera controller that keeps the player framed (KE-0205). It
+    /// The chase camera controller that keeps the player framed. It
     /// trails the box from behind and above along the travel axis, with light
     /// smoothing so the follow eases rather than snapping.
     chase: ChaseController,
     /// Whether the run is live or crashed. `Playing` advances the world and reads
     /// Left/Right; `GameOver` freezes the run and waits for the replay key.
     pub(crate) state: GameState,
-    /// The SDF font atlas the HUD draws with (KE-0404/KE-0707), loaded once in
+    /// The SDF font atlas the HUD draws with, loaded once in
     /// `init`. `None` until then — the HUD simply draws nothing.
     pub(crate) font: Option<kaman_render_api::FontAtlas>,
-    /// The looping driving-music track (KE-0405), loaded once in `init` and started
+    /// The looping driving-music track, loaded once in `init` and started
     /// on the `Ready → Playing` transition. See [`Self::start_music`] for why it is
     /// started there and never restarted.
     music: Option<SoundHandle>,
-    /// The impact one-shot (KE-0405), loaded once in `init` and played exactly once
+    /// The impact one-shot, loaded once in `init` and played exactly once
     /// per ended run, from [`Self::game_over`].
     impact: Option<SoundHandle>,
     /// Seconds of the opening fade still to play. The title screen is fully black;
@@ -238,7 +238,7 @@ impl CarRunner {
     ///
     /// `Left`/`Right` are the only gameplay keys; each *press* snaps the car exactly
     /// one lane toward the edge (clamped), so a held key does not glide across lanes
-    /// (KE-0702, via [`InputState::is_key_just_pressed`](kaman_core::InputState::is_key_just_pressed)).
+    /// (via [`InputState::is_key_just_pressed`](kaman_core::InputState::is_key_just_pressed)).
     /// Both at once cancel.
     fn apply_lane_input(&mut self, ctx: &EngineCtx) {
         let input = ctx.input();
@@ -256,7 +256,7 @@ impl CarRunner {
     ///
     /// This is deliberately a *game* computation over entity transforms: it does
     /// **not** query `kaman-physics` for contacts (that would be an engine API
-    /// change, out of scope for this A0 ticket).
+    /// change, out of scope for the demo).
     fn overlaps(&self, obstacle_pos: Vec3) -> bool {
         let player = self.player_position();
         let dx = (player.x - obstacle_pos.x).abs();
@@ -274,7 +274,7 @@ impl CarRunner {
         ))
     }
 
-    /// Start the looping music (KE-0405).
+    /// Start the looping music.
     ///
     /// # The policy: one loop, started once, never restarted
     ///
@@ -304,7 +304,7 @@ impl CarRunner {
     /// `GameOver`.
     ///
     /// The world is left frozen (the crashed car stays put) until the player hits
-    /// the replay key; reporting is stdout for now (the on-screen HUD is KE-0707).
+    /// the replay key; the HUD shows the final score on the game-over screen.
     ///
     /// This is the run's single **edge** from live to ended, which is what makes it
     /// the right place for a one-shot: it is reached from the collision test at the
@@ -412,7 +412,7 @@ impl CarRunner {
             cx.spawned(obstacle);
         }
 
-        // Roadside buildings (KE-0706): one on each side of the road at this slot,
+        // Roadside buildings: one on each side of the road at this slot,
         // sitting on the ground plane BELOW the road so the freeway reads as raised.
         // Non-colliding decoration (no physics body); deterministic per slot + side
         // (weighted prefab, jittered offset) and independent of the lane PRNG.
@@ -437,7 +437,7 @@ impl CarRunner {
             cx.spawned(building);
         }
 
-        // Guardrails (KE-0706): a rail + posts segment along each road edge at this
+        // Guardrails: a rail + posts segment along each road edge at this
         // slot, sitting on the road deck. The shared mesh is one `spawn_interval`
         // long, so tile-to-tile segments abut seamlessly. Non-colliding decoration.
         for side in 0..2u64 {
@@ -491,7 +491,7 @@ impl Game for CarRunner {
         let scene = ctx.scene_mut();
         self.player = Some(Self::spawn_player(scene, start));
 
-        // Sounds (KE-0405): decoded **here**, once, and referenced by handle from
+        // Sounds: decoded **here**, once, and referenced by handle from
         // then on — same discipline as the meshes below, and for the same reason:
         // decoding a 27-second track is not something that may happen anywhere near
         // a fixed update. Nothing is played yet. The music deliberately does not
@@ -507,18 +507,18 @@ impl Game for CarRunner {
         self.music = Some(audio.load(asset_path(config::MUSIC_ASSET)));
         self.impact = Some(audio.load(asset_path(config::IMPACT_ASSET)));
 
-        // The cars are **imported** through `kaman-assets` (KE-0402/KE-0703) from
+        // The cars are **imported** through `kaman-assets` from
         // committed CC0 `.glb` models (Quaternius, public domain): the player drives
         // `assets/sports_car.glb`; the traffic cars are `assets/{car,car2,police_car}.glb`.
         // `load_model` fits each model to the road (uniform scale + orientation +
-        // resting height) and uploads its meshes once (KE-0103) plus any base-color
-        // textures. A car part with a texture draws on the **textured** pipeline
-        // (KE-0403); an untextured part draws on the Phong pipeline with its packed
+        // resting height) and uploads its meshes once plus any base-color
+        // textures. A car part with a texture draws on the **textured** pipeline;
+        // an untextured part draws on the Phong pipeline with its packed
         // material color. The road tile is likewise a textured quad from
-        // `assets/road.gltf` (KE-0704), drawn on the textured pipeline with the
+        // `assets/road.gltf`, drawn on the textured pipeline with the
         // asphalt texture.
         //
-        // The guardrail segment mesh (KE-0706) is sized to the scene's
+        // The guardrail segment mesh is sized to the scene's
         // `spawn_interval` so streamed segments abut seamlessly.
         let tile_depth = ctx.scene().config().spawn_interval;
         let renderer = ctx.renderer();
@@ -531,14 +531,14 @@ impl Game for CarRunner {
         }));
 
         // Textured pipeline (`[pos,normal,uv]`) for the asphalt road + the car
-        // (KE-0403).
+        // models (samples their base-color texture).
         self.textured_pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
             vertex_shader: "textured_vertex_main".into(),
             fragment_shader: "textured_fragment_main".into(),
             vertex_layout: textured_layout(),
         }));
 
-        // Ask the engine for the demo's sun (KE-0406): a summer ~4pm sun low in the
+        // Ask the engine for the demo's sun: a summer ~4pm sun low in the
         // west-northwest, with the sky tuned to match. Pushed **once**, here, rather
         // than every frame: the seam value is sticky and the backend re-uploads it
         // per frame, and the demo's time of day never changes. It must be in effect
@@ -567,7 +567,7 @@ impl Game for CarRunner {
         self.road_mesh = Some(road_mesh);
         self.asphalt = Some(asphalt);
 
-        // Distant city skyline backdrop (KE-0705): a textured billboard quad,
+        // Distant city skyline backdrop: a textured billboard quad,
         // uploaded once and drawn far ahead, locked to the camera's XZ.
         let (backdrop_mesh, backdrop_texture) =
             load_textured_mesh(&mut cache, renderer, &asset_path(config::SKYLINE_ASSET));
@@ -585,7 +585,7 @@ impl Game for CarRunner {
             .map(|name| load_model(&mut cache, renderer, &asset_path(name), fit_transform))
             .collect();
 
-        // Roadside building prefabs (KE-0706): imported + uploaded once each, fit to
+        // Roadside building prefabs: imported + uploaded once each, fit to
         // a common footprint (heights preserved), base at the model origin so the
         // spawn transform drops each onto the ground plane below the road.
         self.buildings = config::BUILDING_ASSETS
@@ -593,14 +593,14 @@ impl Game for CarRunner {
             .map(|name| load_model(&mut cache, renderer, &asset_path(name), building_fit))
             .collect();
 
-        // HUD font atlas (KE-0404/KE-0707): the committed SDF atlas, uploaded
+        // HUD font atlas: the committed SDF atlas, uploaded
         // once so the HUD can draw text every frame by handle.
         self.font = Some(crate::hud::load_font(
             renderer,
             &asset_path(config::FONT_ASSET),
         ));
 
-        // Guardrail segment mesh (KE-0706): built once (a rail + posts one
+        // Guardrail segment mesh: built once (a rail + posts one
         // `spawn_interval` long) and streamed along both road edges.
         let (gr_vertices, gr_indices) = guardrail_geometry(tile_depth);
         self.guardrail_mesh = Some(renderer.create_mesh(&MeshData {
@@ -609,7 +609,7 @@ impl Game for CarRunner {
             layout: color_layout(),
         }));
 
-        // Ground terrain sheet (KE-0706): built once, drawn camera-locked — a level
+        // Ground terrain sheet: built once, drawn camera-locked — a level
         // valley floor under the road/buildings that climbs into hills on the flanks.
         let (terrain_vertices, terrain_indices) = terrain_geometry();
         self.hills_mesh = Some(renderer.create_mesh(&MeshData {
@@ -636,7 +636,7 @@ impl Game for CarRunner {
                 // Start the opening fade: the black title screen dissolves into
                 // the running game over the next fraction of a second.
                 self.fade_remaining = config::HUD_FADE_SECONDS;
-                // ...and bring the music up with it (KE-0405). This transition is
+                // ...and bring the music up with it. This transition is
                 // the only place it starts: the title screen stays silent.
                 self.start_music(ctx);
             }
@@ -666,7 +666,7 @@ impl Game for CarRunner {
         self.apply_lane_input(ctx);
 
         // Advance forward by a fixed step. `dt` is always `FIXED_DT`, so the
-        // simulation is framerate-independent (KE-0201) — no wall-clock is read.
+        // simulation is framerate-independent — no wall-clock is read.
         // `travel` (world position) and `distance` (score) advance together; only
         // `distance` rewinds on a crash.
         // The run's speed ramps with time survived, so advance the run clock
@@ -714,7 +714,7 @@ impl Game for CarRunner {
             }
         }
 
-        // Follow the car with the chase camera (KE-0205): trail it from behind and
+        // Follow the car with the chase camera: trail it from behind and
         // above along the travel axis, looking at it. The engine pushes the
         // camera's view-projection across the render seam before `render`, so the
         // car stays framed. Done in `update` (post-rebase) so the camera tracks
@@ -740,8 +740,8 @@ impl Game for CarRunner {
 
         // Collision → game over (freeze the run; the player replays with Space).
         //
-        // Nothing follows: the score needs no stdout milestone, because since
-        // KE-0707 the HUD draws it live on screen every frame.
+        // Nothing follows: the score needs no stdout milestone, because
+        // the HUD draws it live on screen every frame.
         if self.hit_any_obstacle(ctx) {
             self.game_over(ctx);
         }
@@ -759,7 +759,7 @@ mod tests {
 
     /// Boot a game and tap the start key, leaving it in [`GameState::Playing`] —
     /// the state the gameplay tests below exercise. The demo opens frozen on its
-    /// title prompt (KE-0707), so every test that drives the world starts here,
+    /// title prompt, so every test that drives the world starts here,
     /// mirroring what a player does.
     fn started() -> (CarRunner, Headless) {
         let mut game = CarRunner::new();
@@ -824,7 +824,7 @@ mod tests {
 
     #[test]
     fn init_asks_the_engine_for_a_summer_afternoon_sun() {
-        // KE-0406: the demo's time of day is a *demo* decision pushed through the
+        // the demo's time of day is a *demo* decision pushed through the
         // seam, so it is assertable headlessly — no GPU, no pixels.
         let mut game = CarRunner::new();
         let harness = kaman_core::headless::run(&mut game, 0);
@@ -919,7 +919,7 @@ mod tests {
 
     #[test]
     fn opens_frozen_until_the_start_key() {
-        // The demo opens on its title prompt (KE-0707): the world is built and
+        // The demo opens on its title prompt: the world is built and
         // framed, but nothing advances until the player commits.
         let mut game = CarRunner::new();
         let mut h = Headless::new();
@@ -1299,7 +1299,7 @@ mod tests {
 
     #[test]
     fn sounds_load_once_in_init_and_the_title_screen_stays_silent() {
-        // KE-0405. Two facts in one test, because they are the same fact: audio is
+        // Audio. Two facts in one test, because they are the same fact: audio is
         // *loaded* at init and only *played* on a game event.
         let mut game = CarRunner::new();
         let mut h = Headless::new();

@@ -12,7 +12,7 @@ publish.workspace = true
 
 [dependencies]
 kaman-math.workspace = true
-# The audio layer (KE-0405). `kaman-audio` is a leaf that owns the `kira`/`cpal`
+# The audio layer. `kaman-audio` is a leaf that owns the `kira`/`cpal`
 # dependency, and `kaman-core` is its only engine-side consumer: the loop owns one
 # `Audio` and hands it to the game through `EngineCtx`. No other engine crate —
 # and nothing below the render seam — gains an audio dependency.
@@ -24,7 +24,7 @@ kaman-render-api.workspace = true
 kaman-perf.workspace = true
 winit.workspace = true
 
-# Native platform UI (KE-0408): the built-in Graphics menu (`NSMenu`) and settings
+# Native platform UI: the built-in Graphics menu (`NSMenu`) and settings
 # persistence (`NSUserDefaults`). Same objc2 versions winit 0.30 already builds,
 # so no new crates enter the build; AppKit's Metal/QuartzCore features stay off,
 # so `metal` stays out of this crate's tree.

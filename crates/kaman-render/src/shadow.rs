@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! The sun's shadow map: frustum fitting, stability, and bias (KE-0407).
+//! The sun's shadow map: frustum fitting, stability, and bias.
 //!
 //! This module is **pure math** — no Metal types — so everything that decides
 //! *where* the shadow map looks and *how* its lookups are biased is unit-tested
@@ -125,11 +125,11 @@ use kaman_render_api::ShadowQuality;
 /// rather than cascades, costs ~1.5× softer shadow edges near the car.
 pub const SHADOW_MAP_SIZE: u32 = 4096;
 
-/// Edge length, in texels, of the shadow map at [`ShadowQuality::Low`] (KE-0408):
+/// Edge length, in texels, of the shadow map at [`ShadowQuality::Low`]:
 /// 2048², 16 MiB, texels twice the size of [`SHADOW_MAP_SIZE`]'s at the same fit.
 pub const SHADOW_MAP_SIZE_LOW: u32 = 2048;
 
-/// The shadow map edge length a [`ShadowQuality`] tier uses (KE-0408):
+/// The shadow map edge length a [`ShadowQuality`] tier uses:
 /// [`SHADOW_MAP_SIZE`] for `High`, [`SHADOW_MAP_SIZE_LOW`] for `Low`, and `None`
 /// for `Off`, which renders no shadow pass and so needs no particular map.
 #[must_use]
@@ -298,7 +298,7 @@ pub struct ShadowFit {
 /// Fit the sun's orthographic shadow projection to the camera's visible slab.
 ///
 /// `view_projection` is the frame's camera (as pushed through the seam),
-/// `light_direction` the direction the sunlight travels (the KE-0406
+/// `light_direction` the direction the sunlight travels (the
 /// [`SunSky::direction`](kaman_render_api::SunSky::direction) — the backend passes
 /// the very vector it shades with), `shadow_distance` how deep the slab is, and
 /// `map_size` the shadow map's edge in texels. See the [module docs](self) for the
@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn projection_runs_along_the_sun_direction() {
-        // Shadowing is driven by the KE-0406 sun: moving a point along the light's
+        // Shadowing is driven by the seam's sun: moving a point along the light's
         // travel direction keeps its texel and only pushes it deeper.
         let vp = chase_camera(Vec3::ZERO, 16.0 / 9.0);
         let sun = demo_sun();
@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn snapping_is_equally_stable_on_the_low_quality_map() {
-        // KE-0408: the Low shadow tier fits the same slab into a 2048² map; the
+        // the Low shadow tier fits the same slab into a 2048² map; the
         // texel grid halves, and the anti-shimmer guarantee must still hold.
         assert_snapping_is_subtexel_stable(SHADOW_MAP_SIZE_LOW);
     }

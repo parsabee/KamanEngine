@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Frames-in-flight pacing primitive (KE-0105).
+//! Frames-in-flight pacing primitive.
 //!
 //! A small **counting semaphore** used to bound how far the CPU may run ahead of
 //! the GPU. The backend initializes it to [`MAX_FRAMES_IN_FLIGHT`] permits;
@@ -20,7 +20,7 @@
 //! the CPU (**never a busy-wait/spin**), and — crucially — its
 //! `release`(FrameSemaphore::release) path is **allocation-free**, which is the
 //! discipline required of the completion handler that runs on a Metal-owned
-//! thread (KE-0105 acceptance).
+//! thread.
 //!
 //! # Invariant enforced
 //!

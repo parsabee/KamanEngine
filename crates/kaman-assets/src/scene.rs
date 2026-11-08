@@ -31,7 +31,7 @@ pub const TEXTURED_VERTEX_STRIDE: u32 = (TEXTURED_VERTEX_FLOATS * 4) as u32;
 /// This matches the layout the built-in Phong pipeline binds against, so
 /// imported meshes render immediately through the existing (untextured) pipeline
 /// with a default vertex color. The parsed UVs are *not* in this layout — they
-/// are retained separately on [`MeshAsset::uvs`] for KE-0403's textured pipeline.
+/// are retained separately on [`MeshAsset::uvs`] for the textured pipeline.
 #[must_use]
 pub fn render_vertex_layout() -> VertexLayout {
     VertexLayout::new(
@@ -57,7 +57,7 @@ pub fn render_vertex_layout() -> VertexLayout {
 }
 
 /// The interleaved `[position_xyz, normal_xyz, uv]` render layout that a mesh
-/// carrying a base-color texture is packed onto (KE-0403).
+/// carrying a base-color texture is packed onto.
 ///
 /// Textured meshes swap the `color_rgb` attribute for a two-float `uv` at
 /// location 2 (offset 24, 32-byte stride) so the backend's **textured** pipeline
@@ -94,8 +94,8 @@ pub fn textured_vertex_layout() -> VertexLayout {
 /// bytes) — exactly the shape the render seam's
 /// [`TextureData`](kaman_render_api::TextureData) accepts. This is engine-generic
 /// CPU-side data: there is no GPU type here. The importer decodes glTF images
-/// (PNG/JPEG) into this form; on device the backend uploads it (with mipmaps),
-/// optionally transcoding to ASTC (KE-0403 leaves RGBA8 the macOS fallback).
+/// (PNG/JPEG) into this form; the backend uploads it as RGBA8 with mipmaps
+/// (ASTC compression is not implemented yet).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BaseColorTexture {
     /// Texture width in pixels.
@@ -113,7 +113,7 @@ pub struct BaseColorTexture {
 /// [`layout`](Self::layout) (`[pos,normal,color]`, 36-byte stride) and, together
 /// with [`indices`](Self::indices), are ready to hand to
 /// [`MeshData`](kaman_render_api::MeshData). The per-vertex
-/// [`uvs`](Self::uvs) are retained (not in the packed bytes) so the KE-0403
+/// [`uvs`](Self::uvs) are retained (not in the packed bytes) so the
 /// textured pipeline can build a UV-carrying vertex buffer without re-parsing the
 /// source file.
 #[derive(Debug, Clone, PartialEq)]
@@ -145,7 +145,7 @@ pub struct MeshAsset {
     /// sampled base-color texture (or used alone when there is no texture).
     /// Defaults to opaque white.
     pub base_color_factor: [f32; 4],
-    /// The decoded normal map, if the material has one (best-effort, KE-0403).
+    /// The decoded normal map, if the material has one (best-effort).
     /// RGBA8 like [`base_color`](Self::base_color); the tangent-space normal is
     /// in RGB. Plumbed toward a basic lit material.
     pub normal_map: Option<BaseColorTexture>,
@@ -232,7 +232,7 @@ impl SceneAsset {
 ///
 /// Positions and normals come from the source mesh; the color is the caller's
 /// default (imported geometry has no per-vertex color in v1 — materials/textures
-/// are KE-0403). `positions.len()` drives the count; `normals` shorter than that
+/// are handled separately). `positions.len()` drives the count; `normals` shorter than that
 /// are padded with `+Y`.
 pub(crate) fn pack_render_vertices(
     positions: &[[f32; 3]],
@@ -256,7 +256,7 @@ pub(crate) fn pack_render_vertices(
 }
 
 /// Pack parsed per-vertex attributes into the `[pos,normal,uv]` textured render
-/// bytes (KE-0403).
+/// bytes.
 ///
 /// Used for a mesh that has a base-color texture: positions and normals come
 /// from the source mesh, and each vertex carries its UV instead of a color, so

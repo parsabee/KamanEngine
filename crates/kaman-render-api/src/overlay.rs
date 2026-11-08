@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! The engine-generic **2D overlay** (HUD) seam types (KE-0404).
+//! The engine-generic **2D overlay** (HUD) seam types.
 //!
 //! The overlay is a screen-space pass the backend draws **after** the 3D scene:
 //! orthographic, no depth test or write, alpha-blended, so it composites on top of

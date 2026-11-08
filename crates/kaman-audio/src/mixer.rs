@@ -57,7 +57,7 @@ struct Device {
 /// for the one continuous bed, typically background music; and
 /// [`set_master_volume`](Self::set_master_volume) for everything at once. There is
 /// deliberately nothing else — no mixer graph, no effects, no spatialisation
-/// (KE-0405 out of scope).
+/// (all out of scope for this crate).
 ///
 /// # One loop channel
 ///
@@ -182,7 +182,7 @@ impl Audio {
     ///
     /// Decoding happens **here**, once per path: a second load of the same file
     /// returns the same [`SoundHandle`] without re-reading or re-decoding it, so
-    /// N plays of one sound cost one decode (the KE-0103 "load once, reference by
+    /// N plays of one sound cost one decode (the engine's "load once, reference by
     /// handle" rule).
     ///
     /// Infallible by design. If the file cannot be read or decoded, that one

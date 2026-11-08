@@ -2,12 +2,12 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! The demo's **HUD** (KE-0707): a live score readout while playing, and a
+//! The demo's **HUD**: a live score readout while playing, and a
 //! game-over overlay reporting the run with a replay prompt.
 //!
 //! This is the worked example of "the game draws its UI through the engine": the
 //! HUD owns no game logic — it reads [`CarRunner`]'s state and turns it into
-//! [`OverlayQuad`]s via the engine's 2D overlay seam (KE-0404). The engine draws
+//! [`OverlayQuad`]s via the engine's 2D overlay seam. The engine draws
 //! them after the 3D scene, orthographic and alpha-blended, so the HUD always
 //! composites on top.
 //!
@@ -15,7 +15,7 @@
 //!
 //! Text is formatted into a fixed [`StackStr`] buffer and laid out with
 //! [`FontAtlas::layout`], which emits one quad per glyph through a callback. No
-//! per-frame heap allocation happens anywhere on this path (KR1.2).
+//! per-frame heap allocation happens anywhere on this path.
 //!
 //! # Safe area
 //!
@@ -28,7 +28,7 @@
 //! Font sizes and margins are authored in **points** (the `HUD_*` constants) and
 //! multiplied by [`RenderDevice::surface_scale`][scale], the drawable pixels per
 //! window point. The HUD therefore keeps the same on-screen size at every render
-//! resolution the Graphics menu offers (KE-0408). At 100% on Retina the text is
+//! resolution the Graphics menu offers. At 100% on Retina the text is
 //! drawn with twice the pixels, not at half the size.
 //!
 //! [surface_size]: kaman_render_api::RenderDevice::surface_size
@@ -163,7 +163,7 @@ pub(crate) fn load_font(renderer: &mut dyn Renderer, path: &str) -> FontAtlas {
 }
 
 impl CarRunner {
-    /// Draw this frame's HUD through the engine's overlay seam (KE-0707).
+    /// Draw this frame's HUD through the engine's overlay seam.
     ///
     /// While [`GameState::Playing`] this is just the live score in the top-left
     /// safe corner. On [`GameState::GameOver`] it dims the scene and centers a
@@ -296,7 +296,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Headless HUD assertions (KE-0404 / KE-0707)
+    // Headless HUD assertions
     //
     // These drive the *real* demo through `kaman_core::headless::Headless` and read
     // back what `draw_hud` recorded on the `NullRenderer`'s overlay stream — no GPU,
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn hud_keeps_its_on_screen_size_at_every_render_scale() {
-        // KE-0408: at 2 drawable pixels per point (100% on Retina) the drawable is
+        // at 2 drawable pixels per point (100% on Retina) the drawable is
         // twice as large and every glyph must be too, so the title covers the
         // same fraction of the window as at 1 pixel per point.
         let glyph_heights = |scale: f32| -> Vec<f32> {
@@ -574,7 +574,7 @@ mod tests {
         );
         assert_within_surface(&quads, surface, "Playing");
 
-        // And the live score IS drawn — as SDF text (KE-0404), in the top-left safe
+        // And the live score IS drawn — as SDF text, in the top-left safe
         // corner. `draw_hud` reads `score()` after this frame's update, so the score
         // the frame drew is exactly the one the game holds now.
         let font = font_of(&game);

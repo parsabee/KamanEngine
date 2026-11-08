@@ -3,7 +3,7 @@
 // This software is released under the Apache-2.0 License.
 
 //! Procedural geometry for the parts of the scene that aren't imported models:
-//! the guardrails and the hill terrain (KE-0706).
+//! the guardrails and the hill terrain.
 //!
 //! Both are built once (in [`Game::init`](kaman_core::Game::init)) as raw
 //! `[pos,normal,color]` vertex bytes ready for

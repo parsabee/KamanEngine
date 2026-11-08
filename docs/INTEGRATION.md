@@ -1,91 +1,97 @@
-# Integration & Testing Strategy
+# Integration & Testing Discipline
 
-How prototype code becomes KamanEngine code without breaking anything, fully tested and
-documented. This document governs step 3 ("Implement") and step 4 ("SQA") of every phase
-in [ROADMAP.md](ROADMAP.md).
+How changes land in KamanEngine without breaking anything, fully tested and documented. The
+engine was built by migrating an earlier prototype module by module under these rules, and new
+work follows the same ones.
 
-## 1. Governing principle: the macOS app is a continuous oracle
+## 1. Governing principle: macOS CI is a continuous oracle
 
-The prototype builds and runs on macOS today. Every integration step must keep KamanEngine
-building and running on macOS. Breakage is caught the moment the oracle goes red — not weeks
-later. CI runs the oracle on every commit.
+Every change must keep KamanEngine building, testing and running on macOS. Breakage is caught the
+moment CI goes red, not weeks later. CI runs on every push to `main` and every pull request, and
+a red run blocks merging.
 
-## 2. Mechanics
+## 2. The CI gates
 
-### 2.1 Safety net (built once, in Phase 0)
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs, on a macOS runner:
 
-- **CI oracle:** every commit runs `cargo fmt --all -- --check`, `cargo build --workspace`,
-  `cargo test --workspace`, and a headless macOS smoke run (boot a scene, render 120 frames,
-  exit 0). Red blocks merge.
-- **Metal API Validation** on in all debug/CI runs.
-- **Golden baselines captured while behavior is known-good:**
-  - *Renderer* → deterministic offscreen render of a fixed scene → **hash the pixel buffer**.
-    (Captured in Phase 1 when the renderer migrates.)
-  - *Physics* → fixed seed + fixed timestep → record a 300-step trajectory → **golden hash**.
-  - *Existing tests* pinned green.
+- `cargo fmt --all -- --check`
+- `scripts/preflight.sh` (the default toolchain tier)
+- `cargo build --workspace` and `cargo test --workspace` (unit, integration and doc tests,
+  including the golden pixel-hash tests on the runner's Metal device)
+- the render-seam firewall: `kaman-render-api` must not depend on `metal`
+- the de-brand guard: no prototype identifiers in `crates/` or `games/`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- rustdoc with broken and private intra-doc links denied
+- the headless smoke oracle, `cargo run -p playable-demo -- --smoke` (120 frames on the CPU-only
+  `NullRenderer`, with Metal API Validation enabled)
 
-### 2.2 Migration order — leaves before roots
+Run the same commands locally before pushing; the [README](../README.md#contributing) lists them.
 
-```
-math → perf → ecs → physics → camera → scene → render-api → render → core/platform → assets → audio
-```
+## 3. Mechanics
 
-Pure, zero-coupling modules first: they prove the workspace split at near-zero risk. The
-renderer (highest risk) comes only after the seam and golden-hash net exist.
+### 3.1 Golden baselines
 
-### 2.3 Per-module pipeline (repeat for each crate)
+Code that resists unit testing is pinned by goldens captured while its behavior is known-good:
 
-`move` and `change` are **separate commits** so `git bisect` can localize any regression.
+- **Renderer:** deterministic offscreen renders of fixed scenes, with the pixel buffer hashed
+  (`crates/kaman-render/tests/pixel_hash.rs`, `textured_pixel_hash.rs`). A hash only changes with
+  a written justification next to the new value, and is re-blessed through the documented
+  `BLESS=1` path. The tests skip when no Metal device is present.
+- **Physics:** there is no golden trajectory test yet. Determinism is covered by the fixed
+  timestep and by the deterministic world-streaming tests in `kaman-scene`.
+
+### 3.2 Move and change separately
+
+When code moves between crates, the move and any behavior change are **separate commits**, so
+`git bisect` can localize a regression. Formatting-only changes are kept out of behavior commits
+for the same reason.
+
+### 3.3 Per-change pipeline
 
 | Step | Action | Gate |
 |---|---|---|
-| 1. Characterize | Write tests for *current* behavior before moving anything | green on old code |
-| 2. Extract | Move into `crates/kaman-*`, wire path deps, fix visibility. **No logic change.** | oracle still green |
-| 3. Refactor | Apply the ticket's change (only now) | golden/characterization still pass, or updated with justification |
-| 4. Unit-test up | Fine-grained tests for the public API; every invariant → a test | coverage target for Int-class |
-| 5. Document | rustdoc every public item; module doc states invariants; port "gotchas" into doc + tests; update crate README + ARCHITECTURE | `#![deny(missing_docs)]` compiles; doc examples run under `cargo test` |
-| 6. Verify | Full oracle + (iOS tickets) device smoke | all green |
-| 7. Merge | behind green CI | — |
+| 1. Characterize | Write tests for the *current* behavior before changing it | green on the old code |
+| 2. Change | Make the change | goldens and characterization tests still pass, or are updated with a justification |
+| 3. Unit-test | Fine-grained tests for the public API; every invariant gets a test | tests cover the new behavior |
+| 4. Document | rustdoc every public item; module docs state invariants; update the crate README and ARCHITECTURE | `#![deny(missing_docs)]` compiles; doc examples run under `cargo test` |
+| 5. Verify | The full CI gate set (section 2) | all green |
 
-### 2.4 Coverage targets by integration class
+### 3.4 Test depth by kind of code
 
-- **Reuse-as-is** (math, perf, ecs): keep existing tests green; add characterization where none exist; no coverage regression.
-- **Refactor** (renderer, physics, scene, camera, core): golden/characterization net *before* the change; raise unit coverage on touched public API to **≥ 80% lines**.
-- **New** (assets, audio, later spatial queries): **test-first (TDD)**, **≥ 80%** on logic.
+These are targets, not CI-enforced: there is no coverage tooling in CI yet.
 
-### 2.5 No-breakage mechanisms
+- **Moved as-is:** keep the existing tests green; add characterization tests where none exist.
+- **Refactored** (renderer, physics, scene, camera, core): put a golden or characterization net in
+  place *before* the change; aim for at least 80% line coverage of the touched public API.
+- **New** (assets, audio, the C API): test-first, aiming for at least 80% coverage of the logic.
 
-- Separate move-commits from change-commits (bisectable).
-- macOS oracle green at every commit (CI-enforced).
-- Golden pixel-hash + golden physics-trajectory for code that resists unit testing.
-- Metal API Validation always on; GPU Frame Capture reviewed after each renderer sub-step.
-- **Feature-gate / `#[cfg]` risky parallel work** so the main path never breaks: e.g. iOS
+### 3.5 No-breakage mechanisms
+
+- Separate move commits from change commits (bisectable).
+- macOS CI green at every merge.
+- Golden pixel hashes for the renderer.
+- Metal API Validation on for the smoke run; Xcode GPU frame capture reviewed after renderer
+  changes.
+- **Feature-gate or `#[cfg]` risky parallel work** so the main path never breaks: e.g. iOS code
   behind `#[cfg(target_os = "ios")]`.
-- The `kaman-render-api` seam makes a renderer rewrite physically unable to leak into other crates.
+- The `kaman-render-api` seam makes a renderer rewrite unable to leak into other crates.
 
-### 2.6 Documentation standard
+### 3.6 Documentation standard
 
-- `#![deny(missing_docs)]` on every engine crate — undocumented public item = build failure.
-- Doc examples compile and run under `cargo test` (docs can't rot).
-- **Invariants live in three places at once:** the doc comment states it, a test enforces it,
-  ARCHITECTURE/README explains why. (E.g. "a physics handle is removed from its ECS component
-  atomically with `remove_body`" → doc + use-after-free test + arch note.)
-- Per-crate `README.md`; repo-root `ARCHITECTURE.md` records intentional constraints.
+- `#![deny(missing_docs)]` on every engine crate: an undocumented public item is a build failure.
+- Doc examples compile and run under `cargo test`, so docs can't rot.
+- **Invariants live in three places at once:** the doc comment states it, a test enforces it, and
+  ARCHITECTURE or a README explains why. (E.g. "a physics handle is removed from its ECS
+  component atomically with `remove_body`": doc comment, use-after-free test, architecture note.)
+- Every crate has a `README.md`; [ARCHITECTURE.md](ARCHITECTURE.md) records the intentional
+  constraints.
+- Docs that link to source lines with `#L<n>` anchors are checked with
+  `python3 scripts/check-doc-anchors.py`.
 
-### 2.7 Special cases
+### 3.7 Special cases
 
-- **Renderer (GPU, not unit-testable):** golden pixel-hash + Metal validation + Instruments per sub-step; each buffer/frames-in-flight change lands and is validated independently.
-- **Physics:** golden trajectory guards determinism; the despawn use-after-free test is written *before* the removal API.
-- **iOS:** physical-device smoke is part of the Test gate for platform tickets (the simulator is invalid for GPU perf); provisioning/signing resolved before engine changes pile up.
-
-## 3. SQA at the phase boundary
-
-Step 4 of the phase loop runs the **full** gate set, not just the touched module's:
-1. `cargo test --workspace` (unit + integration + doc tests).
-2. Characterization/golden suites (render hash, physics trajectory).
-3. macOS oracle smoke.
-4. Device smoke (Phase 3+).
-5. Coverage report meets per-class targets.
-6. `#![deny(missing_docs)]` + `cargo clippy -D warnings` + `cargo fmt --all -- --check` clean.
-
-A phase's OKR review (step 5) may only be marked pass if the SQA gate is fully green.
+- **Renderer (GPU, not unit-testable):** golden pixel hashes plus Metal validation plus Instruments;
+  each buffer or frames-in-flight change lands and is validated on its own.
+- **Physics:** the despawn use-after-free test was written *before* the removal API, and stays.
+- **iOS (v0.2):** a physical-device run is required for platform and GPU-performance changes (the
+  simulator is not valid for GPU performance); signing is set up before engine changes pile up.

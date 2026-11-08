@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Drivable sun + per-frame light upload guards (KE-0406).
+//! Drivable sun + per-frame light upload guards.
 //!
 //! These pin the three properties that make the sun *reachable* and *safe*, all
 //! against the real Metal backend and without needing to read a pixel back:
@@ -10,14 +10,14 @@
 //! 1. **The sun arrives from above the seam.** A [`SunSky`] pushed with
 //!    `set_sun_sky` becomes the exact bytes the fragment shader reads, and the
 //!    light direction is the one `SunSky::direction()` derives — the single source
-//!    of truth the sky's sun disc also uses. Before KE-0406 the light was written
+//!    of truth the sky's sun disc also uses. Before the sun moved into the seam, the light was written
 //!    once at construction and nothing above the seam could change it.
 //! 2. **It is honoured per frame, in a rotating ring slot.** The light is uploaded
 //!    every frame into one slot per in-flight frame (`0, 256, 512, 0, …`), so the
 //!    CPU never rewrites bytes a queued frame is still reading — the same argument
-//!    as the per-draw uniform ring (KE-0105).
+//!    as the per-draw uniform ring.
 //! 3. **Per-frame upload costs no allocation.** The ring is created once, so the
-//!    hot path's `new_buffer*` delta stays 0 (KR1.2).
+//!    hot path's `new_buffer*` delta stays 0.
 //!
 //! Like the other backend tests these **skip** when no Metal device is available
 //! (GPU-less CI) and run + assert on a real Mac.
@@ -92,7 +92,7 @@ fn camera_reaches_the_fragment_shader_and_the_sun_is_sticky() {
     r.set_camera_position(eye);
 
     // The camera block is folded in as each frame opens, so it is the frame — not
-    // the push — that publishes it (KE-0406).
+    // the push — that publishes it.
     r.begin_frame();
     assert_eq!(
         r.light_for_test().camera_position,

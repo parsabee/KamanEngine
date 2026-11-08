@@ -42,7 +42,7 @@
 //!   with clearing / despawning the component, so no live component ever holds
 //!   a handle that has already been freed here. This crate cannot enforce that
 //!   coupling on its own (it does not know about the ECS); the despawn
-//!   orchestration that upholds it lands in KE-0203. Stale-handle safety above
+//!   orchestration that upholds it lives in `kaman-scene`. Stale-handle safety above
 //!   is the backstop that keeps a transient mismatch memory-safe.
 //!
 //! [`remove_body`]: PhysicsWorld::remove_body

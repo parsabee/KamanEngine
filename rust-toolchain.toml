@@ -4,9 +4,9 @@
 # locally — the Homebrew toolchain (currently 1.91.0) is used regardless. It IS honored by
 # CI (which installs via rustup) and by any contributor using rustup.
 #
-# Phase-3 (iOS bring-up) prerequisite — NOT installed now, run under rustup when Phase 3 starts:
+# iOS prerequisite (v0.2) — NOT installed now; run under rustup when iOS work starts:
 #     rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 [toolchain]
 channel = "1.91.0"
 components = ["rustfmt", "clippy", "rust-analyzer"]
-# targets = ["aarch64-apple-ios", "aarch64-apple-ios-sim"]  # uncomment in Phase 3
+# targets = ["aarch64-apple-ios", "aarch64-apple-ios-sim"]  # uncomment for iOS (v0.2)
