@@ -34,6 +34,10 @@ jobs:
           rustc --version
           rustc --version | grep -q " $pinned " || { echo "rustc is not the pinned $pinned"; exit 1; }
 
+      # Fail fast on unformatted code (rustfmt defaults); fix locally with `cargo fmt --all`.
+      - name: Format check (rustfmt)
+        run: cargo fmt --all -- --check
+
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 

@@ -155,6 +155,7 @@ cd KamanEngine
 cargo build --workspace
 cargo run -p playable-demo                               # the demo, windowed (Metal)
 cargo test  --workspace
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p playable-demo -- --smoke                    # headless oracle: 120 frames, exits 0
 ```
@@ -267,6 +268,7 @@ Every change must keep the CI gates green (see [docs/INTEGRATION.md](docs/INTEGR
 ```sh
 cargo build --workspace
 cargo test  --workspace
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p playable-demo -- --smoke
 RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links -D rustdoc::private_intra_doc_links" \
