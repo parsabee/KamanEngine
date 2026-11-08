@@ -332,7 +332,7 @@ on top regardless of record order — which is why
 
 **Text is `Sdf` against the font atlas.** [`FontAtlas`](../crates/kaman-render-api/src/overlay.rs#L126)
 is plain data — glyph metrics in em units plus the uploaded atlas texture handle; the backend
-never parses a font. [`FontAtlas::layout`](../crates/kaman-render-api/src/overlay.rs#L169) walks a
+never parses a font. [`FontAtlas::layout`](../crates/kaman-render-api/src/overlay.rs#L180) walks a
 `&str` and hands one `OverlayQuad` per visible glyph to a callback, and
 [`measure`](../crates/kaman-render-api/src/overlay.rs#L156) returns a string's pixel width for
 centering. Because the metrics are in em units, one atlas serves any pixel size — the demo draws
