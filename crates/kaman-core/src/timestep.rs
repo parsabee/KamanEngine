@@ -44,7 +44,7 @@ use std::time::Duration;
 /// The fixed simulation timestep: **1/60 second**, the single source of truth.
 ///
 /// [`Game::update`](crate::Game::update) is always called with exactly this `dt`,
-/// regardless of display rate. Physics (KE-0202) steps at the same rate so its
+/// regardless of display rate. Physics steps at the same rate so its
 /// behavior is deterministic, so this constant must stay the one place the value
 /// is defined.
 pub const FIXED_DT: f32 = 1.0 / 60.0;

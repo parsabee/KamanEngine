@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Native platform UI for the windowed runner (KE-0408): the built-in Graphics
+//! Native platform UI for the windowed runner: the built-in Graphics
 //! menu and graphics-settings persistence.
 //!
 //! Only the windowed runner ([`app`](crate::app)) uses this; the headless driver
@@ -14,7 +14,7 @@
 //!
 //! macOS is the one implementation today (`NSMenu` in the menu bar plus
 //! `NSUserDefaults`, via `objc2`). Other targets get inert stand-ins, so the
-//! runner compiles unchanged. The iOS layer (Phase 3) will render the same model
+//! runner compiles unchanged. An iOS host app can render the same model
 //! as a `UIMenu`.
 
 #[cfg(target_os = "macos")]

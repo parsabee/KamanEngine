@@ -22,12 +22,12 @@ use kaman_render_api::{MeshData, MeshHandle, NullRenderer, RenderDevice, VertexF
 /// The committed cube fixture, embedded so slice-import tests are hermetic.
 const CUBE_GLTF: &[u8] = include_bytes!("fixtures/cube.gltf");
 
-/// The committed **textured** cube fixture (KE-0403): a cube with UVs, a material,
+/// The committed **textured** cube fixture: a cube with UVs, a material,
 /// and an embedded base-color checkerboard PNG.
 const TEXTURED_CUBE_GLTF: &[u8] = include_bytes!("fixtures/textured_cube.gltf");
 
 /// A one-triangle fixture whose material carries a distinctive (non-white,
-/// non-default) `baseColorFactor` and no texture (KE-0703). Exercises the
+/// non-default) `baseColorFactor` and no texture. Exercises the
 /// untextured path taking its packed vertex color from the material factor.
 const MATERIAL_COLOR_GLTF: &[u8] = include_bytes!("fixtures/material_color.gltf");
 
@@ -161,7 +161,7 @@ fn packed_bytes_match_parsed_attributes_with_default_color() {
 
 #[test]
 fn untextured_material_base_color_factor_becomes_vertex_color() {
-    // KE-0703: an untextured primitive with an explicit material packs that
+    // an untextured primitive with an explicit material packs that
     // material's base-color factor (RGB) as its per-vertex color, so a
     // multi-material mesh (e.g. a body + dark wheels) renders each part's color
     // through the untextured `[pos,normal,color]` pipeline.
@@ -197,7 +197,7 @@ fn untextured_material_base_color_factor_becomes_vertex_color() {
 #[test]
 fn uvs_are_retained_even_when_source_has_none() {
     // The cube fixture has no UV set; the importer still retains a UV per vertex
-    // (defaulted), one per packed vertex, for KE-0403 to consume.
+    // (defaulted), one per packed vertex, for the textured path to consume.
     let mesh = &cube_scene().meshes[0];
     assert_eq!(mesh.uvs.len(), mesh.vertex_count(), "one UV per vertex");
     assert!(mesh.uvs.iter().all(|uv| *uv == [0.0, 0.0]));
@@ -226,7 +226,7 @@ fn committed_game_asset_imports_from_path() {
     );
     let scene = import_gltf(path).expect("committed cube.gltf imports");
     assert_eq!(scene.meshes[0].vertex_count(), 24);
-    // KE-0403: the committed game asset is now textured (base-color checkerboard).
+    // the committed game asset is now textured (base-color checkerboard).
     assert!(
         scene.meshes[0].is_textured(),
         "the committed game asset carries a base-color texture"

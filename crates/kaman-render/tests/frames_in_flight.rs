@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Frames-in-flight + ring-region rotation guards (KE-0105).
+//! Frames-in-flight + ring-region rotation guards.
 //!
 //! These tests pin the triple-buffered pacing model against the real Metal
 //! backend:

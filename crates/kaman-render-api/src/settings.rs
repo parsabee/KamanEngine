@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Render **quality settings** that cross the seam (KE-0408): shadow quality, the
+//! Render **quality settings** that cross the seam: shadow quality, the
 //! shadow range, and the draw-distance scale.
 //!
 //! These are the renderer-facing half of the engine's graphics settings. The

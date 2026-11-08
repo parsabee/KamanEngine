@@ -3,7 +3,7 @@
 // This software is released under the Apache-2.0 License.
 
 //! macOS: the Graphics menu as an `NSMenu` in the menu bar, and settings
-//! persistence in `NSUserDefaults` (KE-0408).
+//! persistence in `NSUserDefaults`.
 //!
 //! # How a click gets back into the engine loop
 //!

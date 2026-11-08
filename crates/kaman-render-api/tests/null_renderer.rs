@@ -248,7 +248,7 @@ fn view_projection_is_sticky_across_frames() {
 fn camera_position_is_recorded_and_sticky() {
     let mut r = NullRenderer::new();
 
-    // Nothing pushed yet (KE-0406).
+    // Nothing pushed yet.
     assert_eq!(r.camera_position(), None);
 
     let eye = Vec3::new(0.0, 6.0, 12.0);

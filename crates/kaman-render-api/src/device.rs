@@ -142,11 +142,11 @@ pub trait RenderDevice {
     ///
     /// A HUD should keep anything it wants guaranteed-visible inside
     /// [`surface_size`](Self::surface_size) shrunk by these. Backends without
-    /// intrusions (a plain desktop window) report zeros; the iOS path reports the
-    /// real insets.
+    /// intrusions (a plain desktop window) report zeros; an iOS backend (not built
+    /// yet) would report the real insets.
     fn safe_area_insets(&self) -> [f32; 4];
 
-    /// Resize the drawable to `width` × `height` **pixels** (KE-0408).
+    /// Resize the drawable to `width` × `height` **pixels**.
     ///
     /// The engine's windowed runner calls this when the window is resized, moves
     /// to a display with a different scale factor, or the render-resolution
@@ -169,7 +169,7 @@ pub trait RenderDevice {
     /// - A zero dimension is treated as 1.
     fn resize_surface(&mut self, width: u32, height: u32, pixels_per_point: f32);
 
-    /// Drawable pixels per logical point of the window: the **UI scale** (KE-0408).
+    /// Drawable pixels per logical point of the window: the **UI scale**.
     ///
     /// Multiply HUD sizes authored in points (font sizes, margins) by this, so they
     /// keep the same apparent size at every render resolution. It is `1.0` until
@@ -177,7 +177,7 @@ pub trait RenderDevice {
     fn surface_scale(&self) -> f32;
 
     /// Apply render quality settings: shadow quality and range, and the
-    /// draw-distance scale (KE-0408). See [`RenderSettings`].
+    /// draw-distance scale. See [`RenderSettings`].
     ///
     /// # Contract
     /// - Sticky: the value holds until the next call, and the default applies

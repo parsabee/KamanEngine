@@ -6,7 +6,7 @@
 //!
 //! This crate is the **blast-radius firewall** described in `docs/ARCHITECTURE.md` §2. It
 //! defines *only* a contract — opaque resource handles plus two traits — and never depends on
-//! `metal`. A concrete renderer (`kaman-render`, KE-0102) implements these traits below the
+//! `metal`. A concrete renderer (`kaman-render`) implements these traits below the
 //! seam; every crate above the seam (ECS, scene, physics, game code) talks to the
 //! contract and therefore never imports a Metal type. A full renderer rewrite is provably
 //! contained to the implementing crate.
@@ -26,11 +26,11 @@
 //!   `draw_mesh` / `submit`.
 //! - Plain-data descriptors: [`VertexLayout`], [`VertexAttribute`], [`VertexFormat`],
 //!   [`MaterialParams`], [`MeshData`], [`TextureData`], [`PipelineDescriptor`].
-//! - [`SunSky`] — the engine-generic sun + sky description (KE-0406), pushed per
+//! - [`SunSky`] — the engine-generic sun + sky description, pushed per
 //!   frame through [`FrameRecorder::set_sun_sky`]. Physical parameters only: the
 //!   sun's elevation/azimuth, colour and intensity, the sky-fill level, and the
 //!   sky gradient. No time-of-day policy lives below the seam.
-//! - [`RenderSettings`] / [`ShadowQuality`] — render quality settings (KE-0408):
+//! - [`RenderSettings`] / [`ShadowQuality`] — render quality settings:
 //!   shadow tier and range and a draw-distance scale, pushed with
 //!   [`RenderDevice::set_render_settings`]; the drawable's resolution goes through
 //!   [`RenderDevice::resize_surface`].

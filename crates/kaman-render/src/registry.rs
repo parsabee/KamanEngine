@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! A generational registry for persistent mesh resources (KE-0103).
+//! A generational registry for persistent mesh resources.
 //!
 //! # Upload once, reference by handle
 //!

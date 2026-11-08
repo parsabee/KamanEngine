@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 //
-//! One-shot generator for a committed **textured** `cube.gltf` fixture (KE-0403).
+//! One-shot generator for a committed **textured** `cube.gltf` fixture.
 //!
 //! Run with `cargo run -p kaman-assets --example gen_textured_cube -- <out_path>`.
 //! It emits a self-contained glTF 2.0 file: a unit cube with per-face normals and
@@ -188,7 +188,7 @@ fn main() {
     write!(
         json,
         r#"{{
-  "asset": {{ "version": "2.0", "generator": "KamanEngine KE-0403 textured cube fixture" }},
+  "asset": {{ "version": "2.0", "generator": "KamanEngine textured cube fixture" }},
   "scene": 0,
   "scenes": [{{ "name": "cube_scene", "nodes": [0] }}],
   "nodes": [{{ "name": "cube", "mesh": 0 }}],

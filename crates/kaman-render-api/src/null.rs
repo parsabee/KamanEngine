@@ -75,7 +75,7 @@ pub struct NullRenderer {
     current_pipeline: Option<PipelineHandle>,
     current_texture: Option<TextureHandle>,
     draws: Vec<RecordedDraw>,
-    /// Overlay quads recorded this run, in record order (KE-0404), so headless
+    /// Overlay quads recorded this run, in record order, so headless
     /// tests can assert what a HUD drew without a GPU.
     overlay_quads: Vec<OverlayQuad>,
     /// The most recent view-projection pushed via
@@ -85,17 +85,17 @@ pub struct NullRenderer {
     /// it is replaced.
     view_projection: Option<Mat4>,
     /// The most recent camera world position pushed via
-    /// [`set_camera_position`](FrameRecorder::set_camera_position) (KE-0406).
+    /// [`set_camera_position`](FrameRecorder::set_camera_position).
     /// `None` until the first push, then sticky — like `view_projection`, which it
     /// must agree with.
     camera_position: Option<Vec3>,
     /// The most recent sun/sky pushed via
-    /// [`set_sun_sky`](FrameRecorder::set_sun_sky) (KE-0406). `None` until the first
+    /// [`set_sun_sky`](FrameRecorder::set_sun_sky). `None` until the first
     /// push, then sticky, so a headless test can assert *which sun* a game asked
     /// for without a GPU.
     sun_sky: Option<SunSky>,
     /// The most recent render settings pushed via
-    /// [`set_render_settings`](RenderDevice::set_render_settings) (KE-0408). `None`
+    /// [`set_render_settings`](RenderDevice::set_render_settings). `None`
     /// until the first push, then sticky.
     render_settings: Option<RenderSettings>,
     /// The drawable size last requested via
@@ -178,7 +178,7 @@ impl NullRenderer {
         &self.draws
     }
 
-    /// Every overlay quad recorded across all frames, in record order (KE-0404).
+    /// Every overlay quad recorded across all frames, in record order.
     #[must_use]
     pub fn overlay_quads(&self) -> &[OverlayQuad] {
         &self.overlay_quads
@@ -225,7 +225,7 @@ impl NullRenderer {
     }
 
     /// The most recent camera world position recorded via
-    /// [`set_camera_position`](FrameRecorder::set_camera_position) (KE-0406).
+    /// [`set_camera_position`](FrameRecorder::set_camera_position).
     ///
     /// `None` before the first push, then sticky. Pairs with
     /// [`view_projection`](Self::view_projection): a test can assert the engine
@@ -236,7 +236,7 @@ impl NullRenderer {
     }
 
     /// The most recent [`SunSky`] recorded via
-    /// [`set_sun_sky`](FrameRecorder::set_sun_sky) (KE-0406).
+    /// [`set_sun_sky`](FrameRecorder::set_sun_sky).
     ///
     /// `None` before the first push, then sticky. Lets a headless test assert the
     /// *sun a game asked for* — its elevation, azimuth, colour and sky — and, via
@@ -247,7 +247,7 @@ impl NullRenderer {
     }
 
     /// The most recent [`RenderSettings`] pushed via
-    /// [`set_render_settings`](RenderDevice::set_render_settings) (KE-0408), or
+    /// [`set_render_settings`](RenderDevice::set_render_settings), or
     /// `None` if none was. Sticky, so a headless test can assert which shadow
     /// quality, shadow range and draw-distance scale the engine asked for.
     #[must_use]

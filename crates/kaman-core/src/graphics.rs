@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Engine **graphics settings** (KE-0408): shadows, shadow distance, draw
+//! Engine **graphics settings**: shadows, shadow distance, draw
 //! distance, and render resolution, as user-facing presets.
 //!
 //! [`GraphicsSettings`] is the one model every settings UI drives:
@@ -202,7 +202,7 @@ pub fn shadow_quality_label(quality: ShadowQuality) -> &'static str {
 pub const SHADOW_QUALITIES: [ShadowQuality; 3] =
     [ShadowQuality::Off, ShadowQuality::Low, ShadowQuality::High];
 
-/// The engine's graphics settings (KE-0408). See the [module docs](self).
+/// The engine's graphics settings. See the [module docs](self).
 ///
 /// # Example
 ///

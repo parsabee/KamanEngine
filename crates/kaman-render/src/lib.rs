@@ -8,7 +8,7 @@
 //! seam (`docs/ARCHITECTURE.md` §2). It is the *only* engine crate that depends
 //! on `metal`; everything above the seam talks to the `kaman-render-api` traits
 //! and therefore never imports a Metal type. It migrates the prototype's
-//! rasterization renderer (KE-0102).
+//! rasterization renderer.
 //!
 //! # The backend and the seam
 //!
@@ -25,13 +25,13 @@
 //!
 //! - `create_mesh` uploads (deindexes) geometry into a **persistent** Metal
 //!   vertex buffer **once**, at load time, and stores it in a generational
-//!   [`Registry`] keyed by the returned [`MeshHandle`](kaman_render_api::MeshHandle)
-//!   (KE-0103). This is the "upload once, reference by handle" rule.
-//! - `create_pipeline` names the built-in Phong pipeline (Phase-1 port has one).
+//!   [`Registry`] keyed by the returned [`MeshHandle`](kaman_render_api::MeshHandle).
+//!   This is the "upload once, reference by handle" rule.
+//! - `create_pipeline` selects one of the two built-in pipelines (Phong or textured).
 //! - `draw_mesh(handle, transform, material)` looks the persistent vertex buffer
 //!   up by handle (**no per-frame mesh allocation**), computes an MVP from the
-//!   seam-provided view-projection and this instance's transform, writes a per-draw uniform
-//!   buffer (the one remaining per-frame allocation, removed by KE-0104), and
+//!   seam-provided view-projection and this instance's transform, writes it into the persistent
+//!   uniform ring (no per-frame allocation), and
 //!   records a triangle draw. A stale/freed handle is a defined no-op, never a
 //!   silent wrong-buffer draw (see [`RegistryError`]).
 //! - `begin_frame` acquires the color attachment (drawable or offscreen
@@ -47,12 +47,12 @@
 //! the game (or engine loop) computes it from a
 //! [`kaman_camera::Camera`](https://docs.rs/kaman-camera) and pushes it before
 //! the first `draw_mesh`. `draw_mesh` combines the stored view-projection with
-//! each draw's model transform to form the MVP (KE-0205). The previously-inlined
+//! each draw's model transform to form the MVP. The previously-inlined
 //! minimal camera was deleted with this migration.
 //!
 //! The camera's **world position** arrives the same way, via
-//! [`FrameRecorder::set_camera_position`](kaman_render_api::FrameRecorder::set_camera_position)
-//! (KE-0406), because a matrix alone cannot say where the eye is and specular
+//! [`FrameRecorder::set_camera_position`](kaman_render_api::FrameRecorder::set_camera_position),
+//! because a matrix alone cannot say where the eye is and specular
 //! needs to know. Both are sticky and describe one camera; the backend folds them
 //! into the frame's light block as it opens each frame.
 //!
@@ -62,12 +62,12 @@
 //! [`SunSky`](kaman_render_api::SunSky) — sun elevation/azimuth, colour,
 //! intensity, sky fill, and the sky gradient — is pushed through
 //! [`FrameRecorder::set_sun_sky`](kaman_render_api::FrameRecorder::set_sun_sky)
-//! and uploaded per frame (KE-0406). The backend derives the light direction from
+//! and uploaded per frame. The backend derives the light direction from
 //! the angles once and uses that single vector for both the shading and the sun
 //! disc the sky pass draws, so they cannot disagree. Until something pushes one,
 //! the default is the `Default` impl of [`SunSky`](kaman_render_api::SunSky).
 //!
-//! # Shadows (KE-0407)
+//! # Shadows
 //!
 //! The sun casts real shadows through a single fitted shadow map. Each frame is
 //! two render passes: a **depth-only shadow pass** from the sun (every recorded
@@ -87,7 +87,7 @@
 //! which needs no toolchain beyond the Command Line Tools. The off-by-default
 //! `precompiled-shaders` feature instead loads a `.metallib` compiled ahead of time by
 //! `build.rs` (via `new_library_with_data`); it requires the Metal toolchain (full Xcode)
-//! and is the KE-0107 path. See `scripts/preflight.sh --ios`.
+//! and is planned to become the default. See `scripts/preflight.sh --ios`.
 
 #![deny(missing_docs)]
 

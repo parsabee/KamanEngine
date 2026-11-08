@@ -18,7 +18,7 @@
 //!    pipeline).
 //!
 //! All meshes/textures/pipelines are created once in
-//! [`Game::init`](kaman_core::Game::init) (KE-0103) and only referenced here by
+//! [`Game::init`](kaman_core::Game::init) and only referenced here by
 //! handle; this module never allocates a GPU resource.
 
 use kaman_core::EngineCtx;
@@ -44,7 +44,7 @@ impl CarRunner {
         // several primitives, so a car entity expands into one draw per part, each
         // at the entity's transform composed with the part's baked node transform.
         // The road tile is a single textured quad, scaled per tile by its transform.
-        // All meshes/textures are persistent (KE-0103).
+        // All meshes/textures are persistent.
         let player_entity = self.player;
         let road = self.road_mesh.expect("road mesh created in init");
         let guardrail = self.guardrail_mesh.expect("guardrail mesh created in init");
@@ -109,7 +109,7 @@ impl CarRunner {
         let renderer = ctx.renderer();
         renderer.begin_frame();
 
-        // Distant skyline backdrop first (KE-0705): far ahead and locked to the
+        // Distant skyline backdrop first: far ahead and locked to the
         // camera's XZ, so it sits behind the gameplay and in front of the gradient
         // sky, blended toward the horizon by the distance fog.
         renderer.set_pipeline(textured_pipeline);
@@ -154,7 +154,7 @@ impl CarRunner {
                 }
             }
         }
-        // 4. The HUD (KE-0707). Recorded last, but the engine flushes the overlay
+        // 4. The HUD. Recorded last, but the engine flushes the overlay
         //    in its own orthographic pass at `submit`, after every 3D draw — so it
         //    composites on top of the scene regardless of record order.
         self.draw_hud(renderer);
@@ -172,7 +172,7 @@ impl CarRunner {
         }
     }
 
-    /// The world transform for the ground terrain this frame (KE-0706): the sheet is
+    /// The world transform for the ground terrain this frame: the sheet is
     /// baked in player-relative `Z`, so translating it to the player's `Z` keeps it
     /// camera-locked — the ground always fills the view and a stream/rebase never
     /// slides it.
@@ -180,7 +180,7 @@ impl CarRunner {
         Transform::from_position(Vec3::new(0.0, 0.0, self.player_position().z))
     }
 
-    /// The world transform for the skyline backdrop billboard this frame (KE-0705):
+    /// The world transform for the skyline backdrop billboard this frame:
     /// a wide, tall quad placed [`BACKDROP_DIST`] units ahead of the player along
     /// the travel axis and **locked to the player's XZ** (centered on `x = 0`) so a
     /// world stream/rebase never shifts it — it reads as a fixed far skyline. Sits

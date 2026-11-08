@@ -5,11 +5,11 @@
 //! A minimal, engine-generic input snapshot exposed to games through
 //! [`EngineCtx`](crate::EngineCtx).
 //!
-//! Phase 1 keeps this deliberately small: pressed keys, cursor position, and
+//! This is kept deliberately small: pressed keys, cursor position, and
 //! pressed mouse buttons — the read-only state a game needs to react to input in
-//! [`Game::update`](crate::Game::update). The full input abstraction (action
-//! mapping, per-frame just-pressed/just-released edges, gamepad, touch) is
-//! Phase 3 (KE-0304); this type is intentionally the smallest thing that lets a
+//! [`Game::update`](crate::Game::update), plus just-pressed/just-released
+//! edges. Action mapping, gamepad and touch input are out of scope; this
+//! type is intentionally the smallest thing that lets a
 //! game read the keyboard and mouse without depending on `winit`.
 //!
 //! # Backend independence
@@ -25,7 +25,7 @@ use std::collections::HashSet;
 
 /// A keyboard key, identified by physical position (backend-agnostic).
 ///
-/// This is a curated subset — enough for the Phase-1 game and camera controls —
+/// This is a curated subset — enough for the demo game and camera controls —
 /// not the full keyboard. It is [`#[non_exhaustive]`][non_exhaustive] so future
 /// keys can be added without a breaking change; downstream `match` expressions
 /// must include a wildcard arm.
@@ -92,7 +92,7 @@ pub enum MouseButton {
 ///   only on the fixed-update step where a key transitions up→down. The driver
 ///   calls [`advance_frame`](Self::advance_frame) after each `Game::update` to
 ///   snapshot the state, so a held key fires "just pressed" exactly once. (The
-///   fuller input abstraction — remapping, touch/tilt — remains KE-0304.)
+///   fuller input abstraction — remapping, touch/tilt — is out of scope.)
 /// - [`cursor_position`](Self::cursor_position) is in window logical pixels,
 ///   origin top-left. It is `None` until the first cursor movement is seen (e.g.
 ///   in the pure-headless driver, where no cursor exists).

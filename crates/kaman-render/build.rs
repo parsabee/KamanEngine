@@ -7,7 +7,7 @@
 //
 // The Metal shader compiler ships with **full Xcode**, NOT the Command Line Tools,
 // so this path is gated behind the feature and fails with a clear message when the
-// toolchain is absent. See KE-0107 and `scripts/preflight.sh --ios`.
+// toolchain is absent. See `scripts/preflight.sh --ios`.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -22,7 +22,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     // Select the SDK from the build target. macOS is supported today; iOS is wired
-    // here for Phase 3 (it will need the iphoneos SDK + rustup iOS targets).
+    // here for iOS (v0.2; it will need the iphoneos SDK + rustup iOS targets).
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let sdk = match target_os.as_str() {
         "macos" => "macosx",

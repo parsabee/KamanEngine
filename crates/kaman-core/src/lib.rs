@@ -36,10 +36,10 @@
 //!   tests use; it runs on headless CI.
 //! - [`run`] — a `winit` window on macOS driving the identical hook sequence off
 //!   a real monotonic clock, with per-frame drawing behind an isolated function
-//!   that KE-0102 fills with the Metal backend, and the audio layer bound to the
+//!   that the Metal backend fills, and the audio layer bound to the
 //!   system's default output.
 //!
-//! # Fixed timestep (KE-0201)
+//! # Fixed timestep
 //!
 //! Simulation is decoupled from display rate. Each frame the driver banks the
 //! real elapsed time in the [`Accumulator`] and runs
@@ -90,14 +90,14 @@ pub use graphics::{
 pub use input::{InputState, Key, MouseButton};
 // Re-exported for the same reason `Scene` is: these are the types a game names
 // when it uses `EngineCtx::audio`, so it should not have to add a second
-// dependency to spell them (KE-0405).
+// dependency to spell them.
 pub use kaman_audio::{Audio, SoundHandle, Volume};
 pub use kaman_scene::{Scene, SpawnCtx, StreamingConfig};
 pub use timestep::{Accumulator, FIXED_DT, MAX_STEPS_PER_FRAME};
 
 #[cfg(test)]
 mod boundary_tests {
-    /// Engine/game boundary guard (extends the KE-0005 pattern to `kaman-core`):
+    /// Engine/game boundary guard (extends the `kaman-ecs` boundary guard to `kaman-core`):
     /// no game-named symbol may leak into this crate.
     ///
     /// It embeds every source file of the crate with `include_str!` and scans

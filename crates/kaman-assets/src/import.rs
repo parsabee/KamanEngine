@@ -8,7 +8,7 @@
 //! transform into world space (static v1: no runtime hierarchy math, no
 //! skinning/animation), reads each mesh's positions/normals/UVs, and packs the
 //! geometry onto the canonical `[pos,normal,color]` render layout with a default
-//! vertex color. Parsed UVs are retained on [`MeshAsset::uvs`] for KE-0403.
+//! vertex color. Parsed UVs are retained on [`MeshAsset::uvs`] for the textured pipeline.
 
 use std::path::Path;
 

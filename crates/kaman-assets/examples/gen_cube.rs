@@ -146,7 +146,7 @@ fn main() {
     write!(
         json,
         r#"{{
-  "asset": {{ "version": "2.0", "generator": "KamanEngine KE-0402 cube fixture" }},
+  "asset": {{ "version": "2.0", "generator": "KamanEngine cube fixture" }},
   "scene": 0,
   "scenes": [{{ "name": "cube_scene", "nodes": [0] }}],
   "nodes": [{{ "name": "cube", "mesh": 0 }}],

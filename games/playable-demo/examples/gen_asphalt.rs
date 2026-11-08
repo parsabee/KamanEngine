@@ -3,7 +3,7 @@
 // This software is released under the Apache-2.0 License.
 
 //! One-shot generator for the committed **asphalt road** asset the playable-demo
-//! imports (KE-0704).
+//! imports.
 //!
 //! The asphalt is a real, free **CC0** photographic texture — Poly Haven
 //! `asphalt_02` diffuse (<https://polyhaven.com/a/asphalt_02>, CC0, no attribution
@@ -16,7 +16,7 @@
 //! through `kaman-assets` at runtime; the importer decodes the embedded PNG to
 //! RGBA8 and packs the quad on the `[pos,normal,uv]` textured layout so the
 //! backend's textured pipeline samples it (with the free mip chain + trilinear
-//! repeat sampler from KE-0403). The deliverable is the committed asset + the
+//! repeat sampler). The deliverable is the committed asset + the
 //! import path, not this tool; normal builds never run it (it is an example, and
 //! `image` is a dev-dependency only).
 //!
@@ -24,7 +24,7 @@
 //!
 //! The quad spans a **unit tile** in X/Z (`[-0.5, 0.5]` on both), lying in a
 //! horizontal plane at local `y = +0.5`. The road entity's transform (set
-//! game-side, unchanged by KE-0704) is `position.y = -0.5`, `scale = (12, 0.4,
+//! game-side, unchanged by this tool) is `position.y = -0.5`, `scale = (12, 0.4,
 //! spawn_interval)`, so after scaling the quad becomes a `12 × spawn_interval`
 //! road surface whose top sits at world `y = -0.3` — exactly where the former
 //! black road box's top face was, keeping the cars resting on the surface and
@@ -260,7 +260,7 @@ fn main() {
     write!(
         json,
         r#"{{
-  "asset": {{ "version": "2.0", "generator": "KamanEngine KE-0704 asphalt road generator" }},
+  "asset": {{ "version": "2.0", "generator": "KamanEngine asphalt road generator" }},
   "scene": 0,
   "scenes": [{{ "name": "road_scene", "nodes": [0] }}],
   "nodes": [{{ "name": "road", "mesh": 0 }}],

@@ -34,7 +34,7 @@
 //! - **Escape** — quit (handled by the engine's windowed entry).
 //! - **Graphics menu** (menu bar) — shadows, shadow distance, draw distance,
 //!   resolution, full screen. The engine's windowed entry provides it and saves
-//!   the choices for the next launch; the demo adds no code for it (KE-0408).
+//!   the choices for the next launch; the demo adds no code for it.
 //!
 //! # Module map
 //!

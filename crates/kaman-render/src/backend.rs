@@ -11,20 +11,20 @@
 //! `render_with_transforms_and_colors`: it clears to a fixed color, binds a
 //! depth-tested Phong pipeline, and draws each mesh with a per-draw MVP uniform.
 //!
-//! # Behavior preservation (KE-0102 / KE-0103)
+//! # Behavior preservation
 //!
-//! KE-0103 makes **mesh** buffers persistent: geometry is deindexed and uploaded
+//! **Mesh** buffers are persistent: geometry is deindexed and uploaded
 //! into an `MTLBuffer` **once** in [`create_mesh`](RenderDevice::create_mesh) and
 //! kept in a generational [`Registry`], so the per-frame draw path performs **no
-//! mesh allocation** — it looks the buffer up by [`MeshHandle`]. KE-0104 removes
+//! mesh allocation** — it looks the buffer up by [`MeshHandle`]. The uniform ring removes
 //! the last per-frame allocation, the per-draw uniform buffer, by writing each
 //! draw's MVP into a persistent **uniform ring** at a rotating, 256-byte-aligned
-//! offset (see [the ring section](#uniform-ring-ke-0104)). The depth texture is
+//! offset (see [the ring section](#uniform-ring)). The depth texture is
 //! the one texture the prototype already cached, and that caching is preserved.
-//! None of this changes any rendered pixel, so the KE-0102 pixel-hash guard
+//! None of this changes any rendered pixel, so the pixel-hash guard
 //! stays valid.
 //!
-//! # Uniform ring (KE-0104)
+//! # Uniform ring
 //!
 //! A single persistent uniform `MTLBuffer` is allocated once in
 //! [`build`](MetalRenderer). Each `draw_mesh` writes its [`Uniforms`] into the
@@ -34,18 +34,18 @@
 //!
 //! - **Stride/alignment:** each slot is [`UNIFORM_RING_STRIDE`] (256) bytes so
 //!   every per-draw offset is a multiple of 256; a 128-byte [`Uniforms`] (MVP +
-//!   model matrix, KE-0401) fits with padding.
+//!   model matrix) fits with padding.
 //! - **Capacity:** the ring holds `ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT`
 //!   slots; [`MAX_FRAMES_IN_FLIGHT`] is `3`. A frame that exceeds its per-frame
 //!   capacity grows the ring (doubling, an allocation-time event), never a
 //!   per-draw alloc in steady state.
 //! - **Don't stomp an in-flight slot:** the ring is partitioned into
-//!   `MAX_FRAMES_IN_FLIGHT` disjoint regions. **KE-0105** selects the region with
+//!   `MAX_FRAMES_IN_FLIGHT` disjoint regions. Frame pacing selects the region with
 //!   `frame_index % MAX_FRAMES_IN_FLIGHT` (behind the frames-in-flight
 //!   semaphore) so the CPU never overwrites a region the GPU is still reading.
 //!   The cursor resets each `begin_frame`.
 //!
-//! # Per-frame light upload (KE-0406)
+//! # Per-frame light upload
 //!
 //! The frame's shared fragment uniforms — the sun, the look params, and the
 //! camera block — are a [`LightUniforms`] uploaded **once per frame** into a
@@ -62,10 +62,10 @@
 //! *reallocate* mid-frame when a frame exceeds its capacity, which would leave the
 //! frame-long light binding pointing at a stale offset in a dead buffer.
 //!
-//! Before KE-0406 the light was a single buffer written once at construction, so
+//! Before the sun moved into the seam, the light was a single buffer written once at construction, so
 //! nothing above the seam could set the sun at all.
 //!
-//! # Deferred encoding and the shadow pass (KE-0407)
+//! # Deferred encoding and the shadow pass
 //!
 //! A frame is **two** render passes on one command buffer: a depth-only shadow
 //! pass from the sun, then the scene pass (sky, lit draws, overlay). The shadow
@@ -77,7 +77,7 @@
 //! [`submit`](FrameRecorder::submit) encodes both passes from that list — the shadow
 //! pass first, through the dedicated position-only `shadow_vertex_main`, then the
 //! scene pass exactly as it used to be encoded. The list keeps its capacity across
-//! frames, so the steady state allocates nothing (KR1.2).
+//! frames, so the steady state allocates nothing.
 //!
 //! **Store actions (TBDR).** The scene pass's MSAA attachments resolve in-tile and
 //! are discarded (`MultisampleResolve` / `DontCare`, memoryless on iOS). The shadow
@@ -92,7 +92,7 @@
 //! hazard-tracked resource on a single command queue: Metal orders frame `N+1`'s
 //! shadow-pass write after frame `N`'s scene-pass reads.
 //!
-//! # Frames-in-flight pacing (KE-0105)
+//! # Frames-in-flight pacing
 //!
 //! The backend triple-buffers with a counting [`FrameSemaphore`] initialized to
 //! [`MAX_FRAMES_IN_FLIGHT`] (`3`) permits:
@@ -117,22 +117,22 @@
 //! CPU-written while the GPU still reads it. Present is tied to the drawable
 //! (windowed path), so pacing needs no spin.
 //!
-//! # Allocation instrument (KR1.2)
+//! # Allocation instrument
 //!
 //! Every `new_buffer*` the backend issues goes through
 //! [`count_new_buffer`](MetalRenderer) helpers that bump an
 //! [`allocation_count`](MetalRenderer::allocation_count). Tests snapshot the
 //! count around the per-frame path and assert it stays `0` for the reference
-//! scene after load — with meshes persistent (KE-0103) and uniforms
-//! ring-allocated (KE-0104) the per-frame delta is now **0**. The counter is
-//! public so KE-0105 can reuse it for the frames-in-flight work.
+//! scene after load — with meshes persistent and uniforms
+//! ring-allocated the per-frame delta is now **0**. The counter is
+//! public so the frames-in-flight tests can reuse it.
 //!
 //! # Vertex color vs. material
 //!
-//! The raster shader reads color from the per-vertex data (as the prototype
-//! did), so [`MaterialParams`] is accepted at
-//! the seam but does not currently drive the raster color; the mesh bytes carry
-//! the color. This matches prototype behavior and is intentional for KE-0102.
+//! The untextured (Phong) pipeline reads color from the per-vertex data, so
+//! [`MaterialParams`] does not change its output; the textured pipeline
+//! multiplies the sampled base color by `MaterialParams::base_color`. The
+//! `metallic` and `roughness` fields are accepted but neither pipeline uses them.
 
 use std::mem;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -163,7 +163,7 @@ use crate::shadow::{
 };
 use crate::vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
 
-/// Store action for the shadow map's depth attachment (KE-0407): **`Store`**.
+/// Store action for the shadow map's depth attachment: **`Store`**.
 ///
 /// On a TBDR GPU a depth attachment is normally discarded at the end of its pass
 /// (`DontCare`), as the scene pass's MSAA depth is. The shadow map is written by
@@ -172,7 +172,7 @@ use crate::vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_R
 /// pass descriptor is built (`configure_shadow_depth_attachment`).
 pub const SHADOW_MAP_STORE_ACTION: metal::MTLStoreAction = metal::MTLStoreAction::Store;
 
-/// Storage mode of the shadow map (KE-0407): `Private` on every platform.
+/// Storage mode of the shadow map: `Private` on every platform.
 ///
 /// Deliberately *not* [`msaa_storage_mode`]: a memoryless texture lives only in
 /// tile memory for the duration of one pass and cannot be sampled by a later one.
@@ -180,11 +180,11 @@ fn shadow_map_storage_mode() -> metal::MTLStorageMode {
     metal::MTLStorageMode::Private
 }
 
-/// Create a `size`² shadow map (KE-0407): `Depth32Float`, `Private`, usable as a
+/// Create a `size`² shadow map: `Depth32Float`, `Private`, usable as a
 /// render target and for shader reads. Asserted so a future storage-mode
 /// "optimisation" (memoryless, as the MSAA targets are on iOS) fails loudly
 /// instead of sampling garbage. Called once at build and again only when the
-/// shadow quality changes the size (KE-0408).
+/// shadow quality changes the size.
 fn new_shadow_map(device: &Device, size: u32) -> metal::Texture {
     let desc = metal::TextureDescriptor::new();
     desc.set_texture_type(metal::MTLTextureType::D2);
@@ -225,7 +225,7 @@ fn configure_shadow_depth_attachment(
     );
 }
 
-/// A caster-only vertex layout (KE-0407): just the position attribute (location
+/// A caster-only vertex layout: just the position attribute (location
 /// 0) of `layout`, at `layout`'s stride — all the depth-only shadow pass reads.
 fn shadow_caster_layout(layout: &VertexLayout) -> VertexLayout {
     VertexLayout::new(
@@ -242,11 +242,11 @@ fn shadow_caster_layout(layout: &VertexLayout) -> VertexLayout {
 /// The clear color of the reference scene (dark blue-grey). Now only the color
 /// the MSAA target is cleared to *before* the gradient sky overwrites it, so it
 /// is no longer directly visible; the sky pass paints every pixel of the
-/// background (KE-0401). Retained for the depth/edge case where the sky triangle
+/// background. Retained for the depth/edge case where the sky triangle
 /// does not cover a fragment.
 const CLEAR_COLOR: (f64, f64, f64, f64) = (0.1, 0.1, 0.15, 1.0);
 
-/// MSAA sample count for the scene color/depth attachments (KE-0401).
+/// MSAA sample count for the scene color/depth attachments.
 ///
 /// 4x on both desktop and device — a good quality/cost trade on TBDR GPUs, where
 /// the multisampled attachments live in tile memory and are resolved in-tile
@@ -260,10 +260,10 @@ const MSAA_SAMPLE_COUNT: u64 = 4;
 ///
 /// On iOS (TBDR) the multisampled color and depth only ever live in tile memory
 /// — they are cleared, drawn, and resolved without ever being read back — so
-/// they can be `Memoryless`, costing **zero** system-memory bandwidth (KE-0305
-/// finishes this). On macOS they must be `Private` (memoryless is not a valid
+/// they can be `Memoryless`, costing **zero** system-memory bandwidth (iOS
+/// support, v0.2, finishes this). On macOS they must be `Private` (memoryless is not a valid
 /// storage mode for a resolvable attachment there). This is the single cfg hook
-/// KE-0305 flips; the rest of the MSAA wiring is platform-neutral.
+/// the iOS build flips; the rest of the MSAA wiring is platform-neutral.
 #[cfg(target_os = "ios")]
 const MSAA_MEMORYLESS: bool = true;
 /// Whether the MSAA color/depth attachments should use memoryless storage (macOS: no).
@@ -284,7 +284,7 @@ fn msaa_storage_mode() -> metal::MTLStorageMode {
 /// 0/12/24). Meshes packed onto this layout (the ECS boxes, and imported glTF
 /// geometry via `kaman-assets`) all feed the single shared pipeline.
 ///
-/// The vertex descriptor is now built *from* a [`VertexLayout`] (KE-0402) rather
+/// The vertex descriptor is now built *from* a [`VertexLayout`] rather
 /// than a hardcoded 0/12/24 triple; for this layout the mapping is byte-identical
 /// to the old hardcoded descriptor, so the pixel hash is preserved.
 fn phong_vertex_layout() -> VertexLayout {
@@ -312,7 +312,7 @@ fn phong_vertex_layout() -> VertexLayout {
 }
 
 /// The interleaved `[position_xyz, normal_xyz, uv]` layout the **textured**
-/// pipeline binds against (KE-0403): two `Float3`s at 0/12 and a `Float2` at 24,
+/// pipeline binds against: two `Float3`s at 0/12 and a `Float2` at 24,
 /// 32-byte stride. Meshes carrying a base-color texture (`kaman-assets`
 /// `textured_vertex_layout`) are packed onto this and drawn by the textured
 /// pipeline, which samples the bound base-color texture at the UV. This is a
@@ -391,7 +391,7 @@ fn build_vertex_descriptor(layout: &VertexLayout) -> &'static metal::VertexDescr
 
 /// The pixel format base-color textures are uploaded as.
 ///
-/// **RGBA8 is the accepted fallback** (KE-0403): we build on the Command Line
+/// **RGBA8 is the accepted fallback**: we build on the Command Line
 /// Tools with no ASTC transcoder, so uncompressed RGBA8 is what `create_texture`
 /// uploads on macOS. The cfg split is where a compressed (ASTC) format would slot
 /// in for a mobile/device build — the upload path would then supply pre-compressed
@@ -415,10 +415,10 @@ fn texture_pixel_format() -> MTLPixelFormat {
 ///
 /// The uniform ring is sized so each of `MAX_FRAMES_IN_FLIGHT` frames owns a
 /// disjoint slice: while the GPU reads frame *N*'s slice the CPU writes frame
-/// *N+1*'s. **KE-0105** uses this as the frames-in-flight semaphore's permit
+/// *N+1*'s. Frame pacing uses this as the frames-in-flight semaphore's permit
 /// count and to select each frame's ring region with
 /// `frame_index % MAX_FRAMES_IN_FLIGHT` (see [`MetalRenderer::begin_frame`]).
-/// Defined here so the ring sizing (KE-0104) and the pacing (KE-0105) share one
+/// Defined here so the ring sizing and the pacing share one
 /// source of truth.
 pub const MAX_FRAMES_IN_FLIGHT: u64 = 3;
 
@@ -426,7 +426,7 @@ pub const MAX_FRAMES_IN_FLIGHT: u64 = 3;
 ///
 /// The ring starts sized for `INITIAL_MAX_DRAWS_PER_FRAME * MAX_FRAMES_IN_FLIGHT`
 /// uniform slots. If a frame issues more draws than the current capacity, the
-/// ring **grows** at that draw (an allocation-time event, counted by the KR1.2
+/// ring **grows** at that draw (an allocation-time event, counted by the allocation
 /// instrument) rather than allocating per draw — steady state stays allocation
 /// free. Growth doubles the per-frame capacity so it amortizes.
 ///
@@ -445,7 +445,7 @@ struct MeshEntry {
     vertex_count: u64,
 }
 
-/// One vertex of the 2D overlay pass (KE-0404), matching `OverlayVertexIn` in the
+/// One vertex of the 2D overlay pass, matching `OverlayVertexIn` in the
 /// shader: screen-space position in pixels, atlas UV, RGBA tint, and the fill mode
 /// (0 = solid, 1 = textured, 2 = SDF).
 #[repr(C)]
@@ -501,7 +501,7 @@ pub struct MetalRenderer {
     target: RenderTarget,
 
     pipeline_state: metal::RenderPipelineState,
-    // The textured `[pos,normal,uv]` pipeline (KE-0403): samples the bound
+    // The textured `[pos,normal,uv]` pipeline: samples the bound
     // base-color texture. A distinct pipeline state from `pipeline_state` so the
     // untextured box path is byte-for-byte unchanged.
     textured_pipeline_state: metal::RenderPipelineState,
@@ -509,18 +509,18 @@ pub struct MetalRenderer {
     // texture on the textured path.
     sampler_state: metal::SamplerState,
     depth_stencil_state: metal::DepthStencilState,
-    // Depth-disabled state for the fullscreen gradient sky pass (KE-0401): the
+    // Depth-disabled state for the fullscreen gradient sky pass: the
     // sky is drawn first with no depth test and no depth write, so it fills the
     // background without occluding geometry drawn afterward.
     sky_depth_stencil_state: metal::DepthStencilState,
-    // Fullscreen gradient-sky pipeline (KE-0401): `sky_vertex_main` /
+    // Fullscreen gradient-sky pipeline: `sky_vertex_main` /
     // `sky_fragment_main`, sample-count matched to the MSAA scene attachments,
     // no vertex buffer (it derives a fullscreen triangle from `vertex_id`).
     sky_pipeline_state: metal::RenderPipelineState,
-    // 2D overlay / HUD (KE-0404): its own alpha-blended pipeline, a clamped
+    // 2D overlay / HUD: its own alpha-blended pipeline, a clamped
     // sampler for the SDF atlas, and a persistent vertex buffer + CPU staging
     // vec that are cleared (never reallocated) each frame, so recording a HUD
-    // adds no per-frame allocation (KR1.2).
+    // adds no per-frame allocation.
     overlay_pipeline_state: metal::RenderPipelineState,
     overlay_sampler_state: metal::SamplerState,
     overlay_vertices: Vec<OverlayVertex>,
@@ -530,10 +530,10 @@ pub struct MetalRenderer {
     overlay_buffer: Option<metal::Buffer>,
     overlay_buffer_capacity: usize,
 
-    // Shadow map (KE-0407). A `shadow_map_size`² `Depth32Float` texture, `Private`
+    // Shadow map. A `shadow_map_size`² `Depth32Float` texture, `Private`
     // and stored (never memoryless — it is sampled by the pass after the one that
-    // writes it), re-created only when the shadow quality setting changes its size
-    // (KE-0408). Two depth-only caster pipelines share the minimal
+    // writes it), re-created only when the shadow quality setting changes its size.
+    // Two depth-only caster pipelines share the minimal
     // `shadow_vertex_main`; they differ only in the vertex stride of the layout
     // they read the position out of (untextured 36, textured 32).
     shadow_map: metal::Texture,
@@ -548,7 +548,7 @@ pub struct MetalRenderer {
     // default). Resolved against the fog every frame in `write_light_to_ring`,
     // so it can never push shadows past what the fog leaves visible.
     shadow_distance_override: Option<f32>,
-    // Render quality settings (KE-0408), as last pushed through the seam. The
+    // Render quality settings, as last pushed through the seam. The
     // shadow tier decides whether the shadow pass runs at all and the map's size;
     // the draw-distance scale is applied to the fog below.
     render_settings: RenderSettings,
@@ -558,16 +558,16 @@ pub struct MetalRenderer {
     // draw-distance setting scales from these rather than compounding on the live
     // values.
     base_fog: (f32, f32),
-    // Drawable pixels per logical window point (KE-0408): the HUD's UI scale.
+    // Drawable pixels per logical window point: the HUD's UI scale.
     // Reported by `surface_scale`, set by `resize_surface`.
     surface_scale: f32,
-    // This frame's recorded draws (KE-0407 deferred encoding), replayed by
+    // This frame's recorded draws (deferred encoding), replayed by
     // `submit` into the shadow pass and then the scene pass. Cleared, never
     // shrunk, each frame, so a steady-state frame does not allocate.
     draws: Vec<DrawRecord>,
 
     // The frame's shared fragment uniforms (sun + look + camera), kept CPU-side
-    // and uploaded **once per frame** into `light_ring` (KE-0406). Sticky: the
+    // and uploaded **once per frame** into `light_ring`. Sticky: the
     // sun/sky half is replaced by `set_sun_sky`, the camera half is refreshed from
     // `view_projection` / `camera_position` as each frame opens.
     light: LightUniforms,
@@ -582,22 +582,22 @@ pub struct MetalRenderer {
     light_ring: metal::Buffer,
 
     // The world → clip view-projection, pushed through the seam via
-    // `set_view_projection` (KE-0205). The backend owns no camera; the
+    // `set_view_projection`. The backend owns no camera; the
     // game/engine computes this from a `kaman_camera::Camera` and hands it across
     // the seam. Combined with each draw's model transform to form the MVP. It is
     // **sticky** — retained across frames until replaced (the engine pushes it
     // once per frame before the game records) — and defaults to identity.
     view_projection: Mat4,
     // The camera's world position, pushed through the seam alongside the matrix
-    // (KE-0406) so view-dependent specular knows where the eye is. Sticky, and
+    // so view-dependent specular knows where the eye is. Sticky, and
     // the origin until the first push. Deliberately *not* derived from
     // `view_projection`: the caller already has it, and inverting a projection to
     // get it back is both wasteful and numerically fragile.
     camera_position: Vec3,
 
-    // Persistent per-draw uniform ring (KE-0104). One `MTLBuffer` allocated at
+    // Persistent per-draw uniform ring. One `MTLBuffer` allocated at
     // build time and re-written every frame at rotating, 256-byte-aligned
-    // offsets, so the per-frame draw path issues **no** `new_buffer*` (KR1.2).
+    // offsets, so the per-frame draw path issues **no** `new_buffer*`.
     // See `write_uniform_to_ring` for the sub-allocation contract.
     uniform_ring: metal::Buffer,
     // Uniform slots per in-flight frame region; the ring holds
@@ -609,10 +609,10 @@ pub struct MetalRenderer {
     ring_cursor: u64,
     // Base slot index of the region this frame writes into, set in `begin_frame`
     // to `(frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame` so an
-    // in-flight frame's slots are never stomped (KE-0105).
+    // in-flight frame's slots are never stomped.
     ring_region_base: u64,
 
-    // Frames-in-flight pacing (KE-0105). The semaphore starts with
+    // Frames-in-flight pacing. The semaphore starts with
     // `MAX_FRAMES_IN_FLIGHT` permits: `begin_frame` acquires one (blocking if 3
     // frames are queued) and each command buffer's completion handler releases
     // one. `Arc` so a completion handler running on a Metal-owned thread can hold
@@ -622,16 +622,16 @@ pub struct MetalRenderer {
     frame_index: u64,
 
     // Cached MSAA (multisampled) depth texture — the depth attachment is now
-    // multisampled to match the MSAA color (KE-0401). Reallocated only on resize,
+    // multisampled to match the MSAA color. Reallocated only on resize,
     // like the prototype's single-sample depth cache it replaces.
     depth_texture: Option<metal::Texture>,
     depth_texture_size: (u64, u64),
 
-    // Cached MSAA color texture (KE-0401). The scene renders into this
+    // Cached MSAA color texture. The scene renders into this
     // `MSAA_SAMPLE_COUNT`-sample color attachment and resolves into the
     // single-sample target (drawable / offscreen texture) in-tile via the
     // `MultisampleResolve` store action. Reallocated only on resize, so the
-    // per-frame path stays allocation-free (KR1.2).
+    // per-frame path stays allocation-free.
     msaa_color_texture: Option<metal::Texture>,
     msaa_color_size: (u64, u64),
 
@@ -642,7 +642,7 @@ pub struct MetalRenderer {
     pipelines: Vec<Option<PipelineHandleData>>,
     textures: Vec<Option<metal::Texture>>,
 
-    // KR1.2 allocation instrument: bumped on every `new_buffer*` the backend
+    // Allocation instrument: bumped on every `new_buffer*` the backend
     // issues. `AtomicU64` so counting works through a `&self` draw path.
     alloc_count: AtomicU64,
 
@@ -650,7 +650,7 @@ pub struct MetalRenderer {
     frame: Option<FrameState>,
 }
 
-/// Backend-private pipeline record. KE-0403 adds a second (textured) built-in
+/// Backend-private pipeline record. There is a second (textured) built-in
 /// pipeline, so a handle records *which* built-in it selects: `textured` routes
 /// draws to the `textured_pipeline_state` (`[pos,normal,uv]`, base-color
 /// sampling), otherwise the untextured Phong `pipeline_state`
@@ -661,7 +661,7 @@ struct PipelineHandleData {
     textured: bool,
 }
 
-/// One recorded draw (KE-0407 deferred encoding): everything `submit` needs to
+/// One recorded draw (deferred encoding): everything `submit` needs to
 /// encode it into both the shadow pass and the scene pass.
 ///
 /// The buffers are retained handles, not copies: a draw keeps the exact uniform
@@ -700,7 +700,7 @@ struct FrameState {
     /// The base-color texture most recently bound by `bind_texture`, recorded into
     /// each subsequent draw (the deferred equivalent of a sticky encoder binding).
     bound_texture: Option<metal::Texture>,
-    /// Byte offset into `light_ring` of *this* frame's light upload (KE-0406).
+    /// Byte offset into `light_ring` of *this* frame's light upload.
     /// Captured when the frame opens so the sky pass and every later `draw_mesh`
     /// bind the identical bytes — the sun cannot change mid-frame.
     light_offset: u64,
@@ -775,7 +775,7 @@ impl MetalRenderer {
     fn build(device: Device, command_queue: metal::CommandQueue, target: RenderTarget) -> Self {
         // Rasterization shader library. Default: compile the MSL source at runtime
         // (no toolchain needed). With `precompiled-shaders`: load a .metallib that
-        // build.rs compiled ahead of time (requires the Metal toolchain). See KE-0107.
+        // build.rs compiled ahead of time (requires the Metal toolchain).
         #[cfg(not(feature = "precompiled-shaders"))]
         let library = {
             let shader_source = include_str!("../shaders/rasterization.metal");
@@ -799,7 +799,7 @@ impl MetalRenderer {
             .get_function("fragment_main", None)
             .expect("fragment_main not found");
 
-        // Vertex descriptor built FROM a `VertexLayout` (KE-0402) rather than a
+        // Vertex descriptor built FROM a `VertexLayout` rather than a
         // hardcoded 0/12/24 Float3 triple. The built-in Phong pipeline binds the
         // canonical `[pos,normal,color]` layout; for that layout this yields the
         // exact same descriptor as before (three Float3s at 0/12/24, stride 36),
@@ -816,7 +816,7 @@ impl MetalRenderer {
             .unwrap()
             .set_pixel_format(MTLPixelFormat::BGRA8Unorm);
         pipeline_descriptor.set_depth_attachment_pixel_format(MTLPixelFormat::Depth32Float);
-        // MSAA (KE-0401): the scene pipelines render into a multisampled color +
+        // MSAA: the scene pipelines render into a multisampled color +
         // depth attachment resolved in-tile. The pipeline's sample count must
         // match the attachments' or pipeline creation fails.
         pipeline_descriptor.set_sample_count(MSAA_SAMPLE_COUNT);
@@ -825,7 +825,7 @@ impl MetalRenderer {
             .new_render_pipeline_state(&pipeline_descriptor)
             .expect("failed to create render pipeline state");
 
-        // Textured pipeline (KE-0403): a second pipeline state over the
+        // Textured pipeline: a second pipeline state over the
         // `[pos,normal,uv]` layout with the `textured_*` shader functions, which
         // sample the bound base-color texture. Built here at load time; distinct
         // from `pipeline_state` so the untextured path is unchanged.
@@ -851,7 +851,7 @@ impl MetalRenderer {
             .new_render_pipeline_state(&textured_descriptor)
             .expect("failed to create textured render pipeline state");
 
-        // Gradient-sky pipeline (KE-0401): a fullscreen triangle painted before
+        // Gradient-sky pipeline: a fullscreen triangle painted before
         // the geometry, sample-count matched to the MSAA scene attachments. No
         // vertex descriptor — `sky_vertex_main` derives its positions from
         // `vertex_id`. Depth is attached (format must match the pass) but the sky
@@ -876,7 +876,7 @@ impl MetalRenderer {
             .new_render_pipeline_state(&sky_descriptor)
             .expect("failed to create sky render pipeline state");
 
-        // 2D overlay / HUD pipeline (KE-0404): screen-space quads drawn after the
+        // 2D overlay / HUD pipeline: screen-space quads drawn after the
         // scene. Alpha blended (the HUD composites over the tonemapped image), and
         // paired at draw time with the no-write/no-test depth state so it never
         // depth-fights the scene. Vertex layout mirrors `OverlayVertex`:
@@ -952,7 +952,7 @@ impl MetalRenderer {
         depth_stencil_descriptor.set_depth_write_enabled(true);
         let depth_stencil_state = device.new_depth_stencil_state(&depth_stencil_descriptor);
 
-        // Sky depth state: always pass, never write (KE-0401). The sky fills the
+        // Sky depth state: always pass, never write. The sky fills the
         // background first; disabling depth write means geometry drawn afterward
         // still depth-tests normally against a cleared depth buffer.
         let sky_depth_descriptor = metal::DepthStencilDescriptor::new();
@@ -960,7 +960,7 @@ impl MetalRenderer {
         sky_depth_descriptor.set_depth_write_enabled(false);
         let sky_depth_stencil_state = device.new_depth_stencil_state(&sky_depth_descriptor);
 
-        // Shadow caster pipelines (KE-0407): depth-only, single-sample, the minimal
+        // Shadow caster pipelines: depth-only, single-sample, the minimal
         // `shadow_vertex_main` and **no fragment function** — casters need no
         // fragment work at all. One per mesh layout, differing only in stride.
         let shadow_vertex_function = library
@@ -987,7 +987,7 @@ impl MetalRenderer {
         // MSAA targets are on iOS) fails loudly instead of sampling garbage.
         let shadow_map = new_shadow_map(&device, SHADOW_MAP_SIZE);
 
-        // The light is uploaded per frame (KE-0406), so this buffer is a ring of
+        // The light is uploaded per frame, so this buffer is a ring of
         // one slot per in-flight frame rather than a single blob written once at
         // construction. Same 256-byte stride as the uniform ring, which both keeps
         // every `set_fragment_buffer` offset 256-byte aligned (Apple GPU
@@ -1085,7 +1085,7 @@ impl MetalRenderer {
         Some(data)
     }
 
-    /// Flush this frame's recorded 2D overlay quads (KE-0404) onto the scene
+    /// Flush this frame's recorded 2D overlay quads onto the scene
     /// pass's `encoder`, then reset the recording buffers for the next frame.
     ///
     /// Runs after every 3D draw and before `end_encoding`, so the HUD composites
@@ -1095,7 +1095,7 @@ impl MetalRenderer {
     /// same texture are batched into a single draw.
     ///
     /// The staging `Vec`s are cleared but keep their capacity, so a steady-state
-    /// HUD performs no per-frame allocation (KR1.2).
+    /// HUD performs no per-frame allocation.
     fn flush_overlay(&mut self, encoder: &metal::RenderCommandEncoderRef) {
         if self.overlay_vertices.is_empty() {
             self.overlay_textures.clear();
@@ -1178,11 +1178,11 @@ impl MetalRenderer {
 
     /// Build (or reuse) the **multisampled** depth texture for the current size.
     ///
-    /// KE-0401: the depth attachment is now `MSAA_SAMPLE_COUNT`-sample to match
+    /// the depth attachment is now `MSAA_SAMPLE_COUNT`-sample to match
     /// the MSAA color, and uses [`msaa_storage_mode`] (memoryless on iOS, private
     /// on macOS). Preserves the prototype's caching optimization — reallocated
     /// only when the target size changes — so the per-frame path allocates
-    /// nothing (KR1.2).
+    /// nothing.
     fn depth_texture_for(&mut self, width: u64, height: u64) -> metal::Texture {
         if let Some(tex) = &self.depth_texture {
             if self.depth_texture_size == (width, height) {
@@ -1203,8 +1203,8 @@ impl MetalRenderer {
         tex
     }
 
-    /// Build (or reuse) the **multisampled color** texture for the current size
-    /// (KE-0401). The scene renders into this `MSAA_SAMPLE_COUNT`-sample color
+    /// Build (or reuse) the **multisampled color** texture for the current size.
+    /// The scene renders into this `MSAA_SAMPLE_COUNT`-sample color
     /// attachment and resolves in-tile into the single-sample target. Uses
     /// [`msaa_storage_mode`] (memoryless on iOS) and, like the depth cache, is
     /// reallocated only on resize so the per-frame path is allocation-free.
@@ -1229,14 +1229,14 @@ impl MetalRenderer {
     }
 
     /// Total number of `new_buffer*` allocations the backend has issued since
-    /// construction (KR1.2 instrument).
+    /// construction (the allocation instrument).
     ///
     /// Includes the construction-time light-uniform buffer and uniform ring, and
     /// every mesh upload. Tests snapshot this around the per-frame path
     /// (`begin_frame` … `submit`) and assert the delta is `0` for the reference
-    /// scene after load: meshes are persistent (KE-0103) and per-draw uniforms
-    /// come from the ring (KE-0104), so the hot path allocates nothing. Exposed
-    /// for reuse by KE-0105 (frames-in-flight).
+    /// scene after load: meshes are persistent and per-draw uniforms
+    /// come from the ring, so the hot path allocates nothing. Exposed
+    /// for reuse by the frames-in-flight tests.
     #[must_use]
     pub fn allocation_count(&self) -> u64 {
         self.alloc_count.load(Ordering::Relaxed)
@@ -1278,8 +1278,8 @@ impl MetalRenderer {
     /// [`create_mesh`](RenderDevice::create_mesh); the buffer then lives in the
     /// [`Registry`] and is referenced by handle on the allocation-free draw path.
     fn upload_mesh(&self, data: &MeshData<'_>) -> MeshEntry {
-        // Deindex at the byte level using the layout's declared per-vertex stride
-        // (KE-0402), so any layout the seam describes is uploaded correctly — not
+        // Deindex at the byte level using the layout's declared per-vertex stride,
+        // so any layout the seam describes is uploaded correctly — not
         // just the 36-byte `Vertex`. For the `[pos,normal,color]` box layout the
         // stride is `size_of::<Vertex>()`, so the resulting bytes are identical to
         // the prior `Vertex`-typed path (pixel hash unchanged).
@@ -1329,16 +1329,16 @@ impl MetalRenderer {
     /// Write `uniforms` into the next slot of the uniform ring and return the
     /// **256-byte-aligned byte offset** to bind at.
     ///
-    /// This is the KE-0104 replacement for the prototype's per-draw
+    /// This replaces the prototype's per-draw
     /// `new_buffer`: the ring is a single persistent buffer, so the steady-state
-    /// per-frame path performs **no allocation** (KR1.2). Sub-allocation rules:
+    /// per-frame path performs **no allocation**. Sub-allocation rules:
     ///
     /// - The offset is `(ring_region_base + ring_cursor) * UNIFORM_RING_STRIDE`,
     ///   always a multiple of 256 (the Apple GPU `set_vertex_buffer` offset
     ///   requirement), so the caller can bind the ring at that offset directly.
     /// - `ring_cursor` advances one slot per draw and resets in `begin_frame`;
     ///   `ring_region_base` selects this frame's disjoint region so an in-flight
-    ///   frame's slots are never overwritten (KE-0105 sets it via
+    ///   frame's slots are never overwritten (frame pacing sets it via
     ///   `frame_index % MAX_FRAMES_IN_FLIGHT`).
     /// - If the frame would exceed its region capacity the ring **grows** here
     ///   (a load/allocation-time event, counted), never a per-draw alloc in
@@ -1360,7 +1360,7 @@ impl MetalRenderer {
     }
 
     /// Write `material` into the next slot of the uniform ring and return its
-    /// 256-byte-aligned byte offset (KE-0403).
+    /// 256-byte-aligned byte offset.
     ///
     /// A **textured** draw consumes a second ring slot for its per-draw
     /// [`MaterialUniforms`] (base-color factor), bound at the textured fragment
@@ -1386,7 +1386,7 @@ impl MetalRenderer {
     }
 
     /// Fold this frame's camera into the light block, write it into the light
-    /// ring, and return the **256-byte-aligned byte offset** to bind at (KE-0406).
+    /// ring, and return the **256-byte-aligned byte offset** to bind at.
     ///
     /// Called once per frame from [`begin_frame`](FrameRecorder::begin_frame); the
     /// returned offset is bound for the sky pass and every draw in the frame, so
@@ -1396,14 +1396,14 @@ impl MetalRenderer {
     ///
     /// The ring has one slot per in-flight frame and this picks
     /// `frame_index % MAX_FRAMES_IN_FLIGHT` — the same partitioning, and the same
-    /// argument, as the per-draw uniform ring (KE-0105). Frame `F` writes slot
+    /// argument, as the per-draw uniform ring. Frame `F` writes slot
     /// `F mod 3`, which is next written by frame `F + 3`; the CPU cannot *begin*
     /// frame `F + 3` until frame `F`'s command-buffer completion handler has
     /// released a semaphore permit, and this write happens after `begin_frame`
     /// acquired one. So the slot is provably retired before it is rewritten.
     ///
     /// Writing straight into the ring (rather than allocating a buffer per frame)
-    /// also keeps the per-frame path allocation-free (KR1.2): the buffer is created
+    /// also keeps the per-frame path allocation-free: the buffer is created
     /// once at construction and never grows — a `LightUniforms` is asserted to fit
     /// one slot by `light_uniforms_fits_one_uniform_ring_slot`.
     fn write_light_to_ring(&mut self) -> u64 {
@@ -1411,7 +1411,7 @@ impl MetalRenderer {
         // values, so it always matches the matrix this frame's draws project with.
         self.light
             .apply_camera(self.camera_position, self.view_projection);
-        // Refit the sun's shadow projection to this frame's camera (KE-0407). The
+        // Refit the sun's shadow projection to this frame's camera. The
         // light direction is the light block's own — i.e. `SunSky::direction()` as
         // applied by `set_sun_sky` — so shading, sun disc and shadows share one
         // vector. The slab depth follows the fog, which decides what is visible,
@@ -1454,7 +1454,7 @@ impl MetalRenderer {
         // The per-frame stride just changed, so the region base must be
         // recomputed against the *live* frame index — not hardcoded to 0, which
         // would put this frame's writes in region 0 while the GPU may still be
-        // reading region 0 from an earlier in-flight frame (KE-0105).
+        // reading region 0 from an earlier in-flight frame.
         self.ring_region_base =
             (self.frame_index % MAX_FRAMES_IN_FLIGHT) * self.ring_draws_per_frame;
     }
@@ -1493,7 +1493,7 @@ impl MetalRenderer {
         UNIFORM_RING_STRIDE
     }
 
-    /// The current frame's ring-region **base slot index** (KE-0105). After
+    /// The current frame's ring-region **base slot index**. After
     /// `begin_frame` this is `(frame_index % MAX_FRAMES_IN_FLIGHT) *
     /// ring_draws_per_frame`. Test aid: lets the frames-in-flight test assert the
     /// region rotates `0, ring_draws_per_frame, 2*…, 0, …` across frames.
@@ -1511,13 +1511,13 @@ impl MetalRenderer {
         self.ring_draws_per_frame
     }
 
-    /// The number of frames submitted so far (KE-0105 `frame_index`). Test aid.
+    /// The number of frames submitted so far (`frame_index`). Test aid.
     #[must_use]
     pub fn frame_index_for_test(&self) -> u64 {
         self.frame_index
     }
 
-    /// The light block as it stands CPU-side (KE-0406). Test aid: lets a test
+    /// The light block as it stands CPU-side. Test aid: lets a test
     /// assert a [`SunSky`] pushed through the seam actually became the bytes the
     /// shader will read — including that the light direction is the one
     /// [`SunSky::direction`] derives — without a GPU readback.
@@ -1527,7 +1527,7 @@ impl MetalRenderer {
     }
 
     /// Byte offset in the light ring that the *next* frame's light upload will bind
-    /// at (KE-0406). Test aid: proves the light rotates through one slot per
+    /// at. Test aid: proves the light rotates through one slot per
     /// in-flight frame, `0, 256, 512, 0, …`, instead of being overwritten in place
     /// while the GPU may still be reading it.
     #[must_use]
@@ -1535,7 +1535,7 @@ impl MetalRenderer {
         (self.frame_index % MAX_FRAMES_IN_FLIGHT) * UNIFORM_RING_STRIDE
     }
 
-    /// Enable or disable **shadow casting** (KE-0407). On by default.
+    /// Enable or disable **shadow casting**. On by default.
     ///
     /// Disabled, the shadow pass still runs and clears the map, but renders no
     /// casters into it, so every lookup comes back fully lit. This is a
@@ -1568,7 +1568,7 @@ impl MetalRenderer {
     ///
     /// A backend-level knob below the render seam, like
     /// [`set_shadows_enabled`](Self::set_shadows_enabled). Games reach it through
-    /// the seam's [`RenderSettings::shadow_distance`] (KE-0408), which
+    /// the seam's [`RenderSettings::shadow_distance`], which
     /// [`set_render_settings`](RenderDevice::set_render_settings) resolves to world
     /// units and writes here, replacing any earlier value. Takes effect from the
     /// next frame.
@@ -1585,7 +1585,7 @@ impl MetalRenderer {
         self.shadow_distance_override
     }
 
-    /// The shadow map's current edge length in texels (KE-0408): 4096 for
+    /// The shadow map's current edge length in texels: 4096 for
     /// [`ShadowQuality::High`](kaman_render_api::ShadowQuality::High), 2048 for
     /// [`ShadowQuality::Low`](kaman_render_api::ShadowQuality::Low). Off keeps the last
     /// map (the pass is skipped, so it costs no fill). Test/diagnostic aid.
@@ -1595,13 +1595,13 @@ impl MetalRenderer {
     }
 
     /// The render settings last applied through
-    /// [`set_render_settings`](RenderDevice::set_render_settings) (KE-0408).
+    /// [`set_render_settings`](RenderDevice::set_render_settings).
     #[must_use]
     pub fn render_settings(&self) -> RenderSettings {
         self.render_settings
     }
 
-    /// Encode the depth-only **shadow pass** (KE-0407): every recorded draw, as a
+    /// Encode the depth-only **shadow pass**: every recorded draw, as a
     /// caster, from the sun into the shadow map.
     ///
     /// Runs first on the frame's command buffer, before the scene pass that samples
@@ -1613,7 +1613,7 @@ impl MetalRenderer {
         let descriptor = metal::RenderPassDescriptor::new();
         configure_shadow_depth_attachment(descriptor, &self.shadow_map);
         let encoder = frame.command_buffer.new_render_command_encoder(descriptor);
-        encoder.set_label("KE-0407 shadow pass");
+        encoder.set_label("Shadow pass");
         encoder.set_depth_stencil_state(&self.depth_stencil_state);
         encoder.set_depth_clip_mode(metal::MTLDepthClipMode::Clamp);
         encoder.set_cull_mode(metal::MTLCullMode::None);
@@ -1642,17 +1642,17 @@ impl MetalRenderer {
 
     /// Encode the **scene pass** (sky, every recorded draw through the lit
     /// pipelines, then the 2D overlay) into `frame`'s MSAA target, resolved in-tile
-    /// into its color target. This is the pre-KE-0407 single pass, unchanged except
+    /// into its color target. This is the original single pass, unchanged except
     /// that it binds the shadow map at fragment `[[texture(1)]]` for the lit
     /// shaders and replays the recorded draw list instead of encoding immediately.
     fn encode_scene_pass(&mut self, frame: &FrameState) {
         let render_pass_descriptor = metal::RenderPassDescriptor::new();
 
-        // MSAA (KE-0401): render into a multisampled color attachment and resolve
+        // MSAA: render into a multisampled color attachment and resolve
         // in-tile into `color_texture` (the drawable / offscreen texture). The
         // `MultisampleResolve` store action performs the resolve on the GPU tile,
         // so the multisampled buffer never spills to system memory — and on iOS
-        // it can be memoryless (KE-0305). The offscreen pixel-hash path therefore
+        // it can be memoryless. The offscreen pixel-hash path therefore
         // still ends up with a readable, single-sample resolved texture.
         let msaa_color = self.msaa_color_for(frame.width, frame.height);
         let color_attachment = render_pass_descriptor
@@ -1685,7 +1685,7 @@ impl MetalRenderer {
             .new_render_command_encoder(render_pass_descriptor)
             .to_owned();
 
-        // Gradient sky first (KE-0401): a fullscreen triangle with depth test/
+        // Gradient sky first: a fullscreen triangle with depth test/
         // write disabled paints the background before any geometry, replacing the
         // flat clear. Geometry drawn afterward depth-tests against the cleared
         // depth buffer normally. Bind the light (fragment(0)) for the sky colors,
@@ -1723,7 +1723,7 @@ impl MetalRenderer {
             encoder.draw_primitives(metal::MTLPrimitiveType::Triangle, 0, draw.vertex_count);
         }
 
-        // 2D overlay / HUD pass (KE-0404): flush everything recorded this frame
+        // 2D overlay / HUD pass: flush everything recorded this frame
         // on the same encoder, after all 3D draws, so it composites on top.
         self.flush_overlay(&encoder);
 
@@ -1746,7 +1746,7 @@ impl RenderDevice for MetalRenderer {
     }
 
     fn create_texture(&mut self, data: &TextureData<'_>) -> TextureHandle {
-        // RGBA8 upload with a full mip chain (KE-0403). ASTC/compressed formats
+        // RGBA8 upload with a full mip chain. ASTC/compressed formats
         // slot in behind a cfg for on-device builds; RGBA8 is the accepted macOS
         // fallback (we build on the Command Line Tools, no ASTC tooling), so the
         // uncompressed path is the one wired here.
@@ -1802,7 +1802,7 @@ impl RenderDevice for MetalRenderer {
     }
 
     fn create_pipeline(&mut self, desc: &PipelineDescriptor) -> PipelineHandle {
-        // Two built-in pipelines (KE-0403): the descriptor's vertex layout selects
+        // Two built-in pipelines: the descriptor's vertex layout selects
         // which one this handle names. A `[pos,normal,uv]` layout (a Float2 UV
         // attribute) routes to the textured pipeline (base-color sampling); the
         // `[pos,normal,color]` layout routes to the untextured Phong pipeline. The
@@ -1826,12 +1826,12 @@ impl RenderDevice for MetalRenderer {
 
     fn safe_area_insets(&self) -> [f32; 4] {
         // macOS windows have no notch/home-indicator intrusions; the iOS path
-        // (Phase 3) reports the real `UIView.safeAreaInsets` here.
+        // (v0.2) reports the real `UIView.safeAreaInsets` here.
         [0.0; 4]
     }
 
     fn resize_surface(&mut self, width: u32, height: u32, pixels_per_point: f32) {
-        // KE-0408: the drawable is sized explicitly (a `CAMetalLayer` does not
+        // the drawable is sized explicitly (a `CAMetalLayer` does not
         // track its view once `drawableSize` has been set), and CoreAnimation
         // scales it to fill the layer, so a drawable smaller than the window's
         // native pixels is a cheap render-scale upscale. The MSAA color and depth
@@ -1921,7 +1921,7 @@ impl FrameRecorder for MetalRenderer {
             } => (color.clone(), None, *width, *height),
         };
 
-        // Frames-in-flight gate (KE-0105): block until at most
+        // Frames-in-flight gate: block until at most
         // `MAX_FRAMES_IN_FLIGHT - 1` frames are still queued on the GPU, so this
         // frame can be prepared without stomping a ring region the GPU is still
         // reading. Acquired here — *after* the drawable/target is secured — so a
@@ -1930,22 +1930,22 @@ impl FrameRecorder for MetalRenderer {
         self.frame_semaphore.acquire();
 
         // NOTE: the view-projection is deliberately NOT reset here. It is sticky
-        // across frames (seam contract, KE-0205): the engine loop pushes it once
+        // across frames (seam contract): the engine loop pushes it once
         // per frame via `set_view_projection` *before* the game opens its frame,
         // so clearing it in `begin_frame` would wipe the engine's camera before
         // the first draw. It defaults to identity until the first push.
 
         let command_buffer = self.command_queue.new_command_buffer().to_owned();
 
-        // Upload this frame's light (KE-0406) before anything is recorded: the sky
+        // Upload this frame's light before anything is recorded: the sky
         // needs the sun's direction to place its disc, the geometry needs the
-        // identical bytes, and — KE-0407 — the shadow pass needs the light
+        // identical bytes, and the shadow pass needs the light
         // view-projection fitted to this frame's camera. The frame's whole shading
         // state is written once here and bound at the same offset everywhere.
         let light_offset = self.write_light_to_ring();
 
-        // Reset the uniform-ring cursor and select this frame's disjoint region
-        // (KE-0105): `(frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame`
+        // Reset the uniform-ring cursor and select this frame's disjoint region:
+        // `(frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame`
         // cycles the region base `0,1,2,0,…`. Behind the semaphore acquired
         // above, so the region the CPU is about to write is guaranteed not to be
         // one the GPU is still reading.
@@ -1953,7 +1953,7 @@ impl FrameRecorder for MetalRenderer {
         self.ring_region_base =
             (self.frame_index % MAX_FRAMES_IN_FLIGHT) * self.ring_draws_per_frame;
 
-        // Nothing is encoded yet (KE-0407): draws are recorded and replayed by
+        // Nothing is encoded yet: draws are recorded and replayed by
         // `submit` into the shadow pass and then the scene pass. Clear (never
         // shrink) the list so its capacity is reused.
         self.draws.clear();
@@ -1974,13 +1974,13 @@ impl FrameRecorder for MetalRenderer {
 
     fn set_view_projection(&mut self, view_proj: Mat4) {
         // Store this frame's world → clip matrix; `draw_mesh` multiplies it by
-        // each instance's model transform to form the MVP (KE-0205). Per the seam
+        // each instance's model transform to form the MVP. Per the seam
         // contract this is pushed once per frame before the first `draw_mesh`.
         self.view_projection = view_proj;
     }
 
     fn set_camera_position(&mut self, position: Vec3) {
-        // The eye position for view-dependent shading (KE-0406). Sticky, like the
+        // The eye position for view-dependent shading. Sticky, like the
         // matrix it accompanies; both are folded into the frame's light block when
         // the frame opens (`write_light_to_ring`), so a push that lands *after*
         // `begin_frame` applies from the next frame — which is why the engine loop
@@ -1998,7 +1998,7 @@ impl FrameRecorder for MetalRenderer {
 
     fn set_pipeline(&mut self, handle: PipelineHandle) {
         // Select the untextured or textured built-in pipeline for the draws that
-        // follow (KE-0403). The untextured pipeline is the default each frame; a
+        // follow. The untextured pipeline is the default each frame; a
         // draw that wants texturing selects the textured one here. Unknown handle:
         // leave the current selection (defined no-op per the seam contract).
         let textured = match self.pipelines.get(handle.0 as usize) {
@@ -2026,7 +2026,7 @@ impl FrameRecorder for MetalRenderer {
             return;
         };
         // Whether the textured pipeline is currently selected — decides if this
-        // draw also writes+binds the per-draw material uniform (KE-0403).
+        // draw also writes+binds the per-draw material uniform.
         let textured = frame.textured_pipeline;
 
         // Look the persistent vertex buffer up by handle — no allocation here.
@@ -2047,7 +2047,7 @@ impl FrameRecorder for MetalRenderer {
 
         // Per-draw MVP uniform: written into the persistent uniform ring at a
         // rotating, 256-byte-aligned offset — **no `new_buffer*` on the hot
-        // path** (KR1.2). KE-0104 replaced the prototype's per-draw allocation
+        // path**. This replaced the prototype's per-draw allocation
         // with this ring sub-allocation.
         let model: Mat4 = transform.to_matrix();
         let mvp = self.view_projection * model;
@@ -2055,7 +2055,7 @@ impl FrameRecorder for MetalRenderer {
             model_view_projection: mvp.to_cols_array_2d(),
             // World matrix for the look stack: the shader reconstructs world
             // position + normal for distance fog and shadow-map lookups, and the
-            // shadow pass places the caster with it (KE-0407).
+            // shadow pass places the caster with it.
             model: model.to_cols_array_2d(),
         };
         let uniform_offset = self.write_uniform_to_ring(&uniforms);
@@ -2072,7 +2072,7 @@ impl FrameRecorder for MetalRenderer {
             None
         };
 
-        // Record, don't encode (KE-0407): `submit` replays this draw into the
+        // Record, don't encode: `submit` replays this draw into the
         // shadow pass (as a caster) and then the scene pass. The buffer handles are
         // retained, so a later ring growth this frame cannot rebind this draw.
         let frame = self.frame.as_ref().expect("frame checked Some above");
@@ -2132,17 +2132,17 @@ impl FrameRecorder for MetalRenderer {
             return;
         };
 
-        // KE-0407 pass order: the depth-only shadow pass first (every recorded
+        // Pass order: the depth-only shadow pass first (every recorded
         // draw as a caster, into the stored shadow map), then the scene pass
         // (sky, lit draws sampling that map, and the 2D overlay on top).
-        // With shadows off (KE-0408) the pass is skipped outright: the light block's
+        // With shadows off the pass is skipped outright: the light block's
         // zero `shadow_strength` makes the lit shaders ignore the map.
         if self.render_settings.shadows.casts_shadows() {
             self.encode_shadow_pass(&frame);
         }
         self.encode_scene_pass(&frame);
 
-        // Frames-in-flight release (KE-0105): register a completion handler that
+        // Frames-in-flight release: register a completion handler that
         // signals the semaphore when the GPU finishes this frame. The handler
         // runs on a Metal-owned thread, so it must be allocation-free — it holds
         // an `Arc<FrameSemaphore>` (cloned here on the CPU submit path, not in
@@ -2203,7 +2203,7 @@ mod shadow_pass_tests {
 
     #[test]
     fn shadow_map_is_stored_not_discarded() {
-        // TBDR (KE-0407): the scene pass samples the map after the shadow pass
+        // TBDR: the scene pass samples the map after the shadow pass
         // ends, so its depth must be stored. `DontCare` (what the scene pass's own
         // MSAA depth uses) would compile, run, and sample garbage.
         assert!(matches!(

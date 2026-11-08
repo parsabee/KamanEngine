@@ -9,7 +9,7 @@ shaders/**/*.metallib
 # macOS
 .DS_Store
 
-# Xcode / iOS (added in Phase 3)
+# Xcode / iOS
 platform/ios/**/build/
 platform/ios/**/DerivedData/
 *.xcuserstate

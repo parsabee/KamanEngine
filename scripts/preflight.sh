@@ -4,13 +4,13 @@
 # Exits non-zero if a REQUIRED tool is missing.
 #
 #   ./scripts/preflight.sh          check what's needed to build the engine today
-#   ./scripts/preflight.sh --ios    ALSO require the Phase 3 (iOS) + .metallib toolchain
+#   ./scripts/preflight.sh --ios    ALSO require the iOS + precompiled .metallib toolchain
 #
 # Two tiers:
 #   * Required now  — build + run the engine on macOS (KamanEngine is Apple-only).
-#   * iOS / KE-0107 — full Xcode (metal/metallib shader compiler) + rustup iOS
+#   * iOS / .metallib — full Xcode (metal/metallib shader compiler) + rustup iOS
 #                     targets. Only a warning by default; a hard requirement with
-#                     --ios (use it once you start Phase 3 or precompiled shaders).
+#                     --ios (needed for precompiled shaders and iOS builds).
 set -uo pipefail
 
 MIN_RUST="1.91.0"
@@ -60,7 +60,7 @@ else
 fi
 
 echo
-echo "Required for iOS bring-up (Phase 3) + precompiled .metallib (KE-0107):"
+echo "Required for iOS builds + precompiled .metallib shaders:"
 if xcode-select -p 2>/dev/null | grep -q "Xcode.app"; then
   ok "Xcode" "$(xcode-select -p)"
 else

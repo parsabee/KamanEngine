@@ -33,7 +33,7 @@ pub(crate) struct BuildingVariant(
     pub(crate) usize,
 );
 
-/// A game-side ECS marker for a streamed guardrail segment (KE-0706), so the
+/// A game-side ECS marker for a streamed guardrail segment, so the
 /// renderer draws it with the shared guardrail mesh and excludes it from the road
 /// pass. Non-colliding decoration.
 #[derive(Debug, Clone, Copy)]

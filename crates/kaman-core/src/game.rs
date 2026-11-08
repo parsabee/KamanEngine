@@ -21,7 +21,7 @@ use crate::graphics::GraphicsSettings;
 /// access flows through the [`EngineCtx`] argument — a game never touches a
 /// window, a Metal device, or any other engine internal directly.
 ///
-/// # Call ordering (invariant) and fixed-timestep cadence (KE-0201)
+/// # Call ordering (invariant) and fixed-timestep cadence
 ///
 /// The engine runs a **fixed timestep** ([`FIXED_DT`](crate::FIXED_DT)) decoupled
 /// from the display rate. Each display frame it banks the real elapsed time and
@@ -85,7 +85,7 @@ use crate::graphics::GraphicsSettings;
 ///     }
 ///
 ///     fn render(&mut self, _ctx: &mut EngineCtx) {
-///         // Recording draws through the seam is optional in Phase 1.
+///         // Recording draws through the seam is optional.
 ///     }
 /// }
 ///
@@ -123,11 +123,11 @@ pub trait Game {
     /// motion between fixed steps, a game may read
     /// [`EngineCtx::alpha`](crate::EngineCtx::alpha) — the interpolation factor in
     /// `0.0..=1.0` — and lerp between the previous and current fixed states; a
-    /// Phase 2 game may ignore it. This hook may be a no-op in Phase 1. Do not
+    /// game may ignore it. This hook may be a no-op. Do not
     /// mutate game state here.
     fn render(&mut self, ctx: &mut EngineCtx);
 
-    /// Called after new [`GraphicsSettings`] take effect (KE-0408), whether they
+    /// Called after new [`GraphicsSettings`] take effect, whether they
     /// came from the built-in settings menu or from
     /// [`EngineCtx::set_graphics_settings`](crate::EngineCtx::set_graphics_settings).
     ///

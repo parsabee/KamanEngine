@@ -4,7 +4,7 @@
 
 //! Entity Component System (ECS) components and tags for KamanEngine.
 //!
-//! This crate is the stable component vocabulary that the Phase-1 `Game` trait
+//! This crate is the stable component vocabulary that the `Game` trait
 //! and any other engine consumer bind against. It defines the
 //! engine-generic components stored in an [`hecs`] [`World`](hecs::World):
 //!
@@ -120,7 +120,7 @@ impl TransformComponent {
 /// body lives in the physics world; this component is a non-owning reference.
 /// Callers are responsible for keeping the handle and the physics world in sync:
 /// a handle whose body has been removed from the set is dangling and must not be
-/// dereferenced. (Handle-removal safety is tracked separately in KE-0202.)
+/// dereferenced. (Handle-removal safety lives in `kaman-physics` and `kaman-scene`.)
 ///
 /// # Example
 ///
@@ -697,7 +697,7 @@ mod tests {
         }
     }
 
-    /// A1-boundary guard: this crate must stay engine-generic.
+    /// Engine/game boundary guard: this crate must stay engine-generic.
     ///
     /// It embeds this crate's entire source with `include_str!` and scans it,
     /// token by token (splitting on non-alphanumeric boundaries), for any
@@ -740,7 +740,7 @@ mod tests {
                 assert_ne!(
                     &lower, bad,
                     "game-specific identifier `{token}` found in lib.rs: \
-                     kaman-ecs must stay engine-generic (A1 boundary)",
+                     kaman-ecs must stay engine-generic (engine/game boundary)",
                 );
             }
         }

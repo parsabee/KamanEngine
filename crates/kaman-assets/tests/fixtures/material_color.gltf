@@ -1,7 +1,7 @@
 {
   "asset": {
     "version": "2.0",
-    "generator": "KamanEngine KE-0703 material-color fixture"
+    "generator": "KamanEngine material-color fixture"
   },
   "scene": 0,
   "scenes": [
