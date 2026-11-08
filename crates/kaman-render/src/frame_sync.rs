@@ -72,6 +72,25 @@ impl FrameSemaphore {
         *permits -= 1;
     }
 
+    /// Take one permit **if one is available**, without waiting.
+    ///
+    /// Returns `true` if a permit was taken. The non-blocking counterpart of
+    /// [`acquire`](Self::acquire), behind `try_begin_frame`.
+    pub fn try_acquire(&self) -> bool {
+        let mut permits = self.permits.lock().expect("frame semaphore poisoned");
+        if *permits == 0 {
+            return false;
+        }
+        *permits -= 1;
+        true
+    }
+
+    /// The number of permits available right now.
+    #[must_use]
+    pub fn available(&self) -> u32 {
+        *self.permits.lock().expect("frame semaphore poisoned")
+    }
+
     /// Return one permit and wake a blocked `acquire`(Self::acquire).
     ///
     /// **Allocation-free**: it only locks a mutex, increments a counter, and
@@ -88,6 +107,21 @@ impl FrameSemaphore {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn try_acquire_takes_a_permit_only_when_one_is_free() {
+        let sem = FrameSemaphore::new(2);
+        assert!(sem.try_acquire());
+        assert!(sem.try_acquire());
+        assert_eq!(sem.available(), 0);
+        assert!(
+            !sem.try_acquire(),
+            "no permit left: must not block or go negative"
+        );
+        sem.release();
+        assert_eq!(sem.available(), 1);
+        assert!(sem.try_acquire());
+    }
 
     #[test]
     fn acquire_takes_permits_up_to_the_limit_then_release_frees_one() {

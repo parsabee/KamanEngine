@@ -117,6 +117,37 @@
 //! CPU-written while the GPU still reads it. Present is tied to the drawable
 //! (windowed path), so pacing needs no spin.
 //!
+//! # Non-blocking frames
+//!
+//! The seam's `begin_frame` / `submit` may block (on the semaphore, and on the
+//! GPU for an offscreen `submit`). Hosts that must never wait (the C API) use the
+//! inherent counterparts instead:
+//!
+//! - [`try_begin_frame`](MetalRenderer::try_begin_frame) takes a permit only if
+//!   one is free and reports a [`FrameSkip`] otherwise;
+//! - [`submit_async`](MetalRenderer::submit_async) commits without waiting on any
+//!   target and returns the frame's number;
+//! - [`completed_frame_count`](MetalRenderer::completed_frame_count), bumped by
+//!   each frame's completion handler, says which frames are done (frames on one
+//!   queue complete in submission order);
+//! - [`request_readback`](MetalRenderer::request_readback) copies an offscreen
+//!   frame's pixels into a buffer owned by the returned [`Readback`], encoded in
+//!   that frame's own command buffer, so the pixels are that frame's even when
+//!   later frames have drawn since;
+//! - [`discard_frame`](MetalRenderer::discard_frame) abandons an open frame and
+//!   returns its permit.
+//!
+//! Texture uploads do not wait either: the mipmap blit is committed on the same
+//! queue as every later frame, and one queue runs its command buffers in commit
+//! order. Destroying a mesh or texture mid-flight is safe for the same kind of
+//! reason: command buffers retain every resource they encode, so the GPU memory
+//! outlives the frames that use it.
+//!
+//! Frame opening, submission and the mip blit each run inside an Objective-C
+//! autorelease pool, so the drawable, command buffers and encoders Metal hands
+//! back autoreleased are drained per frame even on a host thread without a pool
+//! of its own.
+//!
 //! # Allocation instrument
 //!
 //! Every `new_buffer*` the backend issues goes through
@@ -136,7 +167,7 @@
 
 use std::ffi::c_void;
 use std::mem;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use block::ConcreteBlock;
@@ -144,6 +175,7 @@ use cocoa::base::id as cocoa_id;
 use cocoa::foundation::NSRect;
 use core_graphics_types::geometry::CGSize;
 use metal::{Device, MTLPixelFormat, MTLResourceOptions, MetalLayer};
+use objc::rc::autoreleasepool;
 use objc::runtime::YES;
 use objc::{msg_send, sel, sel_impl};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -570,7 +602,7 @@ pub struct MetalRenderer {
     // no vertex buffer (it derives a fullscreen triangle from `vertex_id`).
     sky_pipeline_state: metal::RenderPipelineState,
     // 2D overlay / HUD: its own alpha-blended pipeline, a clamped
-    // sampler for the SDF atlas, and a persistent vertex buffer + CPU staging
+    // sampler for the SDF atlas, and persistent vertex buffers + a CPU staging
     // vec that are cleared (never reallocated) each frame, so recording a HUD
     // adds no per-frame allocation.
     overlay_pipeline_state: metal::RenderPipelineState,
@@ -579,8 +611,11 @@ pub struct MetalRenderer {
     /// One entry per recorded quad (6 vertices): the texture it samples, if any.
     /// Lets `submit` batch consecutive quads that share a texture into one draw.
     overlay_textures: Vec<Option<TextureHandle>>,
-    overlay_buffer: Option<metal::Buffer>,
-    overlay_buffer_capacity: usize,
+    /// One HUD vertex buffer (and its capacity in vertices) per in-flight frame,
+    /// selected by `frame_index % MAX_FRAMES_IN_FLIGHT` like the uniform and light
+    /// rings, so the CPU never rewrites HUD vertices a frame still on the GPU is
+    /// drawing. Each grows on its own when a frame needs more room.
+    overlay_buffers: [Option<(metal::Buffer, usize)>; MAX_FRAMES_IN_FLIGHT as usize],
 
     // Shadow map. A `shadow_map_size`² `Depth32Float` texture, `Private`
     // and stored (never memoryless — it is sampled by the pass after the one that
@@ -672,6 +707,8 @@ pub struct MetalRenderer {
     // per-frame ring region.
     frame_semaphore: Arc<FrameSemaphore>,
     frame_index: u64,
+    // Frames the GPU has finished, bumped by each frame's completion handler.
+    completed_frames: Arc<AtomicU64>,
 
     // Cached MSAA (multisampled) depth texture — the depth attachment is now
     // multisampled to match the MSAA color. Reallocated only on resize,
@@ -739,6 +776,84 @@ struct DrawRecord {
     texture: Option<metal::Texture>,
 }
 
+/// The color target a frame renders into, before the frame is opened.
+struct FrameTarget {
+    color_texture: metal::Texture,
+    drawable: Option<metal::MetalDrawable>,
+    width: u64,
+    height: u64,
+}
+
+/// Why [`MetalRenderer::try_begin_frame`] did not open a frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameSkip {
+    /// A frame is already open; submit or discard it first.
+    AlreadyOpen,
+    /// [`MAX_FRAMES_IN_FLIGHT`] frames are still on the GPU.
+    FramesInFlight,
+    /// The layer had no drawable to give (for example the window is hidden).
+    NoDrawable,
+}
+
+/// A pending copy of one frame's pixels, from
+/// [`MetalRenderer::request_readback`].
+///
+/// The pixels land in a CPU-visible buffer this value owns once the GPU finishes
+/// the frame; [`is_complete`](Self::is_complete) says when, without blocking.
+/// Row-major BGRA8, `width * 4` bytes per row, top row first.
+pub struct Readback {
+    buffer: metal::Buffer,
+    done: Arc<AtomicBool>,
+    width: u32,
+    height: u32,
+}
+
+impl Readback {
+    /// Whether the GPU has finished the frame and the pixels are available.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        self.done.load(Ordering::Acquire)
+    }
+
+    /// The frame's width in pixels.
+    #[must_use]
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// The frame's height in pixels.
+    #[must_use]
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// The number of bytes the pixels take: `width * height * 4`.
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        self.width as usize * self.height as usize * 4
+    }
+
+    /// Copy the pixels into `dst`. Returns `false`, copying nothing, if the frame
+    /// is not complete yet or `dst` is shorter than [`byte_len`](Self::byte_len).
+    pub fn copy_to(&self, dst: &mut [u8]) -> bool {
+        let len = self.byte_len();
+        if !self.is_complete() || dst.len() < len {
+            return false;
+        }
+        // SAFETY: the buffer is shared storage of exactly `len` bytes, and the GPU
+        // finished writing it (`done` is set by the frame's completion handler,
+        // after which Metal makes shared-buffer writes visible to the CPU).
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.buffer.contents() as *const u8,
+                dst.as_mut_ptr(),
+                len,
+            );
+        }
+        true
+    }
+}
+
 /// Live state for an in-flight frame.
 struct FrameState {
     command_buffer: metal::CommandBuffer,
@@ -760,6 +875,9 @@ struct FrameState {
     /// Captured when the frame opens so the sky pass and every later `draw_mesh`
     /// bind the identical bytes — the sun cannot change mid-frame.
     light_offset: u64,
+    /// A requested read-back: the buffer the pixels are copied into at submit,
+    /// and the flag the completion handler sets when they are there.
+    readback: Option<(metal::Buffer, Arc<AtomicBool>)>,
 }
 
 impl MetalRenderer {
@@ -1166,8 +1284,7 @@ impl MetalRenderer {
             overlay_sampler_state,
             overlay_vertices: Vec::new(),
             overlay_textures: Vec::new(),
-            overlay_buffer: None,
-            overlay_buffer_capacity: 0,
+            overlay_buffers: [None, None, None],
             shadow_map,
             shadow_pipeline_state,
             shadow_textured_pipeline_state,
@@ -1191,6 +1308,7 @@ impl MetalRenderer {
             // Triple-buffer pacing: start with a full complement of permits.
             frame_semaphore: Arc::new(FrameSemaphore::new(MAX_FRAMES_IN_FLIGHT as u32)),
             frame_index: 0,
+            completed_frames: Arc::new(AtomicU64::new(0)),
             depth_texture: None,
             depth_texture_size: (0, 0),
             msaa_color_texture: None,
@@ -1258,21 +1376,23 @@ impl MetalRenderer {
             return;
         }
 
-        // Grow the persistent vertex buffer only when this frame needs more room.
+        // This frame's HUD buffer: the region `frame_index % MAX_FRAMES_IN_FLIGHT`
+        // (the frame index advances only after this pass is encoded), behind the
+        // same frames-in-flight permit that guards the uniform ring. Grow it only
+        // when this frame needs more room.
         let needed = self.overlay_vertices.len();
-        if self.overlay_buffer.is_none() || self.overlay_buffer_capacity < needed {
+        let region = (self.frame_index % MAX_FRAMES_IN_FLIGHT) as usize;
+        if !matches!(&self.overlay_buffers[region], Some((_, capacity)) if *capacity >= needed) {
             let capacity = needed.next_power_of_two().max(256);
-            let buffer = self.device.new_buffer(
+            let buffer = self.counted_new_buffer(
                 (capacity as u64) * OVERLAY_VERTEX_STRIDE,
                 metal::MTLResourceOptions::StorageModeShared,
             );
-            self.overlay_buffer = Some(buffer);
-            self.overlay_buffer_capacity = capacity;
+            self.overlay_buffers[region] = Some((buffer, capacity));
         }
-        let buffer = self
-            .overlay_buffer
-            .as_ref()
-            .expect("overlay buffer just ensured");
+        let Some((buffer, _)) = &self.overlay_buffers[region] else {
+            unreachable!("the region's overlay buffer was just ensured");
+        };
 
         // SAFETY: the buffer is shared-storage, sized for at least `needed`
         // vertices above, and `OverlayVertex` is `#[repr(C)]` plain data.
@@ -1593,15 +1713,19 @@ impl MetalRenderer {
             // `rgba8` holds at least `height` rows of `width * 4` bytes.
             tex.replace_region(region, 0, data.rgba8.as_ptr() as *const _, width * 4);
 
-            // Generate the lower mip levels on the GPU via a blit encoder, then
-            // wait so the texture is fully resident before any draw samples it.
+            // Generate the lower mip levels on the GPU via a blit encoder. No CPU
+            // wait: every frame that samples the texture is committed later on the
+            // same command queue, and Metal runs one queue's command buffers in
+            // commit order, so the mips are always finished before any draw
+            // reads them.
             if mip_levels > 1 {
-                let command_buffer = self.command_queue.new_command_buffer();
-                let blit = command_buffer.new_blit_command_encoder();
-                blit.generate_mipmaps(&tex);
-                blit.end_encoding();
-                command_buffer.commit();
-                command_buffer.wait_until_completed();
+                autoreleasepool(|| {
+                    let command_buffer = self.command_queue.new_command_buffer();
+                    let blit = command_buffer.new_blit_command_encoder();
+                    blit.generate_mipmaps(&tex);
+                    blit.end_encoding();
+                    command_buffer.commit();
+                });
             }
         }
 
@@ -2014,6 +2138,278 @@ impl MetalRenderer {
         encoder.end_encoding();
     }
 
+    /// The color target for the next frame: the layer's next drawable (which may
+    /// wait for one to free up, and is `None` if none arrives, e.g. while the
+    /// window is hidden), or the offscreen texture.
+    fn acquire_target(&self) -> Option<FrameTarget> {
+        match &self.target {
+            RenderTarget::Surface { layer } => layer.next_drawable().map(|drawable| {
+                let color_texture = drawable.texture().to_owned();
+                FrameTarget {
+                    width: color_texture.width(),
+                    height: color_texture.height(),
+                    color_texture,
+                    drawable: Some(drawable.to_owned()),
+                }
+            }),
+            RenderTarget::Offscreen {
+                color,
+                width,
+                height,
+            } => Some(FrameTarget {
+                color_texture: color.clone(),
+                drawable: None,
+                width: *width,
+                height: *height,
+            }),
+        }
+    }
+
+    /// Open a frame on `target`, behind a frames-in-flight permit the caller
+    /// already holds.
+    fn open_frame(&mut self, target: FrameTarget) {
+        // NOTE: the view-projection is deliberately NOT reset here. It is sticky
+        // across frames (seam contract): the engine loop pushes it once
+        // per frame via `set_view_projection` *before* the game opens its frame,
+        // so clearing it in `begin_frame` would wipe the engine's camera before
+        // the first draw. It defaults to identity until the first push.
+
+        let command_buffer = self.command_queue.new_command_buffer().to_owned();
+
+        // Upload this frame's light before anything is recorded: the sky
+        // needs the sun's direction to place its disc, the geometry needs the
+        // identical bytes, and the shadow pass needs the light
+        // view-projection fitted to this frame's camera. The frame's whole shading
+        // state is written once here and bound at the same offset everywhere.
+        let light_offset = self.write_light_to_ring();
+
+        // Reset the uniform-ring cursor and select this frame's disjoint region:
+        // `(frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame`
+        // cycles the region base `0,1,2,0,…`. Behind the frames-in-flight permit,
+        // so the region the CPU is about to write is guaranteed not to be one the
+        // GPU is still reading.
+        self.ring_cursor = 0;
+        self.ring_region_base =
+            (self.frame_index % MAX_FRAMES_IN_FLIGHT) * self.ring_draws_per_frame;
+
+        // Nothing is encoded yet: draws are recorded and replayed by
+        // `submit` into the shadow pass and then the scene pass. Clear (never
+        // shrink) the lists so their capacity is reused. The overlay lists should
+        // already be empty (`draw_overlay_quad` ignores calls outside a frame);
+        // clearing them here keeps a stray quad from ever reaching this frame.
+        self.draws.clear();
+        self.overlay_vertices.clear();
+        self.overlay_textures.clear();
+
+        self.frame = Some(FrameState {
+            command_buffer,
+            drawable: target.drawable,
+            color_texture: target.color_texture,
+            width: target.width,
+            height: target.height,
+            // The untextured Phong pipeline until `set_pipeline` selects the
+            // textured one; no base-color texture until `bind_texture`.
+            textured_pipeline: false,
+            bound_texture: None,
+            light_offset,
+            readback: None,
+        });
+    }
+
+    /// Open a frame **without waiting** for the GPU: the non-blocking
+    /// counterpart of [`begin_frame`](FrameRecorder::begin_frame).
+    ///
+    /// Returns `Err(FrameSkip::FramesInFlight)` instead of blocking when
+    /// [`MAX_FRAMES_IN_FLIGHT`] frames are still on the GPU, and
+    /// `Err(FrameSkip::AlreadyOpen)` if a frame is open. On a layer target it then
+    /// takes the next drawable, which can still wait for one to free up (Core
+    /// Animation gives up after about a second, giving
+    /// `Err(FrameSkip::NoDrawable)`); with a free frame slot a drawable is
+    /// normally ready at once. On success the frame is open exactly as after
+    /// `begin_frame`.
+    ///
+    /// # Errors
+    /// The [`FrameSkip`] reason no frame was opened. Nothing is recorded and no
+    /// permit is held.
+    pub fn try_begin_frame(&mut self) -> Result<(), FrameSkip> {
+        if self.frame.is_some() {
+            return Err(FrameSkip::AlreadyOpen);
+        }
+        if !self.frame_semaphore.try_acquire() {
+            return Err(FrameSkip::FramesInFlight);
+        }
+        autoreleasepool(|| match self.acquire_target() {
+            Some(target) => {
+                self.open_frame(target);
+                Ok(())
+            }
+            None => {
+                self.frame_semaphore.release();
+                Err(FrameSkip::NoDrawable)
+            }
+        })
+    }
+
+    /// Frames submitted to the GPU that have not finished yet (`0..=`
+    /// [`MAX_FRAMES_IN_FLIGHT`]), counting an open, unsubmitted frame.
+    #[must_use]
+    pub fn frames_in_flight(&self) -> u64 {
+        MAX_FRAMES_IN_FLIGHT - u64::from(self.frame_semaphore.available())
+    }
+
+    /// Frames submitted so far. Frame numbers are 1-based: the `n`th submitted
+    /// frame is number `n`, as returned by [`submit_async`](Self::submit_async).
+    #[must_use]
+    pub fn submitted_frame_count(&self) -> u64 {
+        self.frame_index
+    }
+
+    /// Frames the GPU has finished, counted by each command buffer's completion
+    /// handler. Frames on the backend's single command queue complete in
+    /// submission order, so frame `n` is done once this reaches `n`.
+    #[must_use]
+    pub fn completed_frame_count(&self) -> u64 {
+        self.completed_frames.load(Ordering::Acquire)
+    }
+
+    /// Ask for the open frame's pixels to be copied out when the GPU finishes it.
+    ///
+    /// Offscreen targets only, and once per frame: returns `None` without an open
+    /// frame, on a layer target, or if this frame already has a read-back. The
+    /// copy is encoded at submit into a CPU-visible buffer owned by the returned
+    /// [`Readback`], so the pixels are this frame's even when later frames have
+    /// already drawn over the target by the time they are read. Discarding the
+    /// frame instead of submitting it means the read-back never completes.
+    pub fn request_readback(&mut self) -> Option<Readback> {
+        let frame = self.frame.as_ref()?;
+        if frame.readback.is_some() || frame.drawable.is_some() {
+            return None;
+        }
+        let (width, height) = (frame.width, frame.height);
+        let buffer =
+            self.counted_new_buffer(width * height * 4, MTLResourceOptions::StorageModeShared);
+        let done = Arc::new(AtomicBool::new(false));
+        let frame = self.frame.as_mut()?;
+        frame.readback = Some((buffer.clone(), Arc::clone(&done)));
+        Some(Readback {
+            buffer,
+            done,
+            width: width as u32,
+            height: height as u32,
+        })
+    }
+
+    /// Close the open frame **without rendering it**: its recorded draws are
+    /// dropped, nothing is committed, and its frames-in-flight permit is
+    /// returned. A no-op without an open frame. A read-back requested for the
+    /// frame never completes.
+    pub fn discard_frame(&mut self) {
+        if self.frame.take().is_some() {
+            self.draws.clear();
+            self.overlay_vertices.clear();
+            self.overlay_textures.clear();
+            self.frame_semaphore.release();
+        }
+    }
+
+    /// Close the open frame and hand it to the GPU **without waiting** for it,
+    /// on every target (the seam's [`submit`](FrameRecorder::submit) waits on an
+    /// offscreen target). Returns the frame's number (see
+    /// [`submitted_frame_count`](Self::submitted_frame_count)), or `None` if no
+    /// frame was open. Use [`completed_frame_count`](Self::completed_frame_count)
+    /// or a [`Readback`] to learn when it is done.
+    pub fn submit_async(&mut self) -> Option<u64> {
+        self.submit_frame(false)
+    }
+
+    /// Encode, commit and (on a layer) present the open frame; on an offscreen
+    /// target, wait for the GPU when `wait_offscreen`. Returns the frame number.
+    fn submit_frame(&mut self, wait_offscreen: bool) -> Option<u64> {
+        let frame = self.frame.take()?;
+        autoreleasepool(|| {
+            // Pass order: the depth-only shadow pass first (every recorded
+            // draw as a caster, into the stored shadow map), then the scene pass
+            // (sky, lit draws sampling that map, and the 2D overlay on top).
+            // With shadows off the pass is skipped outright: the light block's
+            // zero `shadow_strength` makes the lit shaders ignore the map.
+            if self.render_settings.shadows.casts_shadows() {
+                self.encode_shadow_pass(&frame);
+            }
+            self.encode_scene_pass(&frame);
+
+            // Offscreen: synchronize the Managed color texture so `read_pixels`
+            // sees this frame, and copy it into the read-back buffer if one was
+            // requested. Both are blits after the scene pass, in this frame's
+            // command buffer, so they see exactly this frame's pixels.
+            if let RenderTarget::Offscreen { color, .. } = &self.target {
+                let blit = frame.command_buffer.new_blit_command_encoder();
+                if let Some((buffer, _)) = &frame.readback {
+                    blit.copy_from_texture_to_buffer(
+                        color,
+                        0,
+                        0,
+                        metal::MTLOrigin { x: 0, y: 0, z: 0 },
+                        metal::MTLSize {
+                            width: frame.width,
+                            height: frame.height,
+                            depth: 1,
+                        },
+                        buffer,
+                        0,
+                        frame.width * 4,
+                        frame.width * frame.height * 4,
+                        metal::MTLBlitOption::empty(),
+                    );
+                }
+                blit.synchronize_resource(color);
+                blit.end_encoding();
+            }
+
+            // Frames-in-flight release: register a completion handler that
+            // signals the semaphore when the GPU finishes this frame, counts the
+            // frame complete, and flags its read-back. The handler runs on a
+            // Metal-owned thread, so it must be allocation-free: everything it
+            // touches is cloned here on the CPU submit path, and it only releases
+            // a permit (lock + counter + condvar notify) and stores two atomics.
+            // The permit released here is the one taken when this frame opened.
+            let semaphore = Arc::clone(&self.frame_semaphore);
+            let completed = Arc::clone(&self.completed_frames);
+            let readback_done = frame.readback.as_ref().map(|(_, done)| Arc::clone(done));
+            let completion = ConcreteBlock::new(move |_cb: &metal::CommandBufferRef| {
+                completed.fetch_add(1, Ordering::Release);
+                if let Some(done) = &readback_done {
+                    done.store(true, Ordering::Release);
+                }
+                semaphore.release();
+            })
+            .copy();
+            frame.command_buffer.add_completed_handler(&completion);
+
+            // This frame is now fully recorded and about to be committed: advance the
+            // frame index so the *next* frame rotates to the next ring region
+            // (`0,1,2,0,…`). The frame's number is the new count.
+            self.frame_index = self.frame_index.wrapping_add(1);
+
+            match &frame.drawable {
+                Some(drawable) => {
+                    // Present is tied to the drawable; pacing is the semaphore, so
+                    // there is no busy-wait/spin here.
+                    frame.command_buffer.present_drawable(drawable);
+                    frame.command_buffer.commit();
+                }
+                None => {
+                    frame.command_buffer.commit();
+                    if wait_offscreen {
+                        // The completion handler (and its `release`) fires before
+                        // this returns, keeping the semaphore balanced.
+                        frame.command_buffer.wait_until_completed();
+                    }
+                }
+            }
+        });
+        Some(self.frame_index)
+    }
+
     /// Draws [`draw_mesh_matrix`](Self::draw_mesh_matrix) refused because the
     /// mesh's vertex layout did not match the selected pipeline. Test/diagnostic aid.
     #[must_use]
@@ -2299,77 +2695,21 @@ impl FrameRecorder for MetalRenderer {
         if self.frame.is_some() {
             return;
         }
-        // Determine the color attachment texture and (optionally) a drawable.
-        let (color_texture, drawable, width, height) = match &self.target {
-            RenderTarget::Surface { layer } => match layer.next_drawable() {
-                Some(drawable) => {
-                    let tex = drawable.texture().to_owned();
-                    let w = tex.width();
-                    let h = tex.height();
-                    (tex, Some(drawable.to_owned()), w, h)
-                }
-                // No drawable available (e.g. minimized): skip this frame.
-                None => return,
-            },
-            RenderTarget::Offscreen {
-                color,
-                width,
-                height,
-            } => (color.clone(), None, *width, *height),
-        };
-
-        // Frames-in-flight gate: block until at most
-        // `MAX_FRAMES_IN_FLIGHT - 1` frames are still queued on the GPU, so this
-        // frame can be prepared without stomping a ring region the GPU is still
-        // reading. Acquired here — *after* the drawable/target is secured — so a
-        // skipped frame (no drawable) never leaks a permit (it also never
-        // registers a completion handler to release one).
-        self.frame_semaphore.acquire();
-
-        // NOTE: the view-projection is deliberately NOT reset here. It is sticky
-        // across frames (seam contract): the engine loop pushes it once
-        // per frame via `set_view_projection` *before* the game opens its frame,
-        // so clearing it in `begin_frame` would wipe the engine's camera before
-        // the first draw. It defaults to identity until the first push.
-
-        let command_buffer = self.command_queue.new_command_buffer().to_owned();
-
-        // Upload this frame's light before anything is recorded: the sky
-        // needs the sun's direction to place its disc, the geometry needs the
-        // identical bytes, and the shadow pass needs the light
-        // view-projection fitted to this frame's camera. The frame's whole shading
-        // state is written once here and bound at the same offset everywhere.
-        let light_offset = self.write_light_to_ring();
-
-        // Reset the uniform-ring cursor and select this frame's disjoint region:
-        // `(frame_index % MAX_FRAMES_IN_FLIGHT) * ring_draws_per_frame`
-        // cycles the region base `0,1,2,0,…`. Behind the semaphore acquired
-        // above, so the region the CPU is about to write is guaranteed not to be
-        // one the GPU is still reading.
-        self.ring_cursor = 0;
-        self.ring_region_base =
-            (self.frame_index % MAX_FRAMES_IN_FLIGHT) * self.ring_draws_per_frame;
-
-        // Nothing is encoded yet: draws are recorded and replayed by
-        // `submit` into the shadow pass and then the scene pass. Clear (never
-        // shrink) the lists so their capacity is reused. The overlay lists should
-        // already be empty (`draw_overlay_quad` ignores calls outside a frame);
-        // clearing them here keeps a stray quad from ever reaching this frame.
-        self.draws.clear();
-        self.overlay_vertices.clear();
-        self.overlay_textures.clear();
-
-        self.frame = Some(FrameState {
-            command_buffer,
-            drawable,
-            color_texture,
-            width,
-            height,
-            // The untextured Phong pipeline until `set_pipeline` selects the
-            // textured one; no base-color texture until `bind_texture`.
-            textured_pipeline: false,
-            bound_texture: None,
-            light_offset,
+        // The drawable, command buffer and encoders Metal hands back are
+        // autoreleased; drain them here rather than relying on the host's run
+        // loop to have a pool in place (a C host's render thread may not).
+        autoreleasepool(|| {
+            // Secure the target first, then wait for a frame slot, so a skipped
+            // frame (no drawable) never takes a permit it would not release.
+            let Some(target) = self.acquire_target() else {
+                return;
+            };
+            // Frames-in-flight gate: block until at most
+            // `MAX_FRAMES_IN_FLIGHT - 1` frames are still queued on the GPU, so this
+            // frame can be prepared without stomping a ring region the GPU is still
+            // reading.
+            self.frame_semaphore.acquire();
+            self.open_frame(target);
         });
     }
 
@@ -2437,61 +2777,13 @@ impl FrameRecorder for MetalRenderer {
         self.record_overlay_quad(quad);
     }
 
+    /// Close the frame and present it (see the seam contract).
+    ///
+    /// On an offscreen target this **waits** for the GPU, so
+    /// [`read_pixels`](MetalRenderer::read_pixels) sees the frame right after.
+    /// [`submit_async`](MetalRenderer::submit_async) never waits.
     fn submit(&mut self) {
-        let Some(frame) = self.frame.take() else {
-            return;
-        };
-
-        // Pass order: the depth-only shadow pass first (every recorded
-        // draw as a caster, into the stored shadow map), then the scene pass
-        // (sky, lit draws sampling that map, and the 2D overlay on top).
-        // With shadows off the pass is skipped outright: the light block's
-        // zero `shadow_strength` makes the lit shaders ignore the map.
-        if self.render_settings.shadows.casts_shadows() {
-            self.encode_shadow_pass(&frame);
-        }
-        self.encode_scene_pass(&frame);
-
-        // Frames-in-flight release: register a completion handler that
-        // signals the semaphore when the GPU finishes this frame. The handler
-        // runs on a Metal-owned thread, so it must be allocation-free — it holds
-        // an `Arc<FrameSemaphore>` (cloned here on the CPU submit path, not in
-        // the handler) and does nothing but `release()`, which is a lock +
-        // counter bump + condvar notify (no allocation). The permit released
-        // here is the one `begin_frame` acquired for this frame.
-        let semaphore = Arc::clone(&self.frame_semaphore);
-        let completion = ConcreteBlock::new(move |_cb: &metal::CommandBufferRef| {
-            semaphore.release();
-        })
-        .copy();
-        frame.command_buffer.add_completed_handler(&completion);
-
-        // This frame is now fully recorded and about to be committed: advance the
-        // frame index so the *next* `begin_frame` rotates to the next ring region
-        // (`0,1,2,0,…`).
-        self.frame_index = self.frame_index.wrapping_add(1);
-
-        match &frame.drawable {
-            Some(drawable) => {
-                // Present is tied to the drawable; pacing is the semaphore, so
-                // there is no busy-wait/spin here.
-                frame.command_buffer.present_drawable(drawable);
-                frame.command_buffer.commit();
-            }
-            None => {
-                // Offscreen: for a Managed texture, synchronize to CPU so the
-                // readback sees the rendered pixels, then wait for completion.
-                // The completion handler (and its `release`) still fires on the
-                // wait, keeping the semaphore balanced on the offscreen path.
-                if let RenderTarget::Offscreen { color, .. } = &self.target {
-                    let blit = frame.command_buffer.new_blit_command_encoder();
-                    blit.synchronize_resource(color);
-                    blit.end_encoding();
-                }
-                frame.command_buffer.commit();
-                frame.command_buffer.wait_until_completed();
-            }
-        }
+        let _ = self.submit_frame(true);
     }
 }
 
