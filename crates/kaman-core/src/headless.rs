@@ -283,7 +283,7 @@ mod tests {
         fn init(&mut self, ctx: &mut EngineCtx) {
             use kaman_ecs::TransformComponent;
             use kaman_math::glam::Vec3;
-            use kaman_render_api::{MeshData, PipelineDescriptor, VertexLayout};
+            use kaman_render_api::{MeshData, PipelineDescriptor, PipelineKind, VertexLayout};
 
             self.entity = Some(
                 ctx.world_mut()
@@ -295,11 +295,8 @@ mod tests {
                 indices: &[],
                 layout: VertexLayout::default(),
             }));
-            self.pipeline = Some(r.create_pipeline(&PipelineDescriptor {
-                vertex_shader: "vs".into(),
-                fragment_shader: "fs".into(),
-                vertex_layout: VertexLayout::default(),
-            }));
+            self.pipeline =
+                Some(r.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor)));
         }
 
         fn update(&mut self, ctx: &mut EngineCtx, dt: f32) {

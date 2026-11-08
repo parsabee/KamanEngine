@@ -162,8 +162,7 @@
 //!
 //! The untextured (Phong) pipeline reads color from the per-vertex data, so
 //! [`MaterialParams`] does not change its output; the textured pipeline
-//! multiplies the sampled base color by `MaterialParams::base_color`. The
-//! `metallic` and `roughness` fields are accepted but neither pipeline uses them.
+//! multiplies the sampled base color by `MaterialParams::base_color`.
 
 use std::ffi::c_void;
 use std::mem;
@@ -184,8 +183,8 @@ use kaman_math::glam::{Mat4, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::{
     FrameRecorder, MaterialParams, MeshData, MeshHandle, OverlayFill, OverlayQuad,
-    PipelineDescriptor, PipelineHandle, RenderDevice, RenderSettings, SunSky, TextureData,
-    TextureHandle, VertexFormat, VertexLayout,
+    PipelineDescriptor, PipelineHandle, PipelineKind, RenderDevice, RenderSettings, SunSky,
+    TextureData, TextureHandle, VertexFormat, VertexLayout,
 };
 
 use crate::error::{check_size, rgba8_len, RenderError};
@@ -322,27 +321,8 @@ fn msaa_storage_mode() -> metal::MTLStorageMode {
 /// than a hardcoded 0/12/24 triple; for this layout the mapping is byte-identical
 /// to the old hardcoded descriptor, so the pixel hash is preserved.
 fn phong_vertex_layout() -> VertexLayout {
-    use kaman_render_api::VertexAttribute;
-    VertexLayout::new(
-        mem::size_of::<Vertex>() as u32,
-        vec![
-            VertexAttribute {
-                location: 0,
-                offset: 0,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 1,
-                offset: 12,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 2,
-                offset: 24,
-                format: VertexFormat::Float32x3,
-            },
-        ],
-    )
+    debug_assert_eq!(mem::size_of::<Vertex>(), 36);
+    PipelineKind::VertexColor.vertex_layout()
 }
 
 /// The interleaved `[position_xyz, normal_xyz, uv]` layout the **textured**
@@ -353,39 +333,7 @@ fn phong_vertex_layout() -> VertexLayout {
 /// distinct pipeline from the untextured Phong path, so the box pixel-hash is
 /// unaffected.
 fn textured_vertex_layout() -> VertexLayout {
-    use kaman_render_api::VertexAttribute;
-    VertexLayout::new(
-        32,
-        vec![
-            VertexAttribute {
-                location: 0,
-                offset: 0,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 1,
-                offset: 12,
-                format: VertexFormat::Float32x3,
-            },
-            VertexAttribute {
-                location: 2,
-                offset: 24,
-                format: VertexFormat::Float32x2,
-            },
-        ],
-    )
-}
-
-/// Whether a [`VertexLayout`] describes the textured `[pos,normal,uv]` path.
-///
-/// The textured layout is distinguished by a two-float (UV) attribute; the
-/// untextured `[pos,normal,color]` layout has only `Float32x3` attributes. Used
-/// to route a pipeline to the textured vs. untextured pipeline state.
-fn layout_is_textured(layout: &VertexLayout) -> bool {
-    layout
-        .attributes
-        .iter()
-        .any(|a| a.format == VertexFormat::Float32x2)
+    PipelineKind::Textured.vertex_layout()
 }
 
 /// Which built-in pipeline can draw a mesh packed on `layout`: `Some(false)`
@@ -396,13 +344,7 @@ fn layout_is_textured(layout: &VertexLayout) -> bool {
 /// vertex descriptor hard-codes its stride: a mesh on any other layout would make
 /// the GPU fetch vertices at the wrong stride, past the end of its buffer.
 fn mesh_pipeline_for_layout(layout: &VertexLayout) -> Option<bool> {
-    if *layout == phong_vertex_layout() {
-        Some(false)
-    } else if *layout == textured_vertex_layout() {
-        Some(true)
-    } else {
-        None
-    }
+    PipelineKind::for_layout(layout).map(|kind| kind == PipelineKind::Textured)
 }
 
 /// Map a seam-neutral [`VertexFormat`] to its native `MTLVertexFormat`.
@@ -2586,13 +2528,12 @@ impl RenderDevice for MetalRenderer {
     }
 
     fn create_pipeline(&mut self, desc: &PipelineDescriptor) -> PipelineHandle {
-        // Two built-in pipelines: the descriptor's vertex layout selects
-        // which one this handle names. A `[pos,normal,uv]` layout (a Float2 UV
-        // attribute) routes to the textured pipeline (base-color sampling); the
-        // `[pos,normal,color]` layout routes to the untextured Phong pipeline. The
-        // actual `RenderPipelineState` is the shared `pipeline_state` /
+        // Two built-in pipelines: the descriptor's kind selects which one this
+        // handle names, the textured one (base-color sampling over
+        // `[pos,normal,uv]`) or the untextured Phong one (`[pos,normal,color]`).
+        // The actual `RenderPipelineState` is the shared `pipeline_state` /
         // `textured_pipeline_state`.
-        let textured = layout_is_textured(&desc.vertex_layout);
+        let textured = desc.kind == PipelineKind::Textured;
         let id = self.pipelines.len() as u32;
         self.pipelines.push(Some(PipelineHandleData { textured }));
         PipelineHandle(id)
@@ -2609,8 +2550,9 @@ impl RenderDevice for MetalRenderer {
     }
 
     fn safe_area_insets(&self) -> [f32; 4] {
-        // macOS windows have no notch/home-indicator intrusions; the iOS path
-        // (v0.2) reports the real `UIView.safeAreaInsets` here.
+        // Zeros on every platform: a macOS window has no notch/home-indicator
+        // intrusions, and on a device the host owns the view and knows its
+        // `safeAreaInsets`, so it applies them to its own layout.
         [0.0; 4]
     }
 

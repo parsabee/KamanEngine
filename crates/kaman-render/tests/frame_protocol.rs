@@ -24,8 +24,8 @@ use std::time::Duration;
 use kaman_math::Transform;
 use kaman_render::{MetalRenderer, RenderError};
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, OverlayQuad, PipelineDescriptor, RenderDevice,
-    TextureData, VertexAttribute, VertexFormat, VertexLayout,
+    FrameRecorder, MaterialParams, MeshData, OverlayQuad, PipelineDescriptor, PipelineKind,
+    RenderDevice, TextureData, VertexAttribute, VertexFormat, VertexLayout,
 };
 
 const WIDTH: u32 = 32;
@@ -71,15 +71,8 @@ fn triangle_bytes(floats_per_vertex: usize) -> Vec<u8> {
     bytes
 }
 
-fn pipeline(
-    r: &mut MetalRenderer,
-    vertex_layout: VertexLayout,
-) -> kaman_render_api::PipelineHandle {
-    r.create_pipeline(&PipelineDescriptor {
-        vertex_shader: String::new(),
-        fragment_shader: String::new(),
-        vertex_layout,
-    })
+fn pipeline(r: &mut MetalRenderer, kind: PipelineKind) -> kaman_render_api::PipelineHandle {
+    r.create_pipeline(&PipelineDescriptor::new(kind))
 }
 
 fn renderer() -> Option<MetalRenderer> {
@@ -148,7 +141,7 @@ fn overlay_quads_outside_a_frame_are_ignored() {
 #[test]
 fn a_mesh_on_the_wrong_pipeline_is_rejected() {
     let Some(mut r) = renderer() else { return };
-    let untextured = pipeline(&mut r, color_layout());
+    let untextured = pipeline(&mut r, PipelineKind::VertexColor);
     let textured_mesh = r.create_mesh(&MeshData {
         vertices: &triangle_bytes(8),
         indices: &[0, 1, 2],
@@ -178,7 +171,7 @@ fn a_mesh_on_the_wrong_pipeline_is_rejected() {
 #[test]
 fn a_mesh_on_its_own_pipeline_is_drawn() {
     let Some(mut r) = renderer() else { return };
-    let untextured = pipeline(&mut r, color_layout());
+    let untextured = pipeline(&mut r, PipelineKind::VertexColor);
     let mesh = r.create_mesh(&MeshData {
         vertices: &triangle_bytes(9),
         indices: &[0, 1, 2],

@@ -49,8 +49,9 @@ counter is public so the frames-in-flight tests can reuse it.
 
 **Material.** The untextured pipeline takes its color from the per-vertex mesh data
 (as the prototype did), so `MaterialParams` does not change its output. The textured
-pipeline multiplies the sampled base color by `MaterialParams::base_color`. The
-`metallic` and `roughness` fields are accepted but neither pipeline uses them.
+pipeline multiplies the sampled base color by `MaterialParams::base_color`. A mesh must
+be packed on the layout of the pipeline it is drawn with (`PipelineKind::vertex_layout`);
+a draw that doesn't match is rejected rather than read at the wrong stride.
 
 ### Behavior preservation
 

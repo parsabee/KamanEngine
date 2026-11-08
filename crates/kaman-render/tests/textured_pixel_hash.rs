@@ -33,8 +33,8 @@ use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render::MetalRenderer;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, PipelineDescriptor, RenderDevice, TextureData,
-    VertexAttribute, VertexFormat, VertexLayout,
+    FrameRecorder, MaterialParams, MeshData, PipelineDescriptor, PipelineKind, RenderDevice,
+    TextureData, VertexAttribute, VertexFormat, VertexLayout,
 };
 
 /// Offscreen render size.
@@ -171,11 +171,7 @@ fn render_textured() -> Option<Vec<u8>> {
         indices: &indices,
         layout: textured_layout(),
     });
-    let pipeline = renderer.create_pipeline(&PipelineDescriptor {
-        vertex_shader: "textured_vertex_main".into(),
-        fragment_shader: "textured_fragment_main".into(),
-        vertex_layout: textured_layout(),
-    });
+    let pipeline = renderer.create_pipeline(&PipelineDescriptor::new(PipelineKind::Textured));
 
     let (tw, th, pixels) = checkerboard();
     let texture = renderer.create_texture(&TextureData {

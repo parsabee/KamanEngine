@@ -204,9 +204,3 @@ pub(crate) fn compose(parent: Transform, child: &Transform) -> Transform {
 pub(crate) fn color_layout() -> VertexLayout {
     kaman_assets::render_vertex_layout()
 }
-
-/// The textured `[pos,normal,uv]` layout (32-byte stride) the road tiles use — the
-/// same layout the textured pipeline binds and the importer packs the road quad on.
-pub(crate) fn textured_layout() -> VertexLayout {
-    kaman_assets::textured_vertex_layout()
-}

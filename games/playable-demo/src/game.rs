@@ -22,14 +22,13 @@ use kaman_ecs::{DynamicTag, RenderComponent, StaticTag, TransformComponent};
 use kaman_math::glam::{Quat, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::{
-    MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, SunSky, TextureHandle,
+    MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, PipelineKind, SunSky, TextureHandle,
 };
 use kaman_scene::{Scene, StreamingConfig};
 
 use crate::asset_root::asset_path;
 use crate::assets::{
-    building_fit, color_layout, fit_transform, load_model, load_textured_mesh, textured_layout,
-    CarPart,
+    building_fit, color_layout, fit_transform, load_model, load_textured_mesh, CarPart,
 };
 use crate::components::{BuildingVariant, GuardrailTag, TrafficVariant};
 use crate::config;
@@ -524,19 +523,13 @@ impl Game for CarRunner {
         let renderer = ctx.renderer();
 
         // Untextured Phong pipeline (kept for any untextured car part / future use).
-        self.pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
-            vertex_shader: "vertex_main".into(),
-            fragment_shader: "fragment_main".into(),
-            vertex_layout: color_layout(),
-        }));
+        self.pipeline =
+            Some(renderer.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor)));
 
         // Textured pipeline (`[pos,normal,uv]`) for the asphalt road + the car
         // models (samples their base-color texture).
-        self.textured_pipeline = Some(renderer.create_pipeline(&PipelineDescriptor {
-            vertex_shader: "textured_vertex_main".into(),
-            fragment_shader: "textured_fragment_main".into(),
-            vertex_layout: textured_layout(),
-        }));
+        self.textured_pipeline =
+            Some(renderer.create_pipeline(&PipelineDescriptor::new(PipelineKind::Textured)));
 
         // Ask the engine for the demo's sun: a summer ~4pm sun low in the
         // west-northwest, with the sky tuned to match. Pushed **once**, here, rather

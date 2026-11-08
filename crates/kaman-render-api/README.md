@@ -41,7 +41,9 @@ across kinds.
 
 Creates and destroys meshes, textures, and pipelines from **plain-data**
 descriptors (`MeshData`, `TextureData`, `PipelineDescriptor`), handing back
-opaque handles. The device owns the GPU resources; handles are non-owning
+opaque handles. A `PipelineDescriptor` selects one of the backend's built-in
+pipelines (`PipelineKind::VertexColor` or `PipelineKind::Textured`); each binds a
+fixed vertex layout (`PipelineKind::vertex_layout`), and there are no custom shaders. The device owns the GPU resources; handles are non-owning
 references valid until the matching `destroy_*`.
 
 It also owns the surface and the quality settings:

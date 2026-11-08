@@ -25,7 +25,8 @@
 //! - [`FrameRecorder`] — per-frame `begin_frame` / `set_pipeline` / `bind_texture` /
 //!   `draw_mesh` / `submit`.
 //! - Plain-data descriptors: [`VertexLayout`], [`VertexAttribute`], [`VertexFormat`],
-//!   [`MaterialParams`], [`MeshData`], [`TextureData`], [`PipelineDescriptor`].
+//!   [`MaterialParams`], [`MeshData`], [`TextureData`], [`PipelineDescriptor`] (which selects
+//!   a built-in [`PipelineKind`]).
 //! - [`SunSky`] — the engine-generic sun + sky description, pushed per
 //!   frame through [`FrameRecorder::set_sun_sky`]. Physical parameters only: the
 //!   sun's elevation/azimuth, colour and intensity, the sky-fill level, and the
@@ -42,7 +43,7 @@
 //! ```rust
 //! use kaman_render_api::{
 //!     FrameRecorder, MaterialParams, MeshData, NullRenderer, PipelineDescriptor,
-//!     RenderDevice, VertexLayout,
+//!     PipelineKind, RenderDevice, VertexLayout,
 //! };
 //! use kaman_math::Transform;
 //!
@@ -54,11 +55,7 @@
 //!     indices: &[],
 //!     layout: VertexLayout::default(),
 //! });
-//! let pipeline = r.create_pipeline(&PipelineDescriptor {
-//!     vertex_shader: "vs_main".into(),
-//!     fragment_shader: "fs_main".into(),
-//!     vertex_layout: VertexLayout::default(),
-//! });
+//! let pipeline = r.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor));
 //!
 //! // Per frame: record an ordered command stream.
 //! r.begin_frame();
@@ -80,7 +77,7 @@ pub mod recorder;
 pub mod settings;
 pub mod sun;
 
-pub use descriptor::{MaterialParams, VertexAttribute, VertexFormat, VertexLayout};
+pub use descriptor::{MaterialParams, PipelineKind, VertexAttribute, VertexFormat, VertexLayout};
 pub use device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
 pub use handles::{MeshHandle, PipelineHandle, TextureHandle};
 pub use null::{NullRenderer, RecordedDraw};

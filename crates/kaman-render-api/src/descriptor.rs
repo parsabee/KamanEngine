@@ -90,28 +90,88 @@ impl VertexLayout {
 ///
 /// A small, plain-data uniform block describing surface appearance in
 /// backend-neutral terms. It intentionally carries no textures — those are bound
-/// separately via [`FrameRecorder::bind_texture`](crate::FrameRecorder::bind_texture)
-/// — only scalar/vector shading parameters that a backend copies into a uniform
-/// buffer or argument buffer.
+/// separately via [`FrameRecorder::bind_texture`](crate::FrameRecorder::bind_texture).
 ///
-/// The default is an opaque, fully-white, dielectric surface (`base_color =
-/// [1, 1, 1, 1]`, `metallic = 0`, `roughness = 1`).
+/// It holds only what the built-in pipelines actually use: the base colour,
+/// which the [`Textured`](PipelineKind::Textured) pipeline multiplies into the
+/// sampled texture. The [`VertexColor`](PipelineKind::VertexColor) pipeline takes
+/// its colour from the vertices and ignores it.
+///
+/// The default is opaque white (`base_color = [1, 1, 1, 1]`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MaterialParams {
     /// Linear RGBA base colour / albedo, each channel in `0.0..=1.0`.
     pub base_color: [f32; 4],
-    /// Metalness in `0.0..=1.0` (0 = dielectric, 1 = metal).
-    pub metallic: f32,
-    /// Perceptual roughness in `0.0..=1.0` (0 = mirror, 1 = fully rough).
-    pub roughness: f32,
 }
 
 impl Default for MaterialParams {
     fn default() -> Self {
         Self {
             base_color: [1.0, 1.0, 1.0, 1.0],
-            metallic: 0.0,
-            roughness: 1.0,
         }
+    }
+}
+
+/// The built-in render pipelines a backend provides.
+///
+/// There is no custom-shader path: a pipeline is one of these, and each binds
+/// one fixed vertex layout ([`vertex_layout`](Self::vertex_layout)). A mesh must
+/// be packed on the layout of the pipeline it is drawn with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PipelineKind {
+    /// Lit, colour from the vertices: `[position_xyz, normal_xyz, color_rgb]`,
+    /// three `Float32x3` attributes at offsets 0/12/24, 36-byte stride.
+    VertexColor,
+    /// Lit, colour from a sampled base-colour texture times
+    /// [`MaterialParams::base_color`]: `[position_xyz, normal_xyz, uv]`, two
+    /// `Float32x3` and a `Float32x2` at offsets 0/12/24, 32-byte stride.
+    Textured,
+}
+
+impl PipelineKind {
+    /// The vertex layout this pipeline binds against.
+    #[must_use]
+    pub fn vertex_layout(self) -> VertexLayout {
+        let attribute = |location, offset, format| VertexAttribute {
+            location,
+            offset,
+            format,
+        };
+        let (stride, third) = match self {
+            Self::VertexColor => (36, VertexFormat::Float32x3),
+            Self::Textured => (32, VertexFormat::Float32x2),
+        };
+        VertexLayout::new(
+            stride,
+            vec![
+                attribute(0, 0, VertexFormat::Float32x3),
+                attribute(1, 12, VertexFormat::Float32x3),
+                attribute(2, 24, third),
+            ],
+        )
+    }
+
+    /// The pipeline whose layout is exactly `layout` (stride and every
+    /// attribute), or `None` if neither pipeline can draw a mesh packed on it.
+    #[must_use]
+    pub fn for_layout(layout: &VertexLayout) -> Option<Self> {
+        [Self::VertexColor, Self::Textured]
+            .into_iter()
+            .find(|kind| kind.vertex_layout() == *layout)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_pipeline_kind_round_trips_through_its_layout() {
+        for kind in [PipelineKind::VertexColor, PipelineKind::Textured] {
+            assert_eq!(PipelineKind::for_layout(&kind.vertex_layout()), Some(kind));
+        }
+        assert_eq!(PipelineKind::VertexColor.vertex_layout().stride, 36);
+        assert_eq!(PipelineKind::Textured.vertex_layout().stride, 32);
+        assert_eq!(PipelineKind::for_layout(&VertexLayout::default()), None);
     }
 }

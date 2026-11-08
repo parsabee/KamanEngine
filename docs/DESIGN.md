@@ -152,8 +152,14 @@ classDiagram
     }
     class MaterialParams {
         +base_color
-        +metallic
-        +roughness
+    }
+    class PipelineDescriptor {
+        +kind PipelineKind
+    }
+    class PipelineKind {
+        <<enumeration>>
+        VertexColor
+        Textured
     }
 
     Renderer --|> RenderDevice
