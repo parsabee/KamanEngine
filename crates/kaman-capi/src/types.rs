@@ -214,7 +214,9 @@ pub struct KamanFont {
 // ---------------------------------------------------------------------------
 
 /// Called exactly once when the engine no longer needs borrowed [`KamanData`].
-pub type KamanReleaseFn = unsafe extern "C" fn(user: *mut c_void, ptr: *const c_void, len: usize);
+/// NULL means the data is copied.
+pub type KamanReleaseFn =
+    Option<unsafe extern "C" fn(user: *mut c_void, ptr: *const c_void, len: usize)>;
 
 /// Bulk data passed to the engine: copied (`release` NULL) or borrowed until
 /// `release` is called.
@@ -227,7 +229,7 @@ pub struct KamanData {
     pub len: usize,
     /// NULL: the engine copies the bytes before the call returns. Otherwise the
     /// bytes are borrowed until the engine calls `release(user, ptr, len)`.
-    pub release: Option<KamanReleaseFn>,
+    pub release: KamanReleaseFn,
     /// Passed to `release`.
     pub user: *mut c_void,
 }
@@ -249,8 +251,9 @@ pub struct KamanEvent {
     pub message: *const c_char,
 }
 
-/// Receives one event, on a host thread inside a `kaman_*` call.
-pub type KamanCompletionFn = unsafe extern "C" fn(user: *mut c_void, event: *const KamanEvent);
+/// Receives one event, on a host thread inside a `kaman_*` call. May be NULL.
+pub type KamanCompletionFn =
+    Option<unsafe extern "C" fn(user: *mut c_void, event: *const KamanEvent)>;
 
 /// A per-call completion callback: the call's event goes to `callback` instead
 /// of the poll queue.
@@ -258,7 +261,7 @@ pub type KamanCompletionFn = unsafe extern "C" fn(user: *mut c_void, event: *con
 #[derive(Debug, Clone, Copy)]
 pub struct KamanCompletion {
     /// Receives the event. NULL behaves like passing no completion.
-    pub callback: Option<KamanCompletionFn>,
+    pub callback: KamanCompletionFn,
     /// Passed to `callback`.
     pub user: *mut c_void,
 }
