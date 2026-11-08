@@ -106,7 +106,7 @@ Completions are reported as `KamanEvent`s:
 
 ```c
 typedef struct KamanEvent {
-    KamanEventType type;    // KAMAN_EVENT_*
+    KamanEventType kind;    // KAMAN_EVENT_*
     KamanResult    result;  // KAMAN_OK, or why it failed
     uint64_t       object;  // the handle id the event is about, or 0
     uint64_t       frame;   // the frame number the event is about, or 0
@@ -130,7 +130,7 @@ never on an engine thread**:
    context's housekeeping: it uploads finished model loads, notices finished GPU frames and
    copies finished read-backs. Call it once per frame (or whenever you like).
 2. **Per-call callbacks.** Functions that start work take an optional
-   `const KamanCompletion *` (`{ fn, user }`). If given, that work's event goes to `fn` instead of
+   `const KamanCompletion *` (`{ callback, user }`). If given, that work's event goes to `callback` instead of
    the poll queue (each event is delivered exactly once). Callbacks run inside
    `kaman_poll_events`, `kaman_context_flush` or, in the beta, inside the call that started the
    work when it completes immediately.
@@ -355,7 +355,7 @@ typedef struct KamanStats {
 |---|---|
 | `KamanResult kaman_poll_events(KamanContext *ctx, KamanEvent *events, uint32_t capacity, uint32_t *out_count)` | Housekeeping, callbacks, then copies up to `capacity` queued events. `events` may be NULL when `capacity` is 0. Events that don't fit stay queued. |
 
-Types: `KamanEvent`, `KamanEventType` (`uint32_t`), `KamanCompletion { KamanCompletionFn fn; void *user; }`,
+Types: `KamanEvent`, `KamanEventType` (`uint32_t`), `KamanCompletion { KamanCompletionFn callback; void *user; }`,
 `typedef void (*KamanCompletionFn)(void *user, const KamanEvent *event)`.
 
 ### Meshes and textures
@@ -391,7 +391,7 @@ typedef struct KamanTextureDesc {
 | Function | |
 |---|---|
 | `KamanResult kaman_model_load_file(KamanContext *ctx, const char *path, const KamanCompletion *completion, KamanModel *out)` | `.gltf` (external or embedded buffers) or `.glb`. |
-| `KamanResult kaman_model_load_memory(KamanContext *ctx, KamanData bytes, const KamanCompletion *completion, KamanModel *out)` | A self-contained `.glb` or `.gltf` (embedded buffers). |
+| `KamanResult kaman_model_load_memory(KamanContext *ctx, KamanData bytes, const KamanCompletion *completion, KamanModel *out)` | A self-contained `.glb`, or a `.gltf` with `data:` buffers. Images must be in buffer views (as in `.glb`); a `.gltf` with `data:` image URIs fails with `KAMAN_ERROR_PARSE` here, so load it with `kaman_model_load_file`. |
 | `KamanResult kaman_model_destroy(KamanContext *ctx, KamanModel model)` | |
 | `KamanResult kaman_model_get_bounds(KamanContext *ctx, KamanModel model, KamanVec3 *min, KamanVec3 *max)` | Model-space bounding box. `NOT_READY` until ready. |
 
@@ -497,7 +497,7 @@ KamanEvent events[16];
 uint32_t n;
 kaman_poll_events(ctx, events, 16, &n);
 for (uint32_t i = 0; i < n; i++) {
-    if (events[i].type == KAMAN_EVENT_RESOURCE_FAILED)
+    if (events[i].kind == KAMAN_EVENT_RESOURCE_FAILED)
         fprintf(stderr, "load failed: %s\n", events[i].message);
 }
 

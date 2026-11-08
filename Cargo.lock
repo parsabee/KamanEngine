@@ -1092,6 +1092,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kaman-capi"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "kaman-assets",
+ "kaman-camera",
+ "kaman-math",
+ "kaman-render",
+ "kaman-render-api",
+]
+
+[[package]]
 name = "kaman-core"
 version = "0.1.0-alpha.2"
 dependencies = [
