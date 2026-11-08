@@ -267,9 +267,9 @@ impl Scene {
     pub fn step_physics(&mut self) {
         self.physics.step();
 
-        for (_e, (transform, body, _dynamic)) in self
-            .world
-            .query_mut::<(&mut TransformComponent, &PhysicsBodyComponent, &DynamicTag)>()
+        for (_e, (transform, body, _dynamic)) in
+            self.world
+                .query_mut::<(&mut TransformComponent, &PhysicsBodyComponent, &DynamicTag)>()
         {
             if let Some(t) = self.physics.get_transform(body.handle) {
                 transform.transform = t;
@@ -582,7 +582,10 @@ mod tests {
             .query::<&PhysicsBodyComponent>()
             .iter()
             .any(|(_e, b)| b.handle == handle);
-        assert!(!alive, "no live PhysicsBodyComponent may hold a freed handle");
+        assert!(
+            !alive,
+            "no live PhysicsBodyComponent may hold a freed handle"
+        );
         // double-despawn is a safe no-op
         assert!(!scene.despawn(e));
     }
@@ -600,7 +603,9 @@ mod tests {
 
         // First pass at origin: fills slots ahead (along -Z).
         scene.stream(Vec3::ZERO, |cx| {
-            let e = cx.world.spawn((TransformComponent::from_position(cx.position),));
+            let e = cx
+                .world
+                .spawn((TransformComponent::from_position(cx.position),));
             cx.spawned(e);
         });
         let after_first = scene.streamed_count();
@@ -608,7 +613,13 @@ mod tests {
 
         // All streamed entities are ahead (negative Z, matching -Z axis).
         for &e in &scene.streamed {
-            let z = scene.world().get::<&TransformComponent>(e).unwrap().transform.position.z;
+            let z = scene
+                .world()
+                .get::<&TransformComponent>(e)
+                .unwrap()
+                .transform
+                .position
+                .z;
             assert!(z <= 0.0, "streamed entity is ahead along -Z, z={z}");
         }
 
@@ -618,7 +629,9 @@ mod tests {
         for step in 1..=20 {
             last_focus = Vec3::new(0.0, 0.0, -(step as f32) * 10.0);
             scene.stream(last_focus, |cx| {
-                let e = cx.world.spawn((TransformComponent::from_position(cx.position),));
+                let e = cx
+                    .world
+                    .spawn((TransformComponent::from_position(cx.position),));
                 cx.spawned(e);
             });
         }
@@ -708,7 +721,9 @@ mod tests {
             let focus = Vec3::new(0.0, 0.0, -(frame as f32) * cfg.spawn_interval);
             scene.stream(focus, |cx| {
                 use kaman_math::Transform;
-                let h = cx.physics.create_dynamic_body(Transform::from_position(cx.position));
+                let h = cx
+                    .physics
+                    .create_dynamic_body(Transform::from_position(cx.position));
                 let e = cx.world.spawn((
                     TransformComponent::from_position(cx.position),
                     PhysicsBodyComponent::new(h),
@@ -748,8 +763,12 @@ mod tests {
         // Two entities with physics bodies, far out along -Z.
         let a_pos = Vec3::new(1.0, 2.0, -1500.0);
         let b_pos = Vec3::new(4.0, 2.0, -1490.0);
-        let ha = scene.physics_mut().create_dynamic_body(Transform::from_position(a_pos));
-        let hb = scene.physics_mut().create_dynamic_body(Transform::from_position(b_pos));
+        let ha = scene
+            .physics_mut()
+            .create_dynamic_body(Transform::from_position(a_pos));
+        let hb = scene
+            .physics_mut()
+            .create_dynamic_body(Transform::from_position(b_pos));
         let a = scene.world_mut().spawn((
             TransformComponent::from_position(a_pos),
             PhysicsBodyComponent::new(ha),
@@ -766,8 +785,18 @@ mod tests {
         assert_ne!(offset, Vec3::ZERO, "a rebase should have occurred");
 
         // ECS relative position preserved.
-        let a_after = scene.world().get::<&TransformComponent>(a).unwrap().transform.position;
-        let b_after = scene.world().get::<&TransformComponent>(b).unwrap().transform.position;
+        let a_after = scene
+            .world()
+            .get::<&TransformComponent>(a)
+            .unwrap()
+            .transform
+            .position;
+        let b_after = scene
+            .world()
+            .get::<&TransformComponent>(b)
+            .unwrap()
+            .transform
+            .position;
         assert!((b_after - a_after - rel_ecs_before).length() < 1e-3);
 
         // Both moved back toward the origin (smaller |z|).
@@ -777,7 +806,10 @@ mod tests {
         let pa = scene.physics().get_transform(ha).unwrap().position;
         let pb = scene.physics().get_transform(hb).unwrap().position;
         assert!((pb - pa - rel_ecs_before).length() < 1e-3);
-        assert!((pa - a_after).length() < 1e-3, "physics body tracks ECS after rebase");
+        assert!(
+            (pa - a_after).length() < 1e-3,
+            "physics body tracks ECS after rebase"
+        );
     }
 
     /// No rebase fires while the focus stays within the threshold.

@@ -480,8 +480,8 @@ mod tests {
     fn apply_camera_stores_the_position_and_the_inverted_matrix() {
         let mut l = LightUniforms::default();
         let eye = Vec3::new(3.0, 4.0, -5.0);
-        let vp = Mat4::perspective_rh(1.0, 1.6, 0.1, 100.0)
-            * Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
+        let vp =
+            Mat4::perspective_rh(1.0, 1.6, 0.1, 100.0) * Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
         l.apply_camera(eye, vp);
 
         assert_eq!(l.camera_position, eye.to_array());
@@ -530,9 +530,6 @@ mod tests {
         // overlay reference renders in: the sky's unprojection must degenerate to a
         // constant forward ray rather than producing NaNs.
         let l = LightUniforms::default();
-        assert_eq!(
-            l.inverse_view_projection,
-            Mat4::IDENTITY.to_cols_array_2d()
-        );
+        assert_eq!(l.inverse_view_projection, Mat4::IDENTITY.to_cols_array_2d());
     }
 }

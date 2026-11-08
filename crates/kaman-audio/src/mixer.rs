@@ -418,11 +418,18 @@ mod tests {
         // hands back usable handles, so game code needs no second path.
         let mut audio = Audio::silent();
         assert!(audio.is_silent());
-        assert!(Audio::default().is_silent(), "the default never opens a device");
+        assert!(
+            Audio::default().is_silent(),
+            "the default never opens a device"
+        );
 
         let sound = audio.load(A);
         assert_eq!(audio.sound_count(), 1);
-        assert_eq!(audio.decode_count(), 0, "silent mode decodes nothing at all");
+        assert_eq!(
+            audio.decode_count(),
+            0,
+            "silent mode decodes nothing at all"
+        );
         assert_eq!(audio.path(sound), Some(Path::new(A)));
 
         audio.play_once(sound, Volume(-3.0));
@@ -481,7 +488,11 @@ mod tests {
         for _ in 0..100 {
             audio.play_looping(a, Volume(-10.0));
         }
-        assert_eq!(audio.loop_starts(), 1, "a hundred repeat requests started nothing");
+        assert_eq!(
+            audio.loop_starts(),
+            1,
+            "a hundred repeat requests started nothing"
+        );
         assert_eq!(audio.looping(), Some(a));
     }
 
@@ -508,7 +519,11 @@ mod tests {
 
         audio.play_looping(a, Volume::UNCHANGED);
         assert_eq!(audio.looping(), Some(a));
-        assert_eq!(audio.loop_starts(), 2, "a stopped loop can be started again");
+        assert_eq!(
+            audio.loop_starts(),
+            2,
+            "a stopped loop can be started again"
+        );
 
         // Stopping when nothing loops is harmless.
         audio.stop_looping();

@@ -252,7 +252,9 @@ fn bless_or_assert(pixels: &[u8], baseline: u64, constant: &str) {
     // references put varied geometry over a gradient sky, so a frame this uniform
     // means the render broke — checked before blessing too, so a blank frame can
     // never be baked into a baseline.
-    let distinct = pixels.chunks_exact(4).collect::<std::collections::HashSet<_>>();
+    let distinct = pixels
+        .chunks_exact(4)
+        .collect::<std::collections::HashSet<_>>();
     assert!(
         distinct.len() > 8,
         "{constant}: the rendered frame has only {} distinct pixel value(s) — it is \

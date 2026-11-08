@@ -148,8 +148,8 @@ fn main() {
     let ttf_path = dir.join("font.ttf");
     let out_path = dir.join("font.bin");
 
-    let ttf = std::fs::read(&ttf_path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", ttf_path.display()));
+    let ttf =
+        std::fs::read(&ttf_path).unwrap_or_else(|e| panic!("read {}: {e}", ttf_path.display()));
     let font = fontdue::Font::from_bytes(ttf.as_slice(), fontdue::FontSettings::default())
         .expect("parse font");
 
@@ -264,8 +264,7 @@ fn main() {
     }
     out.extend_from_slice(&pixels);
 
-    std::fs::write(&out_path, &out)
-        .unwrap_or_else(|e| panic!("write {}: {e}", out_path.display()));
+    std::fs::write(&out_path, &out).unwrap_or_else(|e| panic!("write {}: {e}", out_path.display()));
     println!(
         "wrote {}: {}x{} atlas, {} glyphs ('{}'..='{}'), {} bytes",
         out_path.display(),

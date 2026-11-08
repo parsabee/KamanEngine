@@ -39,11 +39,7 @@ pub fn spawn_scene(world: &mut World, scene: &SceneAsset) -> Vec<Entity> {
             continue;
         };
         let render = render_component_from_mesh(mesh);
-        let entity = world.spawn((
-            TransformComponent::new(node.transform),
-            render,
-            StaticTag,
-        ));
+        let entity = world.spawn((TransformComponent::new(node.transform), render, StaticTag));
         entities.push(entity);
     }
     entities
@@ -79,7 +75,9 @@ pub fn render_component_from_mesh(mesh: &MeshAsset) -> RenderComponent {
         .enumerate()
         .map(|(i, p)| {
             let n = mesh.normals.get(i).copied().unwrap_or([0.0, 1.0, 0.0]);
-            [p[0], p[1], p[2], n[0], n[1], n[2], color[0], color[1], color[2]]
+            [
+                p[0], p[1], p[2], n[0], n[1], n[2], color[0], color[1], color[2],
+            ]
         })
         .collect();
 

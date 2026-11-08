@@ -54,7 +54,9 @@ pub(crate) fn load_model(
         .scene
         .mesh_nodes()
         .map(|(_, node)| {
-            let mesh_idx = node.mesh.expect("mesh_nodes yields only mesh-bearing nodes");
+            let mesh_idx = node
+                .mesh
+                .expect("mesh_nodes yields only mesh-bearing nodes");
             let local = compose(fit, &node.transform);
             let handle = asset.mesh_handles[mesh_idx];
             // Upload this mesh's base-color image, if it has one, so the textured

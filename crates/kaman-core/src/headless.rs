@@ -122,7 +122,10 @@ impl Headless {
         let step = Duration::from_secs_f64(f64::from(FIXED_DT));
         for _ in 0..frames {
             let steps = drive_frame(&mut self.lp, game, &mut self.renderer, step);
-            debug_assert_eq!(steps, 1, "headless synthetic clock is one FIXED_DT per frame");
+            debug_assert_eq!(
+                steps, 1,
+                "headless synthetic clock is one FIXED_DT per frame"
+            );
             self.frames_run += 1;
         }
     }
@@ -243,9 +246,7 @@ mod tests {
         run(&mut game, 3);
         assert_eq!(
             game.log,
-            vec![
-                "init", "update", "render", "update", "render", "update", "render",
-            ]
+            vec!["init", "update", "render", "update", "render", "update", "render",]
         );
     }
 

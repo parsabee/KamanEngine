@@ -27,7 +27,10 @@ use kaman_render_api::{
 use kaman_scene::{Scene, StreamingConfig};
 
 use crate::asset_root::asset_path;
-use crate::assets::{building_fit, color_layout, fit_transform, load_model, load_textured_mesh, textured_layout, CarPart};
+use crate::assets::{
+    building_fit, color_layout, fit_transform, load_model, load_textured_mesh, textured_layout,
+    CarPart,
+};
 use crate::components::{BuildingVariant, GuardrailTag, TrafficVariant};
 use crate::config;
 use crate::rng::{building_for_slot, hash_u64, variant_for_slot, Rng};
@@ -559,7 +562,8 @@ impl Game for CarRunner {
         // is packed on the textured layout (its material has a base-color texture),
         // so `AssetCache::load` uploads it as a textured mesh. Its decoded asphalt
         // base-color PNG becomes the bound texture.
-        let (road_mesh, asphalt) = load_textured_mesh(&mut cache, renderer, &asset_path(config::ROAD_ASSET));
+        let (road_mesh, asphalt) =
+            load_textured_mesh(&mut cache, renderer, &asset_path(config::ROAD_ASSET));
         self.road_mesh = Some(road_mesh);
         self.asphalt = Some(asphalt);
 
@@ -591,7 +595,10 @@ impl Game for CarRunner {
 
         // HUD font atlas (KE-0404/KE-0707): the committed SDF atlas, uploaded
         // once so the HUD can draw text every frame by handle.
-        self.font = Some(crate::hud::load_font(renderer, &asset_path(config::FONT_ASSET)));
+        self.font = Some(crate::hud::load_font(
+            renderer,
+            &asset_path(config::FONT_ASSET),
+        ));
 
         // Guardrail segment mesh (KE-0706): built once (a rail + posts one
         // `spawn_interval` long) and streamed along both road edges.
@@ -634,7 +641,8 @@ impl Game for CarRunner {
                 self.start_music(ctx);
             }
             let player_pos = self.player_position();
-            self.chase.follow(ctx.camera_mut(), player_pos, config::FORWARD);
+            self.chase
+                .follow(ctx.camera_mut(), player_pos, config::FORWARD);
             return;
         }
 
@@ -645,7 +653,8 @@ impl Game for CarRunner {
                 self.start_new_run(ctx);
             }
             let player_pos = self.player_position();
-            self.chase.follow(ctx.camera_mut(), player_pos, config::FORWARD);
+            self.chase
+                .follow(ctx.camera_mut(), player_pos, config::FORWARD);
             return;
         }
 
@@ -758,7 +767,11 @@ mod tests {
         h.input_mut().press_key(Key::Space);
         h.run(&mut game, 1);
         h.input_mut().release_key(Key::Space);
-        assert_eq!(game.state, GameState::Playing, "the start key begins the run");
+        assert_eq!(
+            game.state,
+            GameState::Playing,
+            "the start key begins the run"
+        );
         (game, h)
     }
 
@@ -826,7 +839,10 @@ mod tests {
         assert!((30.0..=35.0).contains(&sun.sun_elevation_deg));
         assert!((250.0..=290.0).contains(&sun.sun_azimuth_deg));
         // Warm, but only slightly — not an orange golden-hour sun.
-        assert!(sun.sun_color[2] < sun.sun_color[0], "warm: less blue than red");
+        assert!(
+            sun.sun_color[2] < sun.sun_color[0],
+            "warm: less blue than red"
+        );
         assert!(sun.sun_color[2] > 0.8, "still nearly white at 4pm");
         // Sky fill stays fill; the direct sun dominates.
         assert!(sun.sky_fill < sun.sun_intensity * 0.35);
@@ -835,8 +851,14 @@ mod tests {
         // eastward (+X) and downward (-Y) — off the car's left flank as it drives
         // north along FORWARD (-Z).
         let d = sun.direction();
-        assert!(d.x > 0.0, "light travels eastward, so the sun is in the west");
-        assert!(d.y < 0.0, "light travels downward, so the sun is above the horizon");
+        assert!(
+            d.x > 0.0,
+            "light travels eastward, so the sun is in the west"
+        );
+        assert!(
+            d.y < 0.0,
+            "light travels downward, so the sun is above the horizon"
+        );
     }
 
     #[test]
@@ -864,14 +886,21 @@ mod tests {
         for _ in 0..3 {
             tap(&mut hl, &mut left_game, Key::Left);
         }
-        assert_eq!(left_game.lane, 0, "one lane per press, clamped at the left edge");
+        assert_eq!(
+            left_game.lane, 0,
+            "one lane per press, clamped at the left edge"
+        );
 
         // Tap Right three times from the center: reach the last lane and clamp.
         let (mut right_game, mut hr) = started();
         for _ in 0..3 {
             tap(&mut hr, &mut right_game, Key::Right);
         }
-        assert_eq!(right_game.lane, config::LANES - 1, "clamped at the right edge");
+        assert_eq!(
+            right_game.lane,
+            config::LANES - 1,
+            "clamped at the right edge"
+        );
     }
 
     #[test]
@@ -904,7 +933,11 @@ mod tests {
         // Tapping start begins the run, and the world advances from there.
         h.input_mut().press_key(Key::Space);
         h.run(&mut game, 1);
-        assert_eq!(game.state, GameState::Playing, "the start key begins the run");
+        assert_eq!(
+            game.state,
+            GameState::Playing,
+            "the start key begins the run"
+        );
         h.input_mut().release_key(Key::Space);
         h.run(&mut game, 5);
         assert!(game.distance > 0.0, "the run advances once started");
@@ -918,7 +951,11 @@ mod tests {
         let mut game = CarRunner::new();
         let mut h = Headless::new();
         assert_eq!(game.state, GameState::Ready);
-        assert_eq!(game.fade_alpha(), 0.0, "the fade is idle until a run starts");
+        assert_eq!(
+            game.fade_alpha(),
+            0.0,
+            "the fade is idle until a run starts"
+        );
 
         h.input_mut().press_key(Key::Space);
         h.run(&mut game, 1);
@@ -929,7 +966,10 @@ mod tests {
         let half = (config::HUD_FADE_SECONDS / (2.0 * kaman_core::FIXED_DT)).round() as u32;
         h.run(&mut game, half);
         let mid = game.fade_alpha();
-        assert!(mid > 0.0 && mid < 1.0, "mid-fade is partially revealed: {mid}");
+        assert!(
+            mid > 0.0 && mid < 1.0,
+            "mid-fade is partially revealed: {mid}"
+        );
 
         // Well past the duration: fully revealed and clamped, not negative.
         h.run(&mut game, half + 10);
@@ -975,7 +1015,10 @@ mod tests {
         let mut game = CarRunner::new();
         let mut h = Headless::new();
         h.run(&mut game, 30);
-        assert_eq!(game.run_time, 0.0, "the title screen does not ramp difficulty");
+        assert_eq!(
+            game.run_time, 0.0,
+            "the title screen does not ramp difficulty"
+        );
 
         let (mut game, mut h) = started();
         h.run(&mut game, 5);
@@ -989,7 +1032,11 @@ mod tests {
         // step could pass straight through traffic.
         let mut game = CarRunner::new();
         game.run_time = 10_000.0; // absurdly long run
-        assert_eq!(game.current_speed(), config::SPEED_MAX, "the ramp is clamped");
+        assert_eq!(
+            game.current_speed(),
+            config::SPEED_MAX,
+            "the ramp is clamped"
+        );
 
         let per_step = config::SPEED_MAX * kaman_core::FIXED_DT;
         let combined_half = config::PLAYER_HALF.z + config::OBSTACLE_HALF.z;
@@ -1130,7 +1177,10 @@ mod tests {
             }
         }
 
-        assert!(saw_rebase, "the run never reached a rebase, so this proves nothing");
+        assert!(
+            saw_rebase,
+            "the run never reached a rebase, so this proves nothing"
+        );
     }
 
     #[test]
@@ -1170,7 +1220,11 @@ mod tests {
             zs.sort_unstable();
             zs
         };
-        assert_eq!(obstacle_zs(), obstacle_zs(), "deterministic obstacle stream");
+        assert_eq!(
+            obstacle_zs(),
+            obstacle_zs(),
+            "deterministic obstacle stream"
+        );
     }
 
     #[test]
@@ -1205,7 +1259,10 @@ mod tests {
         // A crash enters GameOver; the score is NOT reset (only a replay resets it).
         let (game, _h) = drive_to_game_over();
         assert_eq!(game.state, GameState::GameOver);
-        assert!(game.distance > 0.0, "distance is preserved at game over (score to report)");
+        assert!(
+            game.distance > 0.0,
+            "distance is preserved at game over (score to report)"
+        );
     }
 
     #[test]
@@ -1250,8 +1307,15 @@ mod tests {
 
         // Headless means no audio device at all — which is what makes `--smoke` and
         // every test here silent, and what makes these assertions possible.
-        assert!(h.audio().is_silent(), "a headless run opens no audio device");
-        assert_eq!(h.audio().sound_count(), 2, "the music and the impact, loaded once each");
+        assert!(
+            h.audio().is_silent(),
+            "a headless run opens no audio device"
+        );
+        assert_eq!(
+            h.audio().sound_count(),
+            2,
+            "the music and the impact, loaded once each"
+        );
         assert_eq!(h.audio().decode_count(), 0, "silent mode decodes nothing");
         assert_ne!(game.music, game.impact, "two distinct handles");
         assert_eq!(h.audio().master_volume(), config::MASTER_VOLUME);
@@ -1264,7 +1328,11 @@ mod tests {
         h.input_mut().press_key(Key::Space);
         h.run(&mut game, 1);
         h.input_mut().release_key(Key::Space);
-        assert_eq!(h.audio().looping(), game.music, "the start key starts the music");
+        assert_eq!(
+            h.audio().looping(),
+            game.music,
+            "the start key starts the music"
+        );
         assert_eq!(h.audio().loop_starts(), 1);
     }
 
@@ -1277,7 +1345,11 @@ mod tests {
         // a session no matter how many runs it contains.
         let (mut game, mut h) = drive_to_game_over();
         assert_eq!(h.audio().loop_starts(), 1);
-        assert_eq!(h.audio().one_shots_played(), 1, "one impact for the first run");
+        assert_eq!(
+            h.audio().one_shots_played(),
+            1,
+            "one impact for the first run"
+        );
 
         // Replay: GameOver -> Playing.
         h.input_mut().press_key(Key::Space);
@@ -1310,17 +1382,29 @@ mod tests {
         // long as the banner is up.
         let (mut game, mut h) = drive_to_game_over();
         let impact = game.impact.expect("loaded in init");
-        assert_eq!(h.audio().one_shots_of(impact), 1, "exactly one impact on the crash");
+        assert_eq!(
+            h.audio().one_shots_of(impact),
+            1,
+            "exactly one impact on the crash"
+        );
 
         // Sit in GameOver for a long time (no input, so no replay).
         h.run(&mut game, 500);
-        assert_eq!(game.state, GameState::GameOver, "still waiting for the replay key");
+        assert_eq!(
+            game.state,
+            GameState::GameOver,
+            "still waiting for the replay key"
+        );
         assert_eq!(
             h.audio().one_shots_of(impact),
             1,
             "500 frames of GameOver must not play the impact again",
         );
-        assert_eq!(h.audio().one_shots_played(), 1, "and nothing else played either");
+        assert_eq!(
+            h.audio().one_shots_played(),
+            1,
+            "and nothing else played either"
+        );
     }
 
     /// The committed WAVs really decode and play on a **real** audio device.
@@ -1368,7 +1452,11 @@ mod tests {
         // Quiet enough to be inaudible, loud enough to exercise the real mixer.
         audio.set_master_volume(Volume(-60.0));
         audio.play_looping(music, Volume(-60.0));
-        assert_eq!(audio.looping(), Some(music), "the music took the loop channel");
+        assert_eq!(
+            audio.looping(),
+            Some(music),
+            "the music took the loop channel"
+        );
         audio.play_once(impact, Volume(-60.0));
         assert_eq!(audio.one_shots_of(impact), 1, "the impact played once");
     }

@@ -918,8 +918,7 @@ impl MetalRenderer {
         overlay_color.set_rgb_blend_operation(metal::MTLBlendOperation::Add);
         overlay_color.set_alpha_blend_operation(metal::MTLBlendOperation::Add);
         overlay_color.set_source_rgb_blend_factor(metal::MTLBlendFactor::SourceAlpha);
-        overlay_color
-            .set_destination_rgb_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
+        overlay_color.set_destination_rgb_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
         overlay_color.set_source_alpha_blend_factor(metal::MTLBlendFactor::One);
         overlay_color
             .set_destination_alpha_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
@@ -934,10 +933,8 @@ impl MetalRenderer {
         let overlay_sampler_descriptor = metal::SamplerDescriptor::new();
         overlay_sampler_descriptor.set_min_filter(metal::MTLSamplerMinMagFilter::Linear);
         overlay_sampler_descriptor.set_mag_filter(metal::MTLSamplerMinMagFilter::Linear);
-        overlay_sampler_descriptor
-            .set_address_mode_s(metal::MTLSamplerAddressMode::ClampToEdge);
-        overlay_sampler_descriptor
-            .set_address_mode_t(metal::MTLSamplerAddressMode::ClampToEdge);
+        overlay_sampler_descriptor.set_address_mode_s(metal::MTLSamplerAddressMode::ClampToEdge);
+        overlay_sampler_descriptor.set_address_mode_t(metal::MTLSamplerAddressMode::ClampToEdge);
         let overlay_sampler_state = device.new_sampler(&overlay_sampler_descriptor);
 
         // Trilinear sampler for base-color textures: min/mag linear + mip linear,
@@ -1084,12 +1081,7 @@ impl MetalRenderer {
                 depth: 1,
             },
         };
-        color.get_bytes(
-            data.as_mut_ptr() as *mut _,
-            bytes_per_row,
-            region,
-            0,
-        );
+        color.get_bytes(data.as_mut_ptr() as *mut _, bytes_per_row, region, 0);
         Some(data)
     }
 
@@ -1417,7 +1409,8 @@ impl MetalRenderer {
     fn write_light_to_ring(&mut self) -> u64 {
         // The camera half of the block is refreshed here, from the sticky seam
         // values, so it always matches the matrix this frame's draws project with.
-        self.light.apply_camera(self.camera_position, self.view_projection);
+        self.light
+            .apply_camera(self.camera_position, self.view_projection);
         // Refit the sun's shadow projection to this frame's camera (KE-0407). The
         // light direction is the light block's own — i.e. `SunSky::direction()` as
         // applied by `set_sun_sky` — so shading, sun disc and shadows share one

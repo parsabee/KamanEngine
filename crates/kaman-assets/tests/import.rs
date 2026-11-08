@@ -79,7 +79,10 @@ fn parses_known_cube_positions_and_normals() {
     // A unit cube spans [-0.5, 0.5] on every axis.
     for p in &mesh.positions {
         for c in p {
-            assert!((c.abs() - 0.5).abs() < 1e-6, "position component {c} is ±0.5");
+            assert!(
+                (c.abs() - 0.5).abs() < 1e-6,
+                "position component {c} is ±0.5"
+            );
         }
     }
     // Bounding box corners are all present.
@@ -143,7 +146,11 @@ fn packed_bytes_match_parsed_attributes_with_default_color() {
 
     for (i, chunk) in floats.chunks_exact(9).enumerate() {
         assert_eq!([chunk[0], chunk[1], chunk[2]], mesh.positions[i], "pos {i}");
-        assert_eq!([chunk[3], chunk[4], chunk[5]], mesh.normals[i], "normal {i}");
+        assert_eq!(
+            [chunk[3], chunk[4], chunk[5]],
+            mesh.normals[i],
+            "normal {i}"
+        );
         assert_eq!(
             [chunk[6], chunk[7], chunk[8]],
             DEFAULT_IMPORT_COLOR,
@@ -174,8 +181,16 @@ fn untextured_material_base_color_factor_becomes_vertex_color() {
         .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
         .collect();
     for (i, chunk) in floats.chunks_exact(9).enumerate() {
-        assert_eq!([chunk[6], chunk[7], chunk[8]], [0.2, 0.4, 0.6], "material color {i}");
-        assert_ne!([chunk[6], chunk[7], chunk[8]], DEFAULT_IMPORT_COLOR, "not default {i}");
+        assert_eq!(
+            [chunk[6], chunk[7], chunk[8]],
+            [0.2, 0.4, 0.6],
+            "material color {i}"
+        );
+        assert_ne!(
+            [chunk[6], chunk[7], chunk[8]],
+            DEFAULT_IMPORT_COLOR,
+            "not default {i}"
+        );
     }
 }
 
@@ -225,7 +240,10 @@ fn parses_material_base_color_texture() {
     let scene = textured_cube_scene();
     let mesh = &scene.meshes[0];
     assert!(mesh.is_textured(), "mesh has a base-color texture");
-    let tex = mesh.base_color.as_ref().expect("decoded base-color texture");
+    let tex = mesh
+        .base_color
+        .as_ref()
+        .expect("decoded base-color texture");
     // The generator writes an 8x8 checkerboard.
     assert_eq!(tex.width, 8);
     assert_eq!(tex.height, 8);
@@ -270,10 +288,16 @@ fn textured_mesh_packs_pos_normal_uv_layout() {
         let base = i * stride + 24;
         let u = f32::from_ne_bytes(mesh.vertices[base..base + 4].try_into().unwrap());
         let v = f32::from_ne_bytes(mesh.vertices[base + 4..base + 8].try_into().unwrap());
-        assert!((u - uv[0]).abs() < 1e-6 && (v - uv[1]).abs() < 1e-6, "uv {i}");
+        assert!(
+            (u - uv[0]).abs() < 1e-6 && (v - uv[1]).abs() < 1e-6,
+            "uv {i}"
+        );
     }
     // The fixture's UVs span the full 0..1 range (not all default [0,0]).
-    assert!(mesh.uvs.iter().any(|uv| *uv != [0.0, 0.0]), "real UVs parsed");
+    assert!(
+        mesh.uvs.iter().any(|uv| *uv != [0.0, 0.0]),
+        "real UVs parsed"
+    );
 }
 
 #[test]

@@ -137,11 +137,7 @@ pub(crate) const PLAYER_CAR_ASSET: &str = "sports_car.glb";
 /// The committed **traffic** car models (CC0 Quaternius, public domain). Each
 /// obstacle draws one of these, chosen per streaming slot by
 /// [`variant_for_slot`](crate::rng::variant_for_slot).
-pub(crate) const TRAFFIC_CAR_ASSETS: [&str; 3] = [
-    "car.glb",
-    "car2.glb",
-    "police_car.glb",
-];
+pub(crate) const TRAFFIC_CAR_ASSETS: [&str; 3] = ["car.glb", "car2.glb", "police_car.glb"];
 
 /// The committed roadside **building** prefabs (CC0 Kenney City Kit, public
 /// domain), imported at startup (KE-0706). Order matches [`BUILDING_WEIGHTS`].

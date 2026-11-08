@@ -220,7 +220,11 @@ fn import_primitive(
         // white factor) keeps the neutral default color, so the untextured
         // fixtures' pixel-hash is unchanged.
         let color = if material.index().is_some() {
-            [base_color_factor[0], base_color_factor[1], base_color_factor[2]]
+            [
+                base_color_factor[0],
+                base_color_factor[1],
+                base_color_factor[2],
+            ]
         } else {
             DEFAULT_IMPORT_COLOR
         };

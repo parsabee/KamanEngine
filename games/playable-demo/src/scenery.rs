@@ -18,19 +18,77 @@ use crate::config::{
 
 /// Append an axis-aligned box (6 outward-facing quads) at `center` with the given
 /// `half`-extents and a flat `color`, packed onto the `[pos,normal,color]` layout.
-pub(crate) fn push_box(bytes: &mut Vec<u8>, indices: &mut Vec<u32>, center: [f32; 3], half: [f32; 3], color: [f32; 3]) {
+pub(crate) fn push_box(
+    bytes: &mut Vec<u8>,
+    indices: &mut Vec<u32>,
+    center: [f32; 3],
+    half: [f32; 3],
+    color: [f32; 3],
+) {
     let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
-        ([0.0, 0.0, 1.0], [[-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0], [-1.0, 1.0, 1.0]]),
-        ([0.0, 0.0, -1.0], [[1.0, -1.0, -1.0], [-1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [1.0, 1.0, -1.0]]),
-        ([0.0, 1.0, 0.0], [[-1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, -1.0], [-1.0, 1.0, -1.0]]),
-        ([0.0, -1.0, 0.0], [[-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [-1.0, -1.0, 1.0]]),
-        ([1.0, 0.0, 0.0], [[1.0, -1.0, 1.0], [1.0, -1.0, -1.0], [1.0, 1.0, -1.0], [1.0, 1.0, 1.0]]),
-        ([-1.0, 0.0, 0.0], [[-1.0, -1.0, -1.0], [-1.0, -1.0, 1.0], [-1.0, 1.0, 1.0], [-1.0, 1.0, -1.0]]),
+        (
+            [0.0, 0.0, 1.0],
+            [
+                [-1.0, -1.0, 1.0],
+                [1.0, -1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [-1.0, 1.0, 1.0],
+            ],
+        ),
+        (
+            [0.0, 0.0, -1.0],
+            [
+                [1.0, -1.0, -1.0],
+                [-1.0, -1.0, -1.0],
+                [-1.0, 1.0, -1.0],
+                [1.0, 1.0, -1.0],
+            ],
+        ),
+        (
+            [0.0, 1.0, 0.0],
+            [
+                [-1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [1.0, 1.0, -1.0],
+                [-1.0, 1.0, -1.0],
+            ],
+        ),
+        (
+            [0.0, -1.0, 0.0],
+            [
+                [-1.0, -1.0, -1.0],
+                [1.0, -1.0, -1.0],
+                [1.0, -1.0, 1.0],
+                [-1.0, -1.0, 1.0],
+            ],
+        ),
+        (
+            [1.0, 0.0, 0.0],
+            [
+                [1.0, -1.0, 1.0],
+                [1.0, -1.0, -1.0],
+                [1.0, 1.0, -1.0],
+                [1.0, 1.0, 1.0],
+            ],
+        ),
+        (
+            [-1.0, 0.0, 0.0],
+            [
+                [-1.0, -1.0, -1.0],
+                [-1.0, -1.0, 1.0],
+                [-1.0, 1.0, 1.0],
+                [-1.0, 1.0, -1.0],
+            ],
+        ),
     ];
     for (n, corners) in faces {
         let base = (bytes.len() / 36) as u32;
         for c in corners {
-            let pos = [center[0] + c[0] * half[0], center[1] + c[1] * half[1], center[2] + c[2] * half[2]];
+            let pos = [
+                center[0] + c[0] * half[0],
+                center[1] + c[1] * half[1],
+                center[2] + c[2] * half[2],
+            ];
             for f in pos {
                 bytes.extend_from_slice(&f.to_ne_bytes());
             }
@@ -59,14 +117,32 @@ pub(crate) fn guardrail_geometry(length: f32) -> (Vec<u8>, Vec<u32>) {
 
     // Two horizontal rails running the length of the segment (thin in X, at the
     // road edge; the segment is placed at ±GUARDRAIL_X).
-    push_box(&mut bytes, &mut indices, [0.0, GUARDRAIL_H, 0.0], [0.05, 0.07, half_len], rail_color);
-    push_box(&mut bytes, &mut indices, [0.0, GUARDRAIL_H * 0.6, 0.0], [0.05, 0.055, half_len], rail_color);
+    push_box(
+        &mut bytes,
+        &mut indices,
+        [0.0, GUARDRAIL_H, 0.0],
+        [0.05, 0.07, half_len],
+        rail_color,
+    );
+    push_box(
+        &mut bytes,
+        &mut indices,
+        [0.0, GUARDRAIL_H * 0.6, 0.0],
+        [0.05, 0.055, half_len],
+        rail_color,
+    );
 
     // Vertical posts, evenly spaced along the segment (endpoints included).
     let posts = ((length / GUARDRAIL_POST_SPACING).round() as i32).max(1);
     for i in 0..=posts {
         let z = -half_len + (i as f32 / posts as f32) * length;
-        push_box(&mut bytes, &mut indices, [0.0, GUARDRAIL_H * 0.5, z], [0.06, GUARDRAIL_H * 0.5, 0.06], post_color);
+        push_box(
+            &mut bytes,
+            &mut indices,
+            [0.0, GUARDRAIL_H * 0.5, z],
+            [0.06, GUARDRAIL_H * 0.5, 0.06],
+            post_color,
+        );
     }
 
     (bytes, indices)

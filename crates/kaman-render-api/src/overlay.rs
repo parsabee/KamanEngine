@@ -275,10 +275,16 @@ mod tests {
         let mut quads = Vec::new();
         a.layout("A\nB", [5.0, 50.0], 10.0, [1.0; 4], |q| quads.push(q));
         assert_eq!(quads.len(), 2);
-        assert!((quads[1].rect[0] - 5.0).abs() < 1e-5, "x resets to the origin");
+        assert!(
+            (quads[1].rect[0] - 5.0).abs() < 1e-5,
+            "x resets to the origin"
+        );
         // Baseline advances by line_height * px (50 + 12.5 = 62.5); the quad then
         // sits one em above it via the glyph's bearing (-1 em * 10px).
-        assert!((quads[1].rect[1] - 52.5).abs() < 1e-5, "y advances by line_height * px");
+        assert!(
+            (quads[1].rect[1] - 52.5).abs() < 1e-5,
+            "y advances by line_height * px"
+        );
     }
 
     #[test]

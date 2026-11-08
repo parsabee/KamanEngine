@@ -54,7 +54,14 @@ fn main() {
 
     // rasterization.metal -> .air -> .metallib
     run(Command::new("xcrun")
-        .args(["-sdk", sdk, "metal", "-c", "shaders/rasterization.metal", "-o"])
+        .args([
+            "-sdk",
+            sdk,
+            "metal",
+            "-c",
+            "shaders/rasterization.metal",
+            "-o",
+        ])
         .arg(&air));
     run(Command::new("xcrun")
         .args(["-sdk", sdk, "metallib"])

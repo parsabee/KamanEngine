@@ -85,8 +85,8 @@ pub(crate) fn building_for_slot(slot: i64, side: u64) -> usize {
     if total == 0 {
         return 0;
     }
-    let r = (hash_u64((slot as u64).wrapping_mul(0x2545_F491_4F6C_DD1D) ^ (side + 1)) % total as u64)
-        as u32;
+    let r = (hash_u64((slot as u64).wrapping_mul(0x2545_F491_4F6C_DD1D) ^ (side + 1))
+        % total as u64) as u32;
     let mut acc = 0;
     for (i, &w) in BUILDING_WEIGHTS.iter().enumerate() {
         acc += w;

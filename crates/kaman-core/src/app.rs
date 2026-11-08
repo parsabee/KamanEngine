@@ -592,8 +592,8 @@ mod tests {
     /// display). A `NullRenderer` stands in for a real GPU backend.
     #[test]
     fn backend_factory_yields_a_usable_renderer() {
-        use kaman_render_api::{MaterialParams, NullRenderer};
         use kaman_math::Transform;
+        use kaman_render_api::{MaterialParams, NullRenderer};
 
         // A factory shaped exactly like the windowed entry expects. We can't
         // pass a real `&Window` here, so call the closure's body directly with
