@@ -78,6 +78,8 @@ pub mod graphics;
 pub mod headless;
 pub mod input;
 mod platform;
+// The Graphics menu model is only driven by the macOS menu bar.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod settings_menu;
 pub mod timestep;
 

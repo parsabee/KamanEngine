@@ -231,6 +231,7 @@ pub fn run_with_config<G: Game>(
 /// built-in Graphics menu, sent from the menu's action target through an
 /// [`EventLoopProxy`].
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) enum EngineEvent {
     /// A Graphics menu item was chosen.
     Menu(MenuCommand),
