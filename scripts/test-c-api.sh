@@ -32,6 +32,16 @@ cflags=(-std=c11 -Wall -Wextra -pedantic -Werror -I crates/kaman-capi/include)
 # shellcheck disable=SC2086
 "$cc" "${cflags[@]}" examples/c/offscreen.c "$lib" $native_libs -o "$out/offscreen"
 
+# The dynamic library must carry an @rpath install name (crates/kaman-capi/build.rs).
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    cargo build --quiet -p kaman-capi
+    install_name="$(otool -D target/debug/libkaman.dylib | tail -n 1)"
+    if [[ "$install_name" != "@rpath/libkaman.dylib" ]]; then
+        echo "libkaman.dylib's install name is '$install_name', expected @rpath/libkaman.dylib" >&2
+        exit 1
+    fi
+fi
+
 fixture="crates/kaman-assets/tests/fixtures/cube.gltf"
 "$out/smoke" $null_flag "$fixture"
 "$out/offscreen" "$fixture" "$out/offscreen.ppm" $null_flag

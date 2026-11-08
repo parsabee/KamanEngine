@@ -9,7 +9,9 @@
 #
 # <version> is the workspace version without the leading `v` (e.g. 0.1.0-alpha.2).
 # Expects an already-built release binary (`cargo build --release -p playable-demo
-# --locked`) at $KAMAN_DEMO_BIN (default: target/release/playable-demo). Produces
+# --locked`) at $KAMAN_DEMO_BIN (default: target/release/playable-demo) and the C
+# library (`cargo build --release -p kaman-capi --locked`) in $KAMAN_LIB_DIR (default:
+# target/release). Produces
 #
 #   <outdir>/kaman-engine-<version>-aarch64-apple-darwin.tar.gz
 #   <outdir>/kaman-engine-<version>-aarch64-apple-darwin.tar.gz.sha256
@@ -18,12 +20,20 @@
 #
 #   kaman-engine-<version>-aarch64-apple-darwin/
 #     bin/kaman-demo                     the playable demo
+#     lib/libkaman.a  lib/libkaman.dylib the C library (static, and dynamic with an
+#                                        @rpath install name)
+#     lib/pkgconfig/kaman.pc             pkg-config file (relocatable)
+#     include/kaman/kaman.h              the C header
+#     include/kaman/module.modulemap     `import Kaman` for Swift
 #     share/kaman-engine/assets/         the demo's runtime assets
 #     share/kaman-engine/src/            the engine source (tracked files only)
 #     LICENSE  NOTICE  README.md
 #
-# Before tarring it checks the binary is arm64, and runs `kaman-demo --smoke` from an
-# unpacked copy in a temp dir, asserting the assets resolve to that copy's share/.
+# Before tarring it checks the binary and the libraries are arm64 and the dylib's install
+# name. After tarring it unpacks a copy in a temp dir and, from there, runs
+# `kaman-demo --smoke` (asserting the assets resolve to that copy's share/), and builds
+# and runs the C smoke test against the static library and the C sample against the
+# dynamic one.
 # Used by .github/workflows/release.yml; runnable locally.
 set -euo pipefail
 
@@ -35,6 +45,7 @@ version=$1
 outdir=$2
 repo=$(cd "$(dirname "$0")/.." && pwd)
 bin=${KAMAN_DEMO_BIN:-$repo/target/release/playable-demo}
+libdir=${KAMAN_LIB_DIR:-$repo/target/release}
 name="kaman-engine-${version}-aarch64-apple-darwin"
 tarball="${name}.tar.gz"
 
@@ -47,21 +58,58 @@ fi
 
 [[ -x "$bin" ]] || { echo "error: no release binary at $bin (cargo build --release -p playable-demo --locked)" >&2; exit 1; }
 
-archs=$(lipo -archs "$bin")
-if [[ "$archs" != "arm64" ]]; then
-    echo "error: $bin is '$archs', expected arm64 only" >&2
+for artefact in "$bin" "$libdir/libkaman.a" "$libdir/libkaman.dylib"; do
+    [[ -f "$artefact" ]] || { echo "error: $artefact is missing (cargo build --release -p kaman-capi --locked)" >&2; exit 1; }
+    archs=$(lipo -archs "$artefact")
+    if [[ "$archs" != "arm64" ]]; then
+        echo "error: $artefact is '$archs', expected arm64 only" >&2
+        exit 1
+    fi
+    file "$artefact"
+done
+install_name=$(otool -D "$libdir/libkaman.dylib" | tail -n 1)
+if [[ "$install_name" != "@rpath/libkaman.dylib" ]]; then
+    echo "error: libkaman.dylib's install name is '$install_name', expected @rpath/libkaman.dylib" >&2
     exit 1
 fi
-file "$bin"
+
+# The native libraries and frameworks a program linking libkaman.a statically needs, as
+# rustc reports them (touch the crate root so rustc runs and prints them).
+if [[ -z "${KAMAN_NATIVE_LIBS:-}" ]]; then
+    touch "$repo/crates/kaman-capi/src/lib.rs"
+    KAMAN_NATIVE_LIBS=$(cd "$repo" && cargo rustc --quiet --release --locked -p kaman-capi --lib \
+        --crate-type staticlib -- --print native-static-libs 2>&1 \
+        | sed -n 's/.*native-static-libs: //p' | tail -n 1)
+fi
+[[ -n "$KAMAN_NATIVE_LIBS" ]] || { echo "error: could not determine the native link libraries" >&2; exit 1; }
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 stage="$work/$name"
-mkdir -p "$stage/bin" "$stage/share/kaman-engine/assets" "$stage/share/kaman-engine/src"
+mkdir -p "$stage/bin" "$stage/lib/pkgconfig" "$stage/include/kaman" \
+    "$stage/share/kaman-engine/assets" "$stage/share/kaman-engine/src"
 
 # Binary, renamed to the installed command name.
 cp "$bin" "$stage/bin/kaman-demo"
 chmod 755 "$stage/bin/kaman-demo"
+
+# The C library, header, Swift module map and pkg-config file. The header and module map
+# sit in include/kaman/ so a shared prefix (Homebrew) never sees a bare module.modulemap.
+cp "$libdir/libkaman.a" "$libdir/libkaman.dylib" "$stage/lib/"
+cp "$repo/crates/kaman-capi/include/kaman.h" "$repo/crates/kaman-capi/include/module.modulemap" \
+    "$stage/include/kaman/"
+cat > "$stage/lib/pkgconfig/kaman.pc" <<PC
+prefix=\${pcfiledir}/../..
+libdir=\${prefix}/lib
+includedir=\${prefix}/include
+
+Name: kaman
+Description: KamanEngine C API: a Metal graphics engine for Apple Silicon
+Version: $version
+Cflags: -I\${includedir}/kaman
+Libs: -L\${libdir} -lkaman
+Libs.private: $KAMAN_NATIVE_LIBS
+PC
 
 # Runtime assets: every file the demo loads, plus licence text. Generator-only inputs
 # (the *_src.jpg photos, font.ttf) and the cube.gltf test fixture stay in the source
@@ -107,6 +155,22 @@ if [[ "$resolved" != "$expected" ]]; then
 fi
 env -u KAMAN_DEMO_ASSETS "$check/$name/bin/kaman-demo" --smoke | tee "$work/smoke.out"
 grep -qx "smoke: 120 frames OK" "$work/smoke.out"
+
+# Build the C programs against the unpacked copy, not the build tree: the smoke test
+# links the static library with the pkg-config file's private libraries, the sample
+# links the dynamic library through an rpath. Both render through Metal.
+packaged="$check/$name"
+private_libs=$(sed -n 's/^Libs.private: //p' "$packaged/lib/pkgconfig/kaman.pc")
+cflags=(-std=c11 -Wall -Wextra -pedantic -Werror -I "$packaged/include/kaman")
+fixture="$repo/crates/kaman-assets/tests/fixtures/cube.gltf"
+# shellcheck disable=SC2086 # the library list is meant to split into words
+cc "${cflags[@]}" "$repo/crates/kaman-capi/tests/c/smoke.c" "$packaged/lib/libkaman.a" \
+    $private_libs -o "$work/c-smoke"
+"$work/c-smoke" "$fixture"
+cc "${cflags[@]}" "$repo/examples/c/offscreen.c" -L "$packaged/lib" -lkaman \
+    -Wl,-rpath,"$packaged/lib" -o "$work/c-offscreen"
+"$work/c-offscreen" "$fixture" "$work/offscreen.ppm"
+[[ -s "$work/offscreen.ppm" ]] || { echo "error: the C sample wrote no image" >&2; exit 1; }
 
 echo "packaged $outdir/$tarball ($(du -h "$outdir/$tarball" | cut -f1))"
 cat "$outdir/$tarball.sha256"
