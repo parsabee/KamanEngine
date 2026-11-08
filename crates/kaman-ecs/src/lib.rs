@@ -504,19 +504,27 @@ mod tests {
             RenderComponent::cube([0.0, 0.0, 1.0]),
         ));
 
-        // Query all entities with transform and render components
-        let mut count = 0;
+        // Query all entities with transform and render components: each entity
+        // comes back once, with its own transform paired with its own colour.
+        let mut seen: Vec<(f32, [f32; 3])> = Vec::new();
         for (_entity, (transform, render)) in world
             .query::<(&TransformComponent, &RenderComponent)>()
             .iter()
         {
-            count += 1;
-            assert!(transform.transform.position.length() >= 0.0);
             // Check that shape is a Mesh variant
             assert!(matches!(render.shape, RenderShape::Mesh { .. }));
+            seen.push((transform.transform.position.x, render.color));
         }
+        seen.sort_by(|a, b| a.0.total_cmp(&b.0));
 
-        assert_eq!(count, 3);
+        assert_eq!(
+            seen,
+            vec![
+                (0.0, [1.0, 0.0, 0.0]),
+                (1.0, [0.0, 1.0, 0.0]),
+                (2.0, [0.0, 0.0, 1.0]),
+            ]
+        );
     }
 
     #[test]
