@@ -360,7 +360,7 @@ impl CarRunner {
         // first run started and keeps going across the crash and this replay, so
         // there is nothing to restart (and nothing to accidentally double). See
         // `start_music` for the policy.
-        println!("replay — score {}. go!", self.best as u64);
+        println!("replay — best {}. go!", self.best as u64);
     }
 
     /// Fill one streaming slot with a road tile and, on the obstacle cadence, an
@@ -1189,7 +1189,7 @@ mod tests {
     }
 
     #[test]
-    fn obstacle_placement_is_deterministic_from_seed() {
+    fn the_lane_rng_is_deterministic_from_its_seed() {
         // Two independent runs of the same seed produce the identical lane sequence.
         let lanes = |n: usize| {
             let mut rng = Rng::new(config::SEED);
@@ -1198,26 +1198,6 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(lanes(50), lanes(50), "same seed ⇒ same obstacle lanes");
-
-        // And the full game streams the same obstacle world twice for the same seed.
-        let obstacle_zs = || {
-            let mut game = CarRunner::new();
-            let harness = kaman_core::headless::run(&mut game, 30);
-            let mut zs: Vec<i64> = harness
-                .scene()
-                .world()
-                .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
-                .iter()
-                .map(|(_e, (t, _))| (t.transform.position.z * 100.0) as i64)
-                .collect();
-            zs.sort_unstable();
-            zs
-        };
-        assert_eq!(
-            obstacle_zs(),
-            obstacle_zs(),
-            "deterministic obstacle stream"
-        );
     }
 
     #[test]
@@ -1456,12 +1436,89 @@ mod tests {
 
     #[test]
     fn streaming_stays_bounded_over_a_long_run() {
-        // Endless streaming must not leak: entity/body counts stay flat across a
-        // long headless run (also exercises a floating-origin rebase or two).
+        // Endless streaming must not leak: entity and body counts stay flat over a
+        // long run that keeps moving (replaying after every crash) and crosses
+        // floating-origin rebases.
+        let (mut game, mut h) = started();
+        let entities_at_start = h.scene().world().len() as usize;
+        let (mut rebases, mut max_entities, mut max_bodies) = (0, 0, 0);
+        for _ in 0..5000 {
+            if game.state == GameState::GameOver {
+                h.input_mut().press_key(Key::Space);
+                h.run(&mut game, 1);
+                h.input_mut().release_key(Key::Space);
+            }
+            h.run(&mut game, 1);
+            rebases += u32::from(game.rebased_last_step);
+            max_entities = max_entities.max(h.scene().world().len() as usize);
+            max_bodies = max_bodies.max(h.scene().physics().rigid_body_set.len());
+        }
+        println!(
+            "start {entities_at_start}, max entities {max_entities}, max bodies \
+             {max_bodies}, rebases {rebases}, travel {}",
+            game.travel
+        );
+        assert!(rebases > 0, "the run crossed a floating-origin rebase");
+        assert!(
+            max_entities <= entities_at_start + entities_at_start / 10,
+            "entity count stayed flat: {max_entities} (started at {entities_at_start})"
+        );
+        let obstacles = h
+            .scene()
+            .world()
+            .query::<&kaman_ecs::PhysicsBodyComponent>()
+            .iter()
+            .count();
+        assert_eq!(
+            h.scene().physics().rigid_body_set.len(),
+            obstacles,
+            "every physics body still belongs to a live obstacle"
+        );
+        assert!(max_bodies <= max_entities, "{max_bodies} bodies");
+        assert!(
+            h.renderer().protocol_violations().is_empty(),
+            "the demo made seam calls the Metal backend would ignore: {:?}",
+            &h.renderer().protocol_violations()[..5.min(h.renderer().protocol_violations().len())]
+        );
+    }
+
+    /// The obstacles streamed over a moving run for `seed`, as sorted `(x, z)`
+    /// positions in centimetres.
+    fn obstacle_layout(seed: u64) -> Vec<(i64, i64)> {
         let mut game = CarRunner::new();
-        let harness = kaman_core::headless::run(&mut game, 5000);
-        let entities = harness.scene().world().len();
-        // A generous bound: the streaming window holds only a handful of slots.
-        assert!(entities < 200, "entity count stayed bounded: {entities}");
+        game.rng = Rng::new(seed);
+        let mut h = Headless::new();
+        h.input_mut().press_key(Key::Space);
+        h.run(&mut game, 1);
+        h.input_mut().release_key(Key::Space);
+        h.run(&mut game, 120);
+        let mut layout: Vec<(i64, i64)> = h
+            .scene()
+            .world()
+            .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
+            .iter()
+            .map(|(_e, (t, _))| {
+                let p = t.transform.position;
+                ((p.x * 100.0).round() as i64, (p.z * 100.0).round() as i64)
+            })
+            .collect();
+        layout.sort_unstable();
+        layout
+    }
+
+    #[test]
+    fn the_obstacle_stream_is_a_function_of_the_seed() {
+        // Same seed, same obstacles: lane (x) and slot (z) alike, over a run that
+        // moves, so streaming spawns past the initial window.
+        let layout = obstacle_layout(config::SEED);
+        assert!(!layout.is_empty(), "the run streamed obstacles");
+        assert_eq!(layout, obstacle_layout(config::SEED), "deterministic");
+        // A different seed picks different lanes; without this the comparison
+        // above would pass even if the lanes ignored the seed.
+        assert_ne!(
+            layout,
+            obstacle_layout(config::SEED ^ 0x9E37_79B9_7F4A_7C15),
+            "the seed decides the lanes"
+        );
     }
 }

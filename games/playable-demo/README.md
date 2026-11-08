@@ -31,9 +31,12 @@ runs straight down the middle lane: a fully deterministic run.
 ### Where the assets come from
 
 The demo loads its models, textures, sounds and font from an `assets/` directory that it finds
-**once, at startup** ([`asset_root.rs`](src/asset_root.rs)). The first of these that exists wins:
+**once, at startup** ([`asset_root.rs`](src/asset_root.rs)). The first of these that holds the
+assets (has a `road.gltf`) wins:
 
-1. `$KAMAN_DEMO_ASSETS`, if set (point it at any directory holding the files below);
+1. `$KAMAN_DEMO_ASSETS`, if set (point it at any directory holding the files below). When it is
+   set it is the only candidate: if it holds no assets the binary says so and exits 1, rather
+   than quietly using another directory;
 2. `<exe dir>/../share/kaman-engine/assets`: the Homebrew / release-tarball layout, where
    `bin/kaman-demo` sits beside `share/`. Symlinks to the binary are resolved first, so
    Homebrew's `$(brew --prefix)/bin/kaman-demo` finds the keg's own `share/`;
