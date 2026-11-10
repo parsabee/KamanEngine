@@ -913,7 +913,8 @@ KamanResult kaman_font_create(struct KamanContext *ctx,
 KamanResult kaman_font_destroy(struct KamanContext *ctx, struct KamanFont font);
 
 /**
- * The width of `text` at `px` pixels per em, into `*out_width`.
+ * The width of `text` at `px` pixels per em, into `*out_width`: the widest
+ * line's, since `\n` starts a new line.
  *
  * # Safety
  * `ctx` must be NULL or a live context; `text` NULL or NUL-terminated;
@@ -1094,8 +1095,8 @@ KamanResult kaman_model_load_file(struct KamanContext *ctx,
                                   struct KamanModel *out);
 
 /**
- * Start loading a self-contained `.glb` or `.gltf` (embedded buffers) from
- * memory. Returns at once with a pending model.
+ * Start loading a self-contained `.glb` or `.gltf` (embedded buffers and
+ * images) from memory. Returns at once with a pending model.
  *
  * # Safety
  * `ctx` must be NULL or a live context; `bytes` valid as documented for

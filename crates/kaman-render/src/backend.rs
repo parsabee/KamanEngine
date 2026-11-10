@@ -187,6 +187,7 @@ use kaman_render_api::{
     TextureData, TextureHandle, VertexFormat, VertexLayout,
 };
 
+use crate::deindex::deindex;
 use crate::error::{check_size, rgba8_len, RenderError};
 use crate::frame_sync::FrameSemaphore;
 use crate::registry::Registry;
@@ -817,6 +818,12 @@ struct FrameState {
     /// Captured when the frame opens so the sky pass and every later `draw_mesh`
     /// bind the identical bytes — the sun cannot change mid-frame.
     light_offset: u64,
+    /// Whether this frame runs the shadow pass, and the map it renders and
+    /// samples. Captured with the light block (whose shadow strength and fit
+    /// match them), so a settings change before `submit` applies from the next
+    /// frame instead of half-way through this one.
+    casts_shadows: bool,
+    shadow_map: metal::Texture,
     /// A requested read-back: the buffer the pixels are copied into at submit,
     /// and the flag the completion handler sets when they are there.
     readback: Option<(metal::Buffer, Arc<AtomicBool>)>,
@@ -1305,13 +1312,15 @@ impl MetalRenderer {
     ///
     /// The staging `Vec`s are cleared but keep their capacity, so a steady-state
     /// HUD performs no per-frame allocation.
-    fn flush_overlay(&mut self, encoder: &metal::RenderCommandEncoderRef) {
+    fn flush_overlay(&mut self, encoder: &metal::RenderCommandEncoderRef, size: (u64, u64)) {
         if self.overlay_vertices.is_empty() {
             self.overlay_textures.clear();
             return;
         }
 
-        let (surface_w, surface_h) = self.surface_size();
+        // The frame's own size, not the live surface's: a resize after
+        // `begin_frame` must not squash this frame's HUD.
+        let (surface_w, surface_h) = (size.0 as u32, size.1 as u32);
         if surface_w == 0 || surface_h == 0 {
             self.overlay_vertices.clear();
             self.overlay_textures.clear();
@@ -1503,20 +1512,11 @@ impl MetalRenderer {
                 textured,
             };
         }
-        let vertex_count_in = data.vertices.len() / stride;
-
         // Expand the index buffer into a flat, deindexed byte buffer: one
-        // `stride`-byte vertex record per index, copied verbatim.
-        let mut expanded: Vec<u8> = Vec::with_capacity(data.indices.len() * stride);
-        for &index in data.indices {
-            let start = index as usize * stride;
-            if index as usize >= vertex_count_in {
-                // A malformed index would read out of bounds; skip defensively
-                // rather than panic on the load path.
-                continue;
-            }
-            expanded.extend_from_slice(&data.vertices[start..start + stride]);
-        }
+        // `stride`-byte vertex record per index, copied verbatim. A triangle with
+        // an out-of-range index is dropped whole, so the triangles after it keep
+        // their vertices.
+        let expanded = deindex(data.vertices, stride, data.indices);
         if expanded.is_empty() {
             return MeshEntry {
                 vertex_buffer: None,
@@ -1837,6 +1837,14 @@ impl MetalRenderer {
         (self.ring_region_base + self.ring_cursor) * UNIFORM_RING_STRIDE
     }
 
+    /// The uniform-ring byte offset each draw recorded in the open frame binds
+    /// its uniforms at, in record order. Test aid: the offsets the draws will
+    /// actually use, not a re-derivation of the formula.
+    #[must_use]
+    pub fn recorded_uniform_offsets_for_test(&self) -> Vec<u64> {
+        self.draws.iter().map(|draw| draw.uniforms.1).collect()
+    }
+
     /// The per-slot byte stride of the uniform ring (256-byte aligned). Test aid.
     #[must_use]
     pub fn ring_stride_for_test(&self) -> u64 {
@@ -1876,13 +1884,13 @@ impl MetalRenderer {
         self.light
     }
 
-    /// Byte offset in the light ring that the *next* frame's light upload will bind
-    /// at. Test aid: proves the light rotates through one slot per
-    /// in-flight frame, `0, 256, 512, 0, …`, instead of being overwritten in place
-    /// while the GPU may still be reading it.
+    /// Byte offset in the light ring that the **open** frame's light was written
+    /// to and is bound at, or `None` with no frame open. Test aid: proves the
+    /// light rotates through one slot per in-flight frame, `0, 256, 512, 0, …`,
+    /// instead of being overwritten in place while the GPU may still be reading it.
     #[must_use]
-    pub fn light_offset_for_test(&self) -> u64 {
-        (self.frame_index % MAX_FRAMES_IN_FLIGHT) * UNIFORM_RING_STRIDE
+    pub fn light_offset_for_test(&self) -> Option<u64> {
+        self.frame.as_ref().map(|frame| frame.light_offset)
     }
 
     /// Enable or disable **shadow casting**. On by default.
@@ -1961,7 +1969,7 @@ impl MetalRenderer {
     /// must cast too.
     fn encode_shadow_pass(&self, frame: &FrameState) {
         let descriptor = metal::RenderPassDescriptor::new();
-        configure_shadow_depth_attachment(descriptor, &self.shadow_map);
+        configure_shadow_depth_attachment(descriptor, &frame.shadow_map);
         let encoder = frame.command_buffer.new_render_command_encoder(descriptor);
         encoder.set_label("Shadow pass");
         encoder.set_depth_stencil_state(&self.depth_stencil_state);
@@ -2050,7 +2058,7 @@ impl MetalRenderer {
         // drew its sun from, and the shadow pass fitted with) and the shadow map
         // the pass above just stored.
         encoder.set_depth_stencil_state(&self.depth_stencil_state);
-        encoder.set_fragment_texture(1, Some(&self.shadow_map));
+        encoder.set_fragment_texture(1, Some(&frame.shadow_map));
         let mut bound_textured: Option<bool> = None;
         for draw in &self.draws {
             if bound_textured != Some(draw.textured) {
@@ -2075,7 +2083,7 @@ impl MetalRenderer {
 
         // 2D overlay / HUD pass: flush everything recorded this frame
         // on the same encoder, after all 3D draws, so it composites on top.
-        self.flush_overlay(&encoder);
+        self.flush_overlay(&encoder, (frame.width, frame.height));
 
         encoder.end_encoding();
     }
@@ -2154,6 +2162,8 @@ impl MetalRenderer {
             textured_pipeline: false,
             bound_texture: None,
             light_offset,
+            casts_shadows: self.render_settings.shadows.casts_shadows(),
+            shadow_map: self.shadow_map.clone(),
             readback: None,
         });
     }
@@ -2274,7 +2284,7 @@ impl MetalRenderer {
             // (sky, lit draws sampling that map, and the 2D overlay on top).
             // With shadows off the pass is skipped outright: the light block's
             // zero `shadow_strength` makes the lit shaders ignore the map.
-            if self.render_settings.shadows.casts_shadows() {
+            if frame.casts_shadows {
                 self.encode_shadow_pass(&frame);
             }
             self.encode_scene_pass(&frame);

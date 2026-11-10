@@ -344,13 +344,18 @@ mod tests {
         assert_eq!(at_120.renders, 120);
     }
 
-    /// The render path sees a valid interpolation alpha in `0.0..1.0`. At 120 Hz
-    /// half the frames land mid-step, so a non-zero alpha must appear.
+    /// The render path sees the interpolation alpha. At 120 Hz half the frames
+    /// land mid-step, so a non-zero alpha must appear.
     #[test]
     fn render_receives_interpolation_alpha() {
-        // Feed a steady half-step per frame: alpha should oscillate 0.5, 0.0, ...
+        // Feed a steady half-step per frame: alpha goes 0.5, 0.0, 0.5, ... so the
+        // third frame renders half a step past its last update.
         let g = drive_synthetic(Duration::from_secs_f64(1.0 / 120.0), 3);
-        assert!(g.last_alpha >= 0.0 && g.last_alpha < 1.0);
+        assert!(
+            (g.last_alpha - 0.5).abs() < 1e-2,
+            "alpha after 3 half-step frames: {}",
+            g.last_alpha
+        );
     }
 
     /// The spiral-of-death clamp, exercised through the whole loop: a single frame

@@ -274,19 +274,27 @@ impl Audio {
 
         // One loop channel: whatever was looping gives it up first.
         self.stop_looping();
-        self.looping = Some(sound);
-        self.loop_starts += 1;
 
         let Output::Device(device) = &mut self.output else {
+            // Silent mode: no audio, but the loop channel's state is kept.
+            self.looping = Some(sound);
+            self.loop_starts += 1;
             return;
         };
+        // A sound that failed to load, or a start the audio thread refused, does
+        // not take the channel: it would claim to be looping while silent, and
+        // a later request for the same sound would then do nothing.
         let Some(data) = &self.sounds[index].data else {
             return;
         };
         // `..` is the whole sound as the loop region, so it repeats end-to-start.
         let looped = data.loop_region(..).volume(Decibels(volume.0));
         match device.manager.play(looped) {
-            Ok(playing) => device.looping = Some(playing),
+            Ok(playing) => {
+                device.looping = Some(playing);
+                self.looping = Some(sound);
+                self.loop_starts += 1;
+            }
             Err(error) => eprintln!("kaman-audio: could not start a looping sound ({error})"),
         }
     }

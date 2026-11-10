@@ -7,9 +7,12 @@
 //! A `cargo run` finds the assets next to this crate's source, but an installed
 //! binary (the Homebrew `kaman-demo`, or an unpacked release tarball) has no source
 //! tree to point at. So the asset root is resolved **once**, at startup, by trying
-//! these candidates in order and taking the first directory that exists:
+//! these candidates in order and taking the first that holds the demo's assets
+//! (a directory with a [`MARKER`] file in it):
 //!
-//! 1. `$KAMAN_DEMO_ASSETS`, if set and non-empty (an explicit override);
+//! 1. `$KAMAN_DEMO_ASSETS`, if set and non-empty. An explicit override is the
+//!    only candidate: if it does not hold the assets, that is reported rather
+//!    than silently replaced by another directory;
 //! 2. `<exe dir>/../share/kaman-engine/assets` — the Homebrew / release-tarball
 //!    layout (`bin/` beside `share/`);
 //! 3. `<exe dir>/assets` — a flat layout with the assets beside the binary;
@@ -31,10 +34,14 @@ use std::sync::OnceLock;
 /// The environment variable that overrides the asset root.
 pub(crate) const ENV_VAR: &str = "KAMAN_DEMO_ASSETS";
 
+/// A file every demo asset root holds. A directory without it is not one, so an
+/// unrelated `assets/` beside the binary is skipped instead of failing later.
+const MARKER: &str = "road.gltf";
+
 /// The asset root, resolved on first use.
 static ROOT: OnceLock<PathBuf> = OnceLock::new();
 
-/// No candidate directory existed. Lists what was tried, in order.
+/// No candidate held the assets. Lists what was tried, in order.
 #[derive(Debug)]
 pub(crate) struct NotFound {
     tried: Vec<PathBuf>,
@@ -43,13 +50,19 @@ pub(crate) struct NotFound {
 
 impl fmt::Display for NotFound {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.env_set {
+            return write!(
+                f,
+                "${ENV_VAR} is set to {}, which does not hold the demo's assets \
+                 (no {MARKER} there). Point it at the assets directory, or unset it.",
+                self.tried[0].display()
+            );
+        }
         writeln!(
             f,
-            "cannot find the demo's assets directory. Tried, in order:"
+            "cannot find the demo's assets directory (one holding {MARKER}). Tried, in order:"
         )?;
-        if !self.env_set {
-            writeln!(f, "  - ${ENV_VAR} (not set)")?;
-        }
+        writeln!(f, "  - ${ENV_VAR} (not set)")?;
         for path in &self.tried {
             writeln!(f, "  - {}", path.display())?;
         }
@@ -65,10 +78,10 @@ impl fmt::Display for NotFound {
 /// `env` is the value of [`ENV_VAR`] (an empty value counts as unset), `exe` the
 /// running binary's path, `manifest_dir` this crate's build-time source dir.
 fn candidates(env: Option<&OsStr>, exe: Option<&Path>, manifest_dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
     if let Some(dir) = env.filter(|v| !v.is_empty()) {
-        out.push(PathBuf::from(dir));
+        return vec![PathBuf::from(dir)];
     }
+    let mut out = Vec::new();
     if let Some(exe) = exe {
         // Resolved first: that finds the keg's own share/ behind a Homebrew symlink.
         let mut exe_dirs: Vec<PathBuf> = Vec::new();
@@ -90,14 +103,14 @@ fn candidates(env: Option<&OsStr>, exe: Option<&Path>, manifest_dir: &Path) -> V
     out
 }
 
-/// The first candidate that is an existing directory.
+/// The first candidate that holds the demo's assets.
 fn resolve_from(
     env: Option<&OsStr>,
     exe: Option<&Path>,
     manifest_dir: &Path,
 ) -> Result<PathBuf, NotFound> {
     let tried = candidates(env, exe, manifest_dir);
-    match tried.iter().find(|p| p.is_dir()) {
+    match tried.iter().find(|p| p.join(MARKER).is_file()) {
         // Canonical, so `..` and symlinks are gone from what we print and join.
         Some(found) => Ok(std::fs::canonicalize(found).unwrap_or_else(|_| found.clone())),
         None => Err(NotFound {
@@ -164,6 +177,13 @@ mod tests {
             p
         }
 
+        /// A directory that holds the demo's assets (has the marker file).
+        fn assets(&self, rel: &str) -> PathBuf {
+            let p = self.mkdir(rel);
+            fs::write(p.join(MARKER), b"").unwrap();
+            p
+        }
+
         fn touch(&self, rel: &str) -> PathBuf {
             let p = self.0.join(rel);
             fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -185,28 +205,27 @@ mod tests {
     #[test]
     fn env_var_wins_over_everything() {
         let t = TempDir::new();
-        let env = t.mkdir("custom");
+        let env = t.assets("custom");
         let exe = t.touch("prefix/bin/kaman-demo");
-        t.mkdir("prefix/share/kaman-engine/assets");
-        t.mkdir("prefix/bin/assets");
+        t.assets("prefix/share/kaman-engine/assets");
+        t.assets("prefix/bin/assets");
         let manifest = t.mkdir("src");
-        t.mkdir("src/assets");
+        t.assets("src/assets");
 
         let root = resolve_from(Some(env.as_os_str()), Some(&exe), &manifest).unwrap();
         assert!(same(&root, &env));
     }
 
     #[test]
-    fn missing_or_empty_env_var_falls_through_to_share_layout() {
+    fn unset_or_empty_env_var_falls_through_to_share_layout() {
         let t = TempDir::new();
         let exe = t.touch("prefix/bin/kaman-demo");
-        let share = t.mkdir("prefix/share/kaman-engine/assets");
-        t.mkdir("prefix/bin/assets");
+        let share = t.assets("prefix/share/kaman-engine/assets");
+        t.assets("prefix/bin/assets");
         let manifest = t.mkdir("src");
-        t.mkdir("src/assets");
+        t.assets("src/assets");
 
-        let missing = t.0.join("nope");
-        for env in [Some(missing.as_os_str()), Some(OsStr::new("")), None] {
+        for env in [Some(OsStr::new("")), None] {
             let root = resolve_from(env, Some(&exe), &manifest).unwrap();
             assert!(
                 same(&root, &share),
@@ -217,12 +236,43 @@ mod tests {
     }
 
     #[test]
+    fn a_wrong_env_var_is_reported_not_replaced() {
+        // An explicit override that holds no assets (missing, or a directory
+        // without the marker) is an error naming it, even though the share
+        // layout would have been found.
+        let t = TempDir::new();
+        let exe = t.touch("prefix/bin/kaman-demo");
+        t.assets("prefix/share/kaman-engine/assets");
+        let manifest = t.mkdir("src");
+        let empty = t.mkdir("empty");
+        for env in [t.0.join("nope"), empty] {
+            let err = resolve_from(Some(env.as_os_str()), Some(&exe), &manifest).unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains(&env.display().to_string()), "{msg}");
+            assert!(msg.contains(MARKER), "{msg}");
+        }
+    }
+
+    #[test]
+    fn a_directory_without_the_marker_is_skipped() {
+        // An unrelated `assets/` beside the binary is not the demo's.
+        let t = TempDir::new();
+        let exe = t.touch("flat/kaman-demo");
+        t.mkdir("flat/assets");
+        let manifest = t.mkdir("src");
+        let src_assets = t.assets("src/assets");
+
+        let root = resolve_from(None, Some(&exe), &manifest).unwrap();
+        assert!(same(&root, &src_assets));
+    }
+
+    #[test]
     fn flat_layout_beats_the_build_dir() {
         let t = TempDir::new();
         let exe = t.touch("flat/kaman-demo");
-        let flat = t.mkdir("flat/assets");
+        let flat = t.assets("flat/assets");
         let manifest = t.mkdir("src");
-        t.mkdir("src/assets");
+        t.assets("src/assets");
 
         let root = resolve_from(None, Some(&exe), &manifest).unwrap();
         assert!(same(&root, &flat));
@@ -233,7 +283,7 @@ mod tests {
         let t = TempDir::new();
         let exe = t.touch("bin/kaman-demo");
         let manifest = t.mkdir("src");
-        let src_assets = t.mkdir("src/assets");
+        let src_assets = t.assets("src/assets");
 
         let root = resolve_from(None, Some(&exe), &manifest).unwrap();
         assert!(same(&root, &src_assets));
@@ -248,7 +298,7 @@ mod tests {
         // prefix's share/, so only the resolved path can find it.
         let t = TempDir::new();
         let real = t.touch("Cellar/kaman-engine/1.0/bin/kaman-demo");
-        let keg_assets = t.mkdir("Cellar/kaman-engine/1.0/share/kaman-engine/assets");
+        let keg_assets = t.assets("Cellar/kaman-engine/1.0/share/kaman-engine/assets");
         t.mkdir("prefix/bin");
         let link = t.0.join("prefix/bin/kaman-demo");
         std::os::unix::fs::symlink(&real, &link).unwrap();
@@ -279,6 +329,11 @@ mod tests {
         let msg = err.to_string();
         assert!(!msg.contains("not set"), "{msg}");
         assert!(msg.contains(&env.display().to_string()), "{msg}");
+        assert_eq!(
+            err.tried,
+            vec![env],
+            "an explicit override is the only candidate"
+        );
     }
 
     #[test]

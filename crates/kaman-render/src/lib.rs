@@ -92,6 +92,7 @@
 #![deny(missing_docs)]
 
 pub mod backend;
+pub mod deindex;
 pub mod error;
 pub mod frame_sync;
 pub mod registry;

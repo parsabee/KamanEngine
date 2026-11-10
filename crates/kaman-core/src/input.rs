@@ -89,13 +89,19 @@ pub enum MouseButton {
 /// - A key/button is "down" from the frame its press is recorded until the frame
 ///   its release is recorded (*level* state).
 /// - **Edge detection:** [`is_key_just_pressed`](Self::is_key_just_pressed) is true
-///   only on the fixed-update step where a key transitions up→down. The driver
-///   calls [`advance_frame`](Self::advance_frame) after each `Game::update` to
-///   snapshot the state, so a held key fires "just pressed" exactly once. (The
-///   fuller input abstraction — remapping, touch/tilt — is out of scope.)
-/// - [`cursor_position`](Self::cursor_position) is in window logical pixels,
-///   origin top-left. It is `None` until the first cursor movement is seen (e.g.
-///   in the pure-headless driver, where no cursor exists).
+///   on the first fixed-update step after a key went up→down, and
+///   [`is_key_just_released`](Self::is_key_just_released) after it went down→up.
+///   The edges are latched until the driver calls
+///   [`advance_frame`](Self::advance_frame) after the next `Game::update`, so a
+///   held key fires "just pressed" exactly once, and a tap that is pressed and
+///   released between two updates is still seen. (The fuller input abstraction —
+///   remapping, touch/tilt — is out of scope.)
+/// - [`release_all`](Self::release_all) releases everything at once; the windowed
+///   entry calls it when the window loses focus, because macOS sends no key-up for
+///   a key released while another window has focus.
+/// - [`cursor_position`](Self::cursor_position) is in window logical pixels
+///   (points), origin top-left. It is `None` until the first cursor movement is
+///   seen (e.g. in the pure-headless driver, where no cursor exists).
 ///
 /// # Example
 ///
@@ -111,9 +117,11 @@ pub enum MouseButton {
 #[derive(Debug, Clone, Default)]
 pub struct InputState {
     pressed_keys: HashSet<Key>,
-    /// Keys that were down at the previous `advance_frame` — the baseline for
-    /// just-pressed edge detection.
-    prev_pressed_keys: HashSet<Key>,
+    /// Keys that went up→down since the last `advance_frame`, kept even if they
+    /// were released again since (a tap shorter than one fixed step).
+    pressed_since_step: HashSet<Key>,
+    /// Keys that went down→up since the last `advance_frame`.
+    released_since_step: HashSet<Key>,
     pressed_buttons: HashSet<MouseButton>,
     cursor_position: Option<(f64, f64)>,
 }
@@ -133,18 +141,19 @@ impl InputState {
 
     /// Whether `key` transitioned up→down since the last fixed update — a
     /// per-step edge, true exactly once per physical press (a held key does not
-    /// keep returning `true`). Use this for one-shot actions (a discrete step, a
-    /// menu selection) rather than continuous held-key movement.
+    /// keep returning `true`). Still true if the key was released again before
+    /// the update, so a quick tap is never lost. Use this for one-shot actions (a
+    /// discrete step, a menu selection) rather than continuous held-key movement.
     #[must_use]
     pub fn is_key_just_pressed(&self, key: Key) -> bool {
-        self.pressed_keys.contains(&key) && !self.prev_pressed_keys.contains(&key)
+        self.pressed_since_step.contains(&key)
     }
 
     /// Whether `key` transitioned down→up since the last fixed update — the release
     /// edge, true exactly once per release.
     #[must_use]
     pub fn is_key_just_released(&self, key: Key) -> bool {
-        self.prev_pressed_keys.contains(&key) && !self.pressed_keys.contains(&key)
+        self.released_since_step.contains(&key)
     }
 
     /// Whether mouse `button` is currently held down.
@@ -160,18 +169,34 @@ impl InputState {
         self.cursor_position
     }
 
-    /// Record that `key` was pressed. Idempotent while held.
+    /// Record that `key` was pressed. Idempotent while held (an auto-repeat press
+    /// is not a new edge).
     ///
     /// Called by the engine (windowed entry or headless driver), not by games.
     pub fn press_key(&mut self, key: Key) {
-        self.pressed_keys.insert(key);
+        if self.pressed_keys.insert(key) {
+            self.pressed_since_step.insert(key);
+        }
     }
 
     /// Record that `key` was released. Idempotent when already up.
     ///
     /// Called by the engine, not by games.
     pub fn release_key(&mut self, key: Key) {
-        self.pressed_keys.remove(&key);
+        if self.pressed_keys.remove(&key) {
+            self.released_since_step.insert(key);
+        }
+    }
+
+    /// Release every held key and mouse button, as if each had been let go.
+    ///
+    /// The windowed entry calls this when the window loses focus: a key released
+    /// while another window has focus sends no key-up, so it would otherwise stay
+    /// down, and the next real press of it would be no edge. Called by the
+    /// engine, not by games.
+    pub fn release_all(&mut self) {
+        self.released_since_step.extend(self.pressed_keys.drain());
+        self.pressed_buttons.clear();
     }
 
     /// Record that mouse `button` was pressed. Called by the engine.
@@ -190,12 +215,13 @@ impl InputState {
         self.cursor_position = Some((x, y));
     }
 
-    /// Snapshot the current pressed keys as the baseline for the next step's
-    /// just-pressed edges. The driver calls this after each `Game::update`, so a
-    /// held key reports [`is_key_just_pressed`](Self::is_key_just_pressed) exactly
-    /// once. Called by the engine, not by games.
+    /// Clear this step's press and release edges. The driver calls this after
+    /// each `Game::update`, so a held key reports
+    /// [`is_key_just_pressed`](Self::is_key_just_pressed) exactly once. Called by
+    /// the engine, not by games.
     pub fn advance_frame(&mut self) {
-        self.prev_pressed_keys.clone_from(&self.pressed_keys);
+        self.pressed_since_step.clear();
+        self.released_since_step.clear();
     }
 }
 
@@ -259,5 +285,46 @@ mod tests {
             input.is_key_just_pressed(Key::Left),
             "re-press is a new edge"
         );
+    }
+
+    #[test]
+    fn a_tap_between_two_steps_is_still_one_press_edge() {
+        let mut input = InputState::new();
+        // Pressed and released before the next update ran.
+        input.press_key(Key::Space);
+        input.release_key(Key::Space);
+        assert!(!input.is_key_down(Key::Space));
+        assert!(input.is_key_just_pressed(Key::Space), "the tap is seen");
+        assert!(input.is_key_just_released(Key::Space));
+        input.advance_frame();
+        assert!(!input.is_key_just_pressed(Key::Space), "once");
+        assert!(!input.is_key_just_released(Key::Space));
+    }
+
+    #[test]
+    fn an_auto_repeat_press_is_not_a_new_edge() {
+        let mut input = InputState::new();
+        input.press_key(Key::Right);
+        input.advance_frame();
+        input.press_key(Key::Right);
+        assert!(!input.is_key_just_pressed(Key::Right));
+    }
+
+    #[test]
+    fn release_all_lets_go_of_everything_so_the_next_press_is_an_edge() {
+        let mut input = InputState::new();
+        input.press_key(Key::Left);
+        input.press_mouse(MouseButton::Left);
+        input.advance_frame();
+
+        // Focus lost while held: no key-up will come.
+        input.release_all();
+        assert!(!input.is_key_down(Key::Left));
+        assert!(!input.is_mouse_down(MouseButton::Left));
+        assert!(input.is_key_just_released(Key::Left));
+        input.advance_frame();
+
+        input.press_key(Key::Left);
+        assert!(input.is_key_just_pressed(Key::Left), "a fresh press");
     }
 }

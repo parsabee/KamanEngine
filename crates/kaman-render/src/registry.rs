@@ -36,6 +36,13 @@
 //! different mesh that happens to occupy the reused slot. A handle whose index is
 //! out of range returns [`RegistryError::UnknownHandle`]. In both cases the
 //! lookup is a **defined error**, never a silent wrong-buffer draw.
+//!
+//! A slot whose generation would wrap back to zero is **retired** instead of
+//! reused, so no `(index, generation)` pair is ever issued twice: a handle kept
+//! by mistake stays stale forever rather than aliasing a later mesh after
+//! [`2^GENERATION_BITS`](GENERATION_BITS) reuses of its slot. Retirement spends
+//! index space, so the registry runs out only after about
+//! `MAX_SLOTS * 2^GENERATION_BITS` (some four billion) creations.
 
 use kaman_render_api::MeshHandle;
 
@@ -161,11 +168,14 @@ impl<T> Registry<T> {
             return Err(RegistryError::StaleHandle);
         }
         let value = slot.value.take().expect("checked Some above");
-        // Bump the generation so the just-freed handle can never match again.
-        // Wrap within the generation bit-width; wraparound after 2^GENERATION_BITS
-        // frees of the *same slot* is astronomically unlikely for mesh lifetimes.
-        slot.generation = (slot.generation + 1) % GENERATION_MODULO;
-        self.free.push(index);
+        // Bump the generation so the just-freed handle can never match again. A
+        // generation that would wrap would let an old handle match a later
+        // occupant, so that slot is retired: it stays free and is never reused.
+        let next = slot.generation + 1;
+        if next < GENERATION_MODULO {
+            slot.generation = next;
+            self.free.push(index);
+        }
         Ok(value)
     }
 
@@ -245,5 +255,27 @@ mod tests {
     fn packing_roundtrips() {
         let h = pack(12345, 7);
         assert_eq!(unpack(h), (12345, 7));
+    }
+
+    /// Reusing one slot through every generation must not wrap back to the
+    /// first handle's generation: the slot is retired, so a handle kept by
+    /// mistake never aliases a later mesh.
+    #[test]
+    fn a_slot_is_retired_before_its_generation_wraps() {
+        let mut reg: Registry<u32> = Registry::new();
+        let first = reg.insert(0);
+        let mut handle = first;
+        for i in 1..GENERATION_MODULO {
+            assert_eq!(reg.remove(handle), Ok(i - 1));
+            handle = reg.insert(i);
+            assert_eq!(unpack(handle).0, unpack(first).0, "slot reused");
+        }
+        // The slot is at its last generation; freeing it retires it.
+        assert_eq!(reg.remove(handle), Ok(GENERATION_MODULO - 1));
+        let next = reg.insert(4096);
+        assert_ne!(unpack(next).0, unpack(first).0, "retired slot not reused");
+        assert_eq!(reg.get(first), Err(RegistryError::StaleHandle));
+        assert_eq!(reg.get(handle), Err(RegistryError::StaleHandle));
+        assert_eq!(reg.get(next), Ok(&4096));
     }
 }

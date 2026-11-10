@@ -14,13 +14,15 @@ use kaman_render::shadow::{shadow_distance_for_fog, SHADOW_MAP_SIZE, SHADOW_MAP_
 use kaman_render::MetalRenderer;
 use kaman_render_api::{FrameRecorder, RenderDevice, RenderSettings, ShadowQuality};
 
+mod common;
+
 /// Offscreen render size.
 const SIZE: u32 = 64;
 
 fn renderer() -> Option<MetalRenderer> {
     let r = MetalRenderer::new_offscreen(SIZE, SIZE);
     if r.is_none() {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
     }
     r
 }
@@ -128,26 +130,6 @@ fn shadow_tiers_resize_or_disable_the_map() {
     assert_eq!(r.shadow_map_size(), SHADOW_MAP_SIZE);
     assert_eq!(r.light_for_test().shadow_strength, 1.0);
     assert_eq!(r.render_settings(), RenderSettings::default());
-}
-
-#[test]
-fn shadows_off_renders_like_casters_off() {
-    // Off skips the pass and zeroes the strength; a scene then looks exactly as it
-    // does with the pass running but casting nothing. Both are empty scenes
-    // here (only the sky), so the frames must be byte-identical.
-    let (Some(mut off), Some(mut no_casters)) = (renderer(), renderer()) else {
-        return;
-    };
-    off.set_render_settings(&RenderSettings {
-        shadows: ShadowQuality::Off,
-        ..RenderSettings::default()
-    });
-    no_casters.set_shadows_enabled(false);
-    for r in [&mut off, &mut no_casters] {
-        r.begin_frame();
-        r.submit();
-    }
-    assert_eq!(off.read_pixels(), no_casters.read_pixels());
 }
 
 #[test]

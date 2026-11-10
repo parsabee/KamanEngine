@@ -21,15 +21,17 @@
 //!    frames-in-flight machinery adds no `new_buffer*` to the hot path.
 //!
 //! Like the other backend tests, these **skip** when no Metal device is
-//! available (GPU-less CI) and run + assert on a real Mac.
+//! available (a failure instead under `KAMAN_REQUIRE_GPU=1`, as in CI).
 
 use kaman_math::Transform;
 use kaman_render::backend::MAX_FRAMES_IN_FLIGHT;
 use kaman_render::MetalRenderer;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, MeshHandle, RenderDevice, VertexAttribute,
-    VertexFormat, VertexLayout,
+    FrameRecorder, MaterialParams, MeshData, MeshHandle, OverlayQuad, RenderDevice,
+    VertexAttribute, VertexFormat, VertexLayout,
 };
+
+mod common;
 
 /// Offscreen render size.
 const WIDTH: u32 = 64;
@@ -93,7 +95,7 @@ fn make_mesh(r: &mut MetalRenderer) -> MeshHandle {
 #[test]
 fn many_frames_do_not_deadlock_and_ring_region_rotates() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 
@@ -148,26 +150,32 @@ fn many_frames_do_not_deadlock_and_ring_region_rotates() {
 #[test]
 fn per_frame_path_allocates_nothing_across_the_in_flight_cycle() {
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
-        eprintln!("skipping: no Metal device (GPU-less runner)");
+        common::no_gpu();
         return;
     };
 
     let mesh = make_mesh(&mut r);
+    // Each frame also draws a HUD quad: the HUD has one vertex buffer per frame
+    // in flight, and its steady state must allocate nothing either.
+    let frame = |r: &mut MetalRenderer| {
+        r.begin_frame();
+        r.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
+        r.draw_overlay_quad(&OverlayQuad::solid([4.0, 4.0, 16.0, 8.0], [1.0; 4]));
+        r.submit();
+    };
 
-    // Warm one frame so lazy per-frame state (depth texture) exists before we
-    // measure steady state.
-    r.begin_frame();
-    r.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
-    r.submit();
+    // Warm one full in-flight cycle so lazy per-frame state (the depth texture,
+    // and each frame slot's HUD buffer) exists before we measure steady state.
+    for _ in 0..MAX_FRAMES_IN_FLIGHT {
+        frame(&mut r);
+    }
 
     // Measure several frames spanning a full triple-buffer cycle. The
     // frames-in-flight semaphore + completion handler must not add any
     // `new_buffer*` to the hot path — the per-frame allocation delta stays 0.
     let before = r.allocation_count();
     for _ in 0..(2 * MAX_FRAMES_IN_FLIGHT) {
-        r.begin_frame();
-        r.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
-        r.submit();
+        frame(&mut r);
     }
     let delta = r.allocation_count() - before;
     assert_eq!(

@@ -638,15 +638,40 @@ fn a_textured_model_loads_its_texture_from_a_file() {
 }
 
 #[test]
-fn memory_loads_reject_data_uri_images_with_a_reason() {
-    // The glTF slice importer resolves no `data:` image URIs (only images in
-    // buffer views, as in .glb files); the failure says why.
+fn a_textured_model_loads_its_data_uri_texture_from_memory() {
+    // A self-contained .gltf embeds its image as a `data:` URI; loading it from
+    // memory needs no file system, so it works like the by-path load.
     let ctx = Ctx::null(8, 8);
     ctx.poll();
     let mut model = KamanModel::default();
     // SAFETY: copied data.
     assert_eq!(
         unsafe { kaman_model_load_memory(ctx.0, copied(TEXTURED_CUBE), null(), &mut model) },
+        KAMAN_OK
+    );
+    ctx.flush();
+    assert_eq!(
+        ctx.state(model.id),
+        KAMAN_RESOURCE_STATE_READY,
+        "{:?}",
+        ctx.poll()
+    );
+}
+
+#[test]
+fn memory_loads_still_reject_external_file_references() {
+    // There is no directory to resolve a relative URI against, so a document
+    // that points at an external file fails, and says why.
+    let doc = br#"{
+        "asset": {"version": "2.0"},
+        "images": [{"uri": "texture.png"}]
+    }"#;
+    let ctx = Ctx::null(8, 8);
+    ctx.poll();
+    let mut model = KamanModel::default();
+    // SAFETY: copied data.
+    assert_eq!(
+        unsafe { kaman_model_load_memory(ctx.0, copied(doc), null(), &mut model) },
         KAMAN_OK
     );
     ctx.flush();
@@ -912,6 +937,8 @@ fn events_that_do_not_fit_stay_queued() {
 #[cfg(target_os = "macos")]
 #[test]
 fn the_c_api_renders_what_the_rust_api_renders() {
+    use std::io::Write;
+
     use kaman_math::glam::{Mat4, Vec3};
     use kaman_render::MetalRenderer;
     use kaman_render_api::{
@@ -922,7 +949,15 @@ fn the_c_api_renders_what_the_rust_api_renders() {
     const W: u32 = 64;
     const H: u32 = 48;
     let Some(mut rust) = MetalRenderer::new_offscreen(W, H) else {
-        eprintln!("skipping: no Metal device");
+        // Visible past the harness's capture; a failure under KAMAN_REQUIRE_GPU=1
+        // (CI), so a runner without a GPU cannot pass this test unrun.
+        let required = std::env::var("KAMAN_REQUIRE_GPU")
+            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+        assert!(!required, "no Metal device, and KAMAN_REQUIRE_GPU is set");
+        let _ = writeln!(
+            std::io::stderr(),
+            "SKIPPED the_c_api_renders_what_the_rust_api_renders: no Metal device"
+        );
         return;
     };
     let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 2.0), Vec3::ZERO, Vec3::Y);

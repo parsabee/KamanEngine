@@ -4,10 +4,12 @@
 
 //! [`NullRenderer`] — a headless, GPU-free test double for the render seam.
 
+use std::collections::{HashMap, HashSet};
+
 use kaman_math::glam::{Mat4, Vec3};
 use kaman_math::Transform;
 
-use crate::descriptor::MaterialParams;
+use crate::descriptor::{MaterialParams, PipelineKind};
 use crate::device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
 use crate::handles::{MeshHandle, PipelineHandle, TextureHandle};
 use crate::overlay::OverlayQuad;
@@ -34,15 +36,51 @@ pub struct RecordedDraw {
     pub material: MaterialParams,
 }
 
+/// A call the Metal backend would ignore, which [`NullRenderer`] therefore
+/// refused instead of recording. Listed by
+/// [`protocol_violations`](NullRenderer::protocol_violations).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ProtocolViolation {
+    /// [`begin_frame`](FrameRecorder::begin_frame) while a frame was already
+    /// open. The open frame continues.
+    BeginWhileOpen,
+    /// [`submit`](FrameRecorder::submit) with no frame open.
+    SubmitWithoutFrame,
+    /// A draw, an overlay quad, a pipeline selection or a texture binding
+    /// recorded while no frame was open.
+    OutsideFrame,
+    /// A handle that was never created, or was already destroyed: used in a
+    /// call, or destroyed a second time.
+    UnknownMesh(MeshHandle),
+    /// See [`UnknownMesh`](Self::UnknownMesh).
+    UnknownTexture(TextureHandle),
+    /// See [`UnknownMesh`](Self::UnknownMesh).
+    UnknownPipeline(PipelineHandle),
+    /// A draw of a mesh whose vertex layout is not the selected pipeline's (the
+    /// untextured pipeline when none was selected this frame), or matches
+    /// neither built-in pipeline.
+    MeshPipelineMismatch(MeshHandle),
+    /// A draw of a mesh with no whole, in-range triangle: the Metal backend has
+    /// nothing to draw for it.
+    EmptyMesh(MeshHandle),
+}
+
 /// A headless implementation of both [`RenderDevice`] and [`FrameRecorder`] that
 /// **records** every call instead of touching a GPU.
 ///
 /// `NullRenderer` lets scene and game code be unit-tested without a Metal device:
 /// resource creation hands out sequential handles, and frame recording captures the
-/// full ordered stream of draws (each with the pipeline/texture bound at the time).
+/// ordered stream of draws (each with the pipeline/texture bound at the time).
 /// Tests introspect the recorder through its accessors — [`draw_count`](Self::draw_count),
 /// [`draws`](Self::draws), [`created_meshes`](Self::created_meshes), and friends — to
 /// assert what the code under test asked the renderer to do.
+///
+/// It accepts exactly the calls the Metal backend acts on. A call the backend
+/// would ignore (a draw outside a frame, a destroyed or unknown handle, a mesh on
+/// the wrong pipeline, a double destroy, …) is not recorded as a draw; it is
+/// listed in [`protocol_violations`](Self::protocol_violations) instead, so a
+/// headless test cannot pass on code that draws nothing on a GPU.
 ///
 /// The sticky frame-wide state is recorded the same way:
 /// [`view_projection`](Self::view_projection),
@@ -67,6 +105,13 @@ pub struct NullRenderer {
     destroyed_meshes: Vec<MeshHandle>,
     destroyed_textures: Vec<TextureHandle>,
     destroyed_pipelines: Vec<PipelineHandle>,
+    /// Live meshes: which built-in pipeline each one's layout matches (if any),
+    /// and whether it has anything to draw.
+    live_meshes: HashMap<MeshHandle, (Option<PipelineKind>, bool)>,
+    live_textures: HashSet<TextureHandle>,
+    /// Live pipelines and the built-in pipeline each one names.
+    live_pipelines: HashMap<PipelineHandle, PipelineKind>,
+    violations: Vec<ProtocolViolation>,
 
     // --- frame bookkeeping (FrameRecorder side) ---
     frame_open: bool,
@@ -152,22 +197,31 @@ impl NullRenderer {
         &self.destroyed_pipelines
     }
 
-    /// Number of meshes still live (created minus destroyed).
+    /// Number of meshes still live: created and not yet destroyed. A second
+    /// destroy of the same mesh, or a destroy of an unknown handle, changes
+    /// nothing (it is a [`ProtocolViolation`]).
     #[must_use]
     pub fn live_mesh_count(&self) -> usize {
-        self.created_meshes.len() - self.destroyed_meshes.len()
+        self.live_meshes.len()
     }
 
-    /// Number of textures still live (created minus destroyed).
+    /// Number of textures still live (see [`live_mesh_count`](Self::live_mesh_count)).
     #[must_use]
     pub fn live_texture_count(&self) -> usize {
-        self.created_textures.len() - self.destroyed_textures.len()
+        self.live_textures.len()
     }
 
-    /// Number of pipelines still live (created minus destroyed).
+    /// Number of pipelines still live (see [`live_mesh_count`](Self::live_mesh_count)).
     #[must_use]
     pub fn live_pipeline_count(&self) -> usize {
-        self.created_pipelines.len() - self.destroyed_pipelines.len()
+        self.live_pipelines.len()
+    }
+
+    /// Every call that was refused because the Metal backend would ignore it, in
+    /// call order. Empty for code that uses the seam correctly.
+    #[must_use]
+    pub fn protocol_violations(&self) -> &[ProtocolViolation] {
+        &self.violations
     }
 
     // --- frame introspection ---
@@ -256,38 +310,71 @@ impl NullRenderer {
     }
 }
 
+/// Whether a mesh has at least one whole triangle whose indices are all in range,
+/// i.e. whether the Metal backend uploads anything to draw for it.
+fn has_drawable_triangle(data: &MeshData<'_>) -> bool {
+    let stride = data.layout.stride as usize;
+    if stride == 0 {
+        return false;
+    }
+    let vertex_count = data.vertices.len() / stride;
+    data.indices
+        .chunks_exact(3)
+        .any(|t| t.iter().all(|&i| (i as usize) < vertex_count))
+}
+
 impl RenderDevice for NullRenderer {
-    fn create_mesh(&mut self, _data: &MeshData<'_>) -> MeshHandle {
+    fn create_mesh(&mut self, data: &MeshData<'_>) -> MeshHandle {
         let handle = MeshHandle(self.next_mesh);
         self.next_mesh += 1;
         self.created_meshes.push(handle);
+        self.live_meshes.insert(
+            handle,
+            (
+                PipelineKind::for_layout(&data.layout),
+                has_drawable_triangle(data),
+            ),
+        );
         handle
     }
 
     fn destroy_mesh(&mut self, handle: MeshHandle) {
         self.destroyed_meshes.push(handle);
+        if self.live_meshes.remove(&handle).is_none() {
+            self.violations.push(ProtocolViolation::UnknownMesh(handle));
+        }
     }
 
     fn create_texture(&mut self, _data: &TextureData<'_>) -> TextureHandle {
         let handle = TextureHandle(self.next_texture);
         self.next_texture += 1;
         self.created_textures.push(handle);
+        self.live_textures.insert(handle);
         handle
     }
 
     fn destroy_texture(&mut self, handle: TextureHandle) {
         self.destroyed_textures.push(handle);
+        if !self.live_textures.remove(&handle) {
+            self.violations
+                .push(ProtocolViolation::UnknownTexture(handle));
+        }
     }
 
-    fn create_pipeline(&mut self, _desc: &PipelineDescriptor) -> PipelineHandle {
+    fn create_pipeline(&mut self, desc: &PipelineDescriptor) -> PipelineHandle {
         let handle = PipelineHandle(self.next_pipeline);
         self.next_pipeline += 1;
         self.created_pipelines.push(handle);
+        self.live_pipelines.insert(handle, desc.kind);
         handle
     }
 
     fn destroy_pipeline(&mut self, handle: PipelineHandle) {
         self.destroyed_pipelines.push(handle);
+        if self.live_pipelines.remove(&handle).is_none() {
+            self.violations
+                .push(ProtocolViolation::UnknownPipeline(handle));
+        }
     }
 
     fn surface_size(&self) -> (u32, u32) {
@@ -326,6 +413,10 @@ pub const NULL_SURFACE_HEIGHT: u32 = 720;
 
 impl FrameRecorder for NullRenderer {
     fn begin_frame(&mut self) {
+        if self.frame_open {
+            self.violations.push(ProtocolViolation::BeginWhileOpen);
+            return;
+        }
         self.frame_open = true;
         self.frames_begun += 1;
         // Per-frame state resets at the start of each frame. The camera and the
@@ -349,14 +440,50 @@ impl FrameRecorder for NullRenderer {
     }
 
     fn set_pipeline(&mut self, handle: PipelineHandle) {
-        self.current_pipeline = Some(handle);
+        if !self.frame_open {
+            self.violations.push(ProtocolViolation::OutsideFrame);
+        } else if !self.live_pipelines.contains_key(&handle) {
+            self.violations
+                .push(ProtocolViolation::UnknownPipeline(handle));
+        } else {
+            self.current_pipeline = Some(handle);
+        }
     }
 
     fn bind_texture(&mut self, handle: TextureHandle) {
-        self.current_texture = Some(handle);
+        if !self.frame_open {
+            self.violations.push(ProtocolViolation::OutsideFrame);
+        } else if !self.live_textures.contains(&handle) {
+            self.violations
+                .push(ProtocolViolation::UnknownTexture(handle));
+        } else {
+            self.current_texture = Some(handle);
+        }
     }
 
     fn draw_mesh(&mut self, mesh: MeshHandle, transform: &Transform, material: &MaterialParams) {
+        if !self.frame_open {
+            self.violations.push(ProtocolViolation::OutsideFrame);
+            return;
+        }
+        let Some(&(mesh_kind, drawable)) = self.live_meshes.get(&mesh) else {
+            self.violations.push(ProtocolViolation::UnknownMesh(mesh));
+            return;
+        };
+        // The untextured pipeline is selected until the frame selects another.
+        let pipeline_kind = self
+            .current_pipeline
+            .and_then(|p| self.live_pipelines.get(&p).copied())
+            .unwrap_or(PipelineKind::VertexColor);
+        if mesh_kind != Some(pipeline_kind) {
+            self.violations
+                .push(ProtocolViolation::MeshPipelineMismatch(mesh));
+            return;
+        }
+        if !drawable {
+            self.violations.push(ProtocolViolation::EmptyMesh(mesh));
+            return;
+        }
         self.draws.push(RecordedDraw {
             mesh,
             pipeline: self.current_pipeline,
@@ -367,10 +494,18 @@ impl FrameRecorder for NullRenderer {
     }
 
     fn draw_overlay_quad(&mut self, quad: &OverlayQuad) {
+        if !self.frame_open {
+            self.violations.push(ProtocolViolation::OutsideFrame);
+            return;
+        }
         self.overlay_quads.push(*quad);
     }
 
     fn submit(&mut self) {
+        if !self.frame_open {
+            self.violations.push(ProtocolViolation::SubmitWithoutFrame);
+            return;
+        }
         self.frame_open = false;
         self.frames_submitted += 1;
     }

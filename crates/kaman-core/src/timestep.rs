@@ -87,23 +87,24 @@ impl Accumulator {
     ///
     /// Adds `elapsed` to the running total, then computes the whole number of
     /// [`FIXED_DT`] steps that fit, draining that time. The count is clamped to
-    /// [`MAX_STEPS_PER_FRAME`]; if the clamp fires, the surplus accumulated time
-    /// is **discarded** (not banked) so the next frame does not immediately owe
-    /// another maxed-out burst — this is the spiral-of-death guard.
+    /// [`MAX_STEPS_PER_FRAME`]; if a whole step or more is still owed after the
+    /// clamp, that surplus is **discarded** (not banked) so the next frame does
+    /// not immediately owe another maxed-out burst — this is the spiral-of-death
+    /// guard. A sub-step remainder left after exactly [`MAX_STEPS_PER_FRAME`]
+    /// steps is not surplus and is kept, like any other remainder.
     ///
     /// After this call, [`alpha`](Self::alpha) reflects the leftover remainder.
     pub fn advance(&mut self, elapsed: Duration) -> u32 {
         self.remainder += elapsed;
 
         let mut steps: u32 = 0;
-        while self.remainder >= FIXED_DT_DURATION {
+        while self.remainder >= FIXED_DT_DURATION && steps < MAX_STEPS_PER_FRAME {
             self.remainder -= FIXED_DT_DURATION;
             steps += 1;
-            if steps == MAX_STEPS_PER_FRAME {
-                // Spiral-of-death guard: drop the surplus so we don't re-owe it.
-                self.remainder = Duration::ZERO;
-                break;
-            }
+        }
+        if self.remainder >= FIXED_DT_DURATION {
+            // Spiral-of-death guard: drop the surplus so we don't re-owe it.
+            self.remainder = Duration::ZERO;
         }
         steps
     }
@@ -197,5 +198,18 @@ mod tests {
         // Surplus dropped: an immediate zero-time frame owes nothing.
         assert_eq!(acc.advance(Duration::ZERO), 0);
         assert!(acc.alpha() < 1e-3, "no surplus banked after the clamp");
+    }
+
+    /// Exactly [`MAX_STEPS_PER_FRAME`] steps plus half a step is not a spiral:
+    /// nothing beyond the cap is owed, so the half step is banked as alpha (it
+    /// used to be dropped, snapping alpha to 0 and losing the time).
+    #[test]
+    fn a_sub_step_remainder_at_the_cap_is_kept() {
+        let mut acc = Accumulator::new();
+        let five_and_a_half = FIXED_DT_DURATION * (2 * MAX_STEPS_PER_FRAME + 1) / 2;
+        assert_eq!(acc.advance(five_and_a_half), MAX_STEPS_PER_FRAME);
+        assert!((acc.alpha() - 0.5).abs() < 1e-3, "alpha {}", acc.alpha());
+        // The banked half completes a step with the next half.
+        assert_eq!(acc.advance(FIXED_DT_DURATION / 2), 1);
     }
 }

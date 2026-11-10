@@ -43,17 +43,20 @@
 //! ```rust
 //! use kaman_render_api::{
 //!     FrameRecorder, MaterialParams, MeshData, NullRenderer, PipelineDescriptor,
-//!     PipelineKind, RenderDevice, VertexLayout,
+//!     PipelineKind, RenderDevice,
 //! };
 //! use kaman_math::Transform;
 //!
 //! let mut r = NullRenderer::new();
 //!
-//! // Load time: create resources, keep the opaque handles.
+//! // Load time: create resources, keep the opaque handles. One triangle on the
+//! // `[pos,normal,color]` layout the vertex-colour pipeline draws.
+//! let layout = PipelineKind::VertexColor.vertex_layout();
+//! let vertices = vec![0u8; 3 * layout.stride as usize];
 //! let mesh = r.create_mesh(&MeshData {
-//!     vertices: &[],
-//!     indices: &[],
-//!     layout: VertexLayout::default(),
+//!     vertices: &vertices,
+//!     indices: &[0, 1, 2],
+//!     layout,
 //! });
 //! let pipeline = r.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor));
 //!
@@ -80,7 +83,7 @@ pub mod sun;
 pub use descriptor::{MaterialParams, PipelineKind, VertexAttribute, VertexFormat, VertexLayout};
 pub use device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
 pub use handles::{MeshHandle, PipelineHandle, TextureHandle};
-pub use null::{NullRenderer, RecordedDraw};
+pub use null::{NullRenderer, ProtocolViolation, RecordedDraw};
 pub use overlay::{FontAtlas, Glyph, OverlayFill, OverlayQuad};
 pub use recorder::FrameRecorder;
 pub use settings::{RenderSettings, ShadowQuality};

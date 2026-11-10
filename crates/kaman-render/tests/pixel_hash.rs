@@ -45,14 +45,14 @@
 //! Each test prints its new hash, named after the constant that holds it, and
 //! passes (without asserting) so you can copy the value into that constant
 //! **with a justification note in the commit message**. Blessing is deliberately
-//! manual and loud.
+//! manual and loud: only `BLESS=1` (or `true`) blesses; `BLESS=0` still asserts.
 //!
-//! # CI safety (GPU-less runners)
+//! # No Metal device
 //!
-//! GitHub macOS runners are headless with no GPU, so `MTLCreateSystemDefaultDevice`
-//! can return nil. When no Metal device is available the tests **skip** (print a
-//! skip line and return) instead of failing, so they never break a GPU-less
-//! build. On a real Mac (this dev machine) they run and assert.
+//! Where `MTLCreateSystemDefaultDevice` returns nil the tests **skip**: they print
+//! a `SKIPPED` line that a plain `cargo test` shows, and return. CI sets
+//! `KAMAN_REQUIRE_GPU=1`, which turns a missing device into a failure, so a
+//! runner that lost its GPU cannot pass the suite without running it.
 //!
 //! GitHub's current macOS runners are virtual machines that *do* expose a Metal
 //! device — `"Apple Paravirtual device"`, which forwards to a host GPU. References
@@ -69,6 +69,8 @@ use kaman_render_api::{
     FrameRecorder, MaterialParams, MeshData, OverlayFill, OverlayQuad, RenderDevice, TextureData,
     TextureHandle, VertexAttribute, VertexFormat, VertexLayout,
 };
+
+mod common;
 
 /// Offscreen render size for the reference scene.
 const WIDTH: u32 = 64;
@@ -227,17 +229,6 @@ fn fnv1a_64(bytes: &[u8]) -> u64 {
     hash
 }
 
-/// Print the GPU-less skip line for the `what` reference; the caller then returns.
-///
-/// Shared by both pixel-hash tests so the skip behavior (and its wording) cannot
-/// drift apart between them: no Metal device is a **skip**, never a failure.
-fn skip_no_gpu(what: &str) {
-    eprintln!(
-        "skipping {what} pixel-hash test: no Metal device available (GPU-less runner). \
-         This is expected on headless CI; it runs and asserts on a real Mac."
-    );
-}
-
 /// Hash `pixels` and either print a fresh baseline (`BLESS=1`) or assert it
 /// matches `baseline`.
 ///
@@ -264,7 +255,7 @@ fn bless_or_assert(pixels: &[u8], baseline: u64, constant: &str) {
 
     let hash = fnv1a_64(pixels);
 
-    if std::env::var("BLESS").is_ok() {
+    if common::blessing() {
         println!("BLESS: new {constant} = {hash:#018x}");
         println!("Update {constant} in tests/pixel_hash.rs with a justification note.");
         return;
@@ -389,7 +380,7 @@ fn render_reference() -> Option<Vec<u8>> {
 #[test]
 fn reference_scene_matches_committed_hash() {
     let Some(pixels) = render_reference() else {
-        skip_no_gpu("reference-scene");
+        common::no_gpu();
         return;
     };
 
@@ -547,7 +538,7 @@ fn render_reference_overlay() -> Option<Vec<u8>> {
 #[test]
 fn reference_overlay_matches_committed_hash() {
     let Some(pixels) = render_reference_overlay() else {
-        skip_no_gpu("reference-overlay");
+        common::no_gpu();
         return;
     };
 
@@ -620,7 +611,7 @@ fn render_reference_sun() -> Option<Vec<u8>> {
 #[test]
 fn reference_sun_matches_committed_hash() {
     let Some(pixels) = render_reference_sun() else {
-        skip_no_gpu("reference-sun");
+        common::no_gpu();
         return;
     };
 
@@ -907,6 +898,9 @@ struct ShadowVariant {
     shadow_distance: Option<f32>,
     /// Offset added to the caster cube's position.
     caster_offset: Vec3,
+    /// Push the `Off` shadow quality before rendering (the reference keeps the
+    /// default settings and pushes none).
+    quality_off: bool,
 }
 
 impl ShadowVariant {
@@ -916,6 +910,7 @@ impl ShadowVariant {
         azimuth_deg: 270.0,
         shadow_distance: None,
         caster_offset: Vec3::ZERO,
+        quality_off: false,
     };
 }
 
@@ -927,8 +922,15 @@ fn render_shadow_scene(variant: ShadowVariant) -> Option<Vec<u8>> {
         azimuth_deg,
         shadow_distance,
         caster_offset,
+        quality_off,
     } = variant;
     let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
+    if quality_off {
+        renderer.set_render_settings(&kaman_render_api::RenderSettings {
+            shadows: kaman_render_api::ShadowQuality::Off,
+            ..kaman_render_api::RenderSettings::default()
+        });
+    }
     renderer.set_shadows_enabled(shadows);
     renderer.set_shadow_distance(shadow_distance);
 
@@ -1125,17 +1127,17 @@ const LIT_UNTEXTURED: Vec3 = Vec3::new(2.2, 0.0, 1.8);
 #[test]
 fn reference_shadow_matches_committed_hash() {
     let Some(device) = MetalRenderer::new_offscreen(1, 1).map(|r| r.device_name()) else {
-        skip_no_gpu("reference-shadow");
+        common::no_gpu();
         return;
     };
     let (Some(pixels), Some(unshadowed)) = (
         render_reference_shadow(true, 270.0),
         render_reference_shadow(false, 270.0),
     ) else {
-        skip_no_gpu("reference-shadow");
+        common::no_gpu();
         return;
     };
-    let blessing = std::env::var("BLESS").is_ok();
+    let blessing = common::blessing();
 
     if blessing {
         std::fs::write(SHADOW_REFERENCE_BGRA_PATH, &pixels)
@@ -1202,7 +1204,7 @@ fn shadow_tolerance_accepts_regridding_and_rejects_regressions() {
             ..ShadowVariant::REFERENCE
         }),
     ) else {
-        skip_no_gpu("reference-shadow");
+        common::no_gpu();
         return;
     };
 
@@ -1263,7 +1265,7 @@ fn reference_shadow_is_cast_by_the_shadow_pass() {
         render_reference_shadow(true, 270.0),
         render_reference_shadow(false, 270.0),
     ) else {
-        skip_no_gpu("reference-shadow");
+        common::no_gpu();
         return;
     };
 
@@ -1301,7 +1303,7 @@ fn turning_the_sun_moves_the_shadow() {
         render_reference_shadow(true, 270.0),
         render_reference_shadow(true, 90.0),
     ) else {
-        skip_no_gpu("reference-shadow");
+        common::no_gpu();
         return;
     };
     // Mirror of SHADOWED_UNTEXTURED about the cube centre (x = -0.6).
@@ -1318,5 +1320,34 @@ fn turning_the_sun_moves_the_shadow() {
     assert!(
         luminance_at(&east_sun, mirrored) < luminance_at(&west_sun, mirrored) * 0.75,
         "with the sun in the east, the shadow should fall west of the cube"
+    );
+}
+
+/// The `Off` shadow quality skips the shadow pass and zeroes the shadow
+/// strength. The shadow scene must then render exactly as it does with the pass
+/// running but casting nothing, and visibly unlike the frame that casts.
+#[test]
+fn shadows_off_renders_like_a_pass_that_casts_nothing() {
+    let (Some(off), Some(no_casters), Some(casting)) = (
+        render_shadow_scene(ShadowVariant {
+            quality_off: true,
+            ..ShadowVariant::REFERENCE
+        }),
+        render_shadow_scene(ShadowVariant {
+            shadows: false,
+            ..ShadowVariant::REFERENCE
+        }),
+        render_shadow_scene(ShadowVariant::REFERENCE),
+    ) else {
+        common::no_gpu();
+        return;
+    };
+    assert!(
+        off == no_casters,
+        "shadows Off differs from casting nothing"
+    );
+    assert!(
+        off != casting,
+        "the reference scene casts no visible shadow"
     );
 }

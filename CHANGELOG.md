@@ -70,6 +70,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
   - workspace-tree entries (`shaders/`, `platform/`, Ray/AABB/Frustum in `kaman-math`) that do
     not exist;
   - that there is no golden physics-trajectory test or coverage tooling yet.
+- **`NullRenderer` accepts exactly the calls the Metal backend acts on.** A draw or HUD quad
+  outside a frame, a destroyed or unknown handle, a mesh on the wrong pipeline, an empty mesh, a
+  double destroy, `begin_frame` while open and `submit` without a frame are no longer recorded;
+  each is listed in the new `protocol_violations()`. `live_*_count` counts live handles, so a
+  double destroy no longer hides a leak.
+- **GPU tests no longer pass silently without a GPU.** A skipped test prints a visible `SKIPPED`
+  line, and with `KAMAN_REQUIRE_GPU=1` (set in CI) a missing Metal device fails it. `BLESS`
+  re-records the golden images only when set to `1` or `true`.
+- **`ImportError` is `#[non_exhaustive]`** and gains `UnsupportedPrimitiveMode` and
+  `InvalidPrimitive`.
+- **`$KAMAN_DEMO_ASSETS` is strict.** When set it is the only place the demo looks, and one that
+  holds no assets is an error rather than a silent fall-through. Every candidate must hold
+  `road.gltf`, so an unrelated `assets/` beside the binary is skipped.
+- **`kaman-core` builds warning-free off macOS.**
 
 ### Removed
 
@@ -99,6 +113,41 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
   the end of its buffer. Such a draw is now rejected and counted (`rejected_draw_count`).
 - **The HUD vertex buffer was shared by all frames in flight,** so a frame could draw the next
   frame's HUD. Each in-flight frame now has its own buffer.
+- **Physics reset every moving entity's scale to 1.** `Scene::step_physics` copied the whole
+  body transform back, and rigid bodies have no scale; it now syncs only position and rotation.
+- **Despawning through `Scene::world_mut()` left a ghost collider.** The entity's physics body
+  stayed in the world and kept colliding. `step_physics` now frees the body of any entity the
+  scene has seen that is gone (unless a live entity took the body over).
+- **glTF triangle strips and fans were imported as triangle lists,** losing or inventing
+  triangles. They now expand to proper lists; points and lines return
+  `ImportError::UnsupportedPrimitiveMode`.
+- **Malformed glTF could panic instead of returning an error:** float indices, a zero-count or
+  VEC2 `POSITION` accessor, a stride shorter than one element, an accessor or image past the end
+  of its buffer, an index past the last vertex. All are now `ImportError::InvalidPrimitive`.
+- **A textured `.gltf` with `data:` images could not be loaded from memory** (`import_slice`,
+  `kaman_model_load_memory`). Embedded images now decode; external file references are still
+  refused.
+- **One bad mesh index shifted every later triangle.** The upload skipped just that index; it
+  now drops the whole triangle it belongs to.
+- **A stale mesh handle could alias a live mesh** after 4096 reuses of one registry slot. A slot
+  is now retired before its generation wraps.
+- **A settings change or resize between `begin_frame` and `submit` was half-applied** (the shadow
+  pass skipped while the frame still sampled the map, or the HUD laid out for the new size). The
+  frame now keeps what it opened with.
+- **Keys stuck down after the window lost focus,** swallowing the next press, and **a tap
+  shorter than one fixed step was lost.** Focus loss now releases everything, and press and
+  release edges last until the next update sees them.
+- **The cursor position was in physical pixels,** 2× the documented logical points on Retina.
+- **The fixed-timestep loop dropped a legitimate sub-step remainder** whenever exactly
+  `MAX_STEPS_PER_FRAME` steps fit, snapping the interpolation alpha to 0.
+- **`Game::init` saw the drawable in points** with a UI scale of 1; it is now sized first.
+- **`FontAtlas::measure` counted `\n` as an advance;** it now returns the widest line.
+- **A music start that failed still claimed the loop channel,** so asking again did nothing.
+- **The demo's replay message printed the best score labelled "score".**
+- **Tests that could not fail.** `NullRenderer` now refuses the calls the Metal backend ignores
+  (see Changed); demo tests that sat on the title screen now drive the game; render and ECS
+  tests that only re-derived their own formula, drew nothing or asserted a tautology now check
+  real output; and the HUD is part of the zero-allocation test.
 
 ## [0.1.0-alpha.2] - 2026-09-27
 

@@ -118,7 +118,8 @@ pub unsafe extern "C" fn kaman_font_destroy(
     })
 }
 
-/// The width of `text` at `px` pixels per em, into `*out_width`.
+/// The width of `text` at `px` pixels per em, into `*out_width`: the widest
+/// line's, since `\n` starts a new line.
 ///
 /// # Safety
 /// `ctx` must be NULL or a live context; `text` NULL or NUL-terminated;

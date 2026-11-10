@@ -8,11 +8,19 @@ use std::fmt;
 
 /// An error importing or caching a glTF asset.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ImportError {
     /// The underlying `gltf` crate failed to read or parse the document.
     Gltf(gltf::Error),
     /// A mesh primitive had no `POSITION` attribute, so it cannot be imported.
     MissingPositions,
+    /// A mesh primitive draws points or lines (named here); only triangles,
+    /// triangle strips and triangle fans can be imported.
+    UnsupportedPrimitiveMode(&'static str),
+    /// A mesh primitive's data is malformed: an accessor with the wrong type or
+    /// shape, a count of zero or a range past its buffer view, an index past the
+    /// last vertex, or no whole triangle. The string says which.
+    InvalidPrimitive(String),
 }
 
 impl fmt::Display for ImportError {
@@ -22,6 +30,11 @@ impl fmt::Display for ImportError {
             ImportError::MissingPositions => {
                 write!(f, "glTF primitive is missing required POSITION data")
             }
+            ImportError::UnsupportedPrimitiveMode(mode) => write!(
+                f,
+                "glTF primitive mode {mode} is not supported (only triangles, strips and fans)"
+            ),
+            ImportError::InvalidPrimitive(why) => write!(f, "malformed glTF primitive: {why}"),
         }
     }
 }
@@ -39,7 +52,7 @@ impl std::error::Error for ImportError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             ImportError::Gltf(e) => Some(e),
-            ImportError::MissingPositions => None,
+            _ => None,
         }
     }
 }

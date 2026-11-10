@@ -283,17 +283,20 @@ mod tests {
         fn init(&mut self, ctx: &mut EngineCtx) {
             use kaman_ecs::TransformComponent;
             use kaman_math::glam::Vec3;
-            use kaman_render_api::{MeshData, PipelineDescriptor, PipelineKind, VertexLayout};
+            use kaman_render_api::{MeshData, PipelineDescriptor, PipelineKind};
 
             self.entity = Some(
                 ctx.world_mut()
                     .spawn((TransformComponent::from_position(Vec3::ZERO),)),
             );
             let r = ctx.renderer();
+            // One triangle on the vertex-colour layout: a mesh the pipeline draws.
+            let layout = PipelineKind::VertexColor.vertex_layout();
+            let vertices = vec![0u8; 3 * layout.stride as usize];
             self.mesh = Some(r.create_mesh(&MeshData {
-                vertices: &[],
-                indices: &[],
-                layout: VertexLayout::default(),
+                vertices: &vertices,
+                indices: &[0, 1, 2],
+                layout,
             }));
             self.pipeline =
                 Some(r.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor)));
