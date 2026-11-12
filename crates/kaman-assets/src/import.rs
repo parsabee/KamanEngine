@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use kaman_math::glam::Mat4;
+use kaman_math::glam::{Mat4, Vec3};
 
 use crate::error::ImportError;
 use crate::scene::{
@@ -259,10 +259,7 @@ fn import_primitive(
         .ok_or(ImportError::MissingPositions)?
         .collect();
 
-    let normals: Vec<[f32; 3]> = reader
-        .read_normals()
-        .map(|iter| iter.collect())
-        .unwrap_or_default();
+    let normals: Option<Vec<[f32; 3]>> = reader.read_normals().map(|iter| iter.collect());
 
     let uvs: Vec<[f32; 2]> = reader
         .read_tex_coords(0)
@@ -284,10 +281,17 @@ fn import_primitive(
     let indices = triangle_list(primitive.mode(), indices)?;
 
     // Normalize per-vertex attribute lengths to the position count.
-    let mut normals = normals;
-    normals.resize(positions.len(), [0.0, 1.0, 0.0]);
     let mut uvs = uvs;
     uvs.resize(positions.len(), [0.0, 0.0]);
+    let (positions, normals, uvs, indices) = match normals {
+        Some(mut normals) => {
+            normals.resize(positions.len(), [0.0, 1.0, 0.0]);
+            (positions, normals, uvs, indices)
+        }
+        // glTF 2.0: "When normals are not specified, client implementations MUST
+        // calculate flat normals."
+        None => flat_shaded(&positions, &uvs, &indices),
+    };
 
     // Inspect the primitive's material for texture slots.
     let material = primitive.material();
@@ -346,6 +350,38 @@ fn import_primitive(
         normal_map,
         metallic_roughness,
     })
+}
+
+/// A primitive's per-vertex attributes and its triangle-list indices:
+/// `(positions, normals, uvs, indices)`.
+type Attributes = (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<u32>);
+
+/// Flat normals for a primitive that has none: every triangle gets its own three
+/// vertices (positions and UVs copied from its corners) carrying the face normal
+/// `normalize((b - a) × (c - a))`, so each face is lit as the plane it lies in.
+/// Returns `(positions, normals, uvs, indices)` with `indices` simply `0..n`.
+///
+/// A degenerate (zero-area) triangle has no plane; it gets `+Y`, which is stable
+/// and harmless since it covers no pixels.
+fn flat_shaded(positions: &[[f32; 3]], uvs: &[[f32; 2]], indices: &[u32]) -> Attributes {
+    let mut out_positions = Vec::with_capacity(indices.len());
+    let mut out_normals = Vec::with_capacity(indices.len());
+    let mut out_uvs = Vec::with_capacity(indices.len());
+    for triangle in indices.chunks_exact(3) {
+        let [a, b, c] = [0, 1, 2].map(|k| Vec3::from(positions[triangle[k] as usize]));
+        let normal = (b - a)
+            .cross(c - a)
+            .try_normalize()
+            .unwrap_or(Vec3::Y)
+            .to_array();
+        for &i in triangle {
+            out_positions.push(positions[i as usize]);
+            out_normals.push(normal);
+            out_uvs.push(uvs[i as usize]);
+        }
+    }
+    let out_indices = (0..out_positions.len() as u32).collect();
+    (out_positions, out_normals, out_uvs, out_indices)
 }
 
 /// Check what the `gltf` reader assumes about an accessor before it reads it:
