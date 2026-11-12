@@ -700,3 +700,69 @@ fn cache_uploads_meshes_once_and_shares_handles() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A glTF whose child node, rotated 45° about Z, sits under a parent scaled
+/// `(2, 1, 1)`: the child's world matrix is sheared. Its mesh is one triangle
+/// with a corner at `(1, 0, 0)`.
+const SHEARED_HIERARCHY_GLTF: &[u8] = br#"{
+    "asset": {"version": "2.0"},
+    "buffers": [{"byteLength": 36,
+        "uri": "data:application/octet-stream;base64,AACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAA"}],
+    "bufferViews": [{"buffer": 0, "byteLength": 36}],
+    "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3",
+        "min": [0, 0, 0], "max": [1, 1, 0]}],
+    "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+    "nodes": [
+        {"scale": [2, 1, 1], "children": [1]},
+        {"rotation": [0, 0, 0.3826834323650898, 0.9238795325112867], "mesh": 0}
+    ],
+    "scenes": [{"nodes": [0]}],
+    "scene": 0
+}"#;
+
+#[test]
+fn sheared_hierarchy_bakes_exactly() {
+    // glTF composes parent × child as matrices. Under a non-uniform parent the
+    // rotated child is sheared, which position/rotation/scale cannot hold: the
+    // old TRS bake put (1, 0, 0) at (1.108, 1.061, 0) instead of here.
+    let scene = import_slice(SHEARED_HIERARCHY_GLTF).unwrap();
+    let (_, node) = scene.mesh_nodes().next().expect("one mesh node");
+    let world = node.world.transform_point3(kaman_math::glam::Vec3::X);
+    let h = std::f32::consts::FRAC_1_SQRT_2;
+    let expected = kaman_math::glam::Vec3::new(2.0 * h, h, 0.0);
+    assert!(
+        (world - expected).length() < 1e-5,
+        "(1, 0, 0) baked to {world}, expected {expected}"
+    );
+}
+
+#[cfg(feature = "ecs")]
+#[test]
+fn spawning_a_sheared_hierarchy_keeps_its_vertices_exact() {
+    // An ECS transform cannot hold shear either, so the spawn helper keeps only
+    // the translation and bakes the rest into the vertices. Either way the
+    // entity's vertices must land where the node matrix puts them.
+    use kaman_ecs::{RenderShape, TransformComponent};
+    let scene = import_slice(SHEARED_HIERARCHY_GLTF).unwrap();
+    let mut world = kaman_ecs::hecs::World::new();
+    let entities = kaman_assets::spawn_scene(&mut world, &scene);
+    assert_eq!(entities.len(), 1);
+    let (_, node) = scene.mesh_nodes().next().unwrap();
+    let transform = world
+        .get::<&TransformComponent>(entities[0])
+        .unwrap()
+        .transform;
+    let render = world
+        .get::<&kaman_ecs::RenderComponent>(entities[0])
+        .unwrap();
+    let RenderShape::Mesh { vertices, .. } = &render.shape else {
+        panic!("an imported node spawns a mesh");
+    };
+    for (v, p) in vertices.iter().zip(&scene.meshes[0].positions) {
+        let drawn = transform.transform_point(kaman_math::glam::Vec3::new(v[0], v[1], v[2]));
+        let expected = node
+            .world
+            .transform_point3(kaman_math::glam::Vec3::from_array(*p));
+        assert!((drawn - expected).length() < 1e-5, "{drawn} != {expected}");
+    }
+}

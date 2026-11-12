@@ -63,7 +63,9 @@ It also owns the surface and the quality settings:
 `bind_texture` / `draw_mesh(handle, transform, material)` → `submit`. Per-frame
 state (bound pipeline/texture) does not carry across a `begin_frame`/`submit`
 boundary. `draw_mesh` takes a [`kaman-math`] `Transform` and a plain-data
-`MaterialParams`.
+`MaterialParams`; `draw_mesh_matrix` takes a full model matrix instead, for
+callers that hold one (a baked glTF node may be sheared, which a `Transform`
+cannot express).
 
 ### Plain-data descriptors
 
@@ -83,7 +85,7 @@ headlessly:
 - Resources: `created_meshes()`, `created_textures()`, `created_pipelines()`,
   `destroyed_*()`, and `live_*_count()`.
 - Frames: `draws()` / `draw_count()` (each `RecordedDraw` captures the mesh plus
-  the pipeline/texture bound at record time, the transform, and the material),
+  the pipeline/texture bound at record time, the model matrix, and the material),
   `frames_begun()`, `frames_submitted()`, `frame_open()`.
 
 It never panics on protocol violations — it records the observed behaviour so a

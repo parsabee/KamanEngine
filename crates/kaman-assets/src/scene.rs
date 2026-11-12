@@ -10,7 +10,7 @@
 //! helper. There are no GPU types here and no game concepts — this is
 //! engine-generic geometry plus a baked transform hierarchy.
 
-use kaman_math::Transform;
+use kaman_math::glam::Mat4;
 use kaman_render_api::{PipelineKind, VertexLayout};
 
 /// Number of `f32`s in one packed render vertex: `[pos_xyz, normal_xyz, color_rgb]`.
@@ -144,14 +144,19 @@ impl MeshAsset {
 
 /// A node in the imported scene's transform hierarchy.
 ///
-/// Each node carries a **world** (baked) [`transform`](Self::transform) — the
-/// static v1 importer flattens the glTF node tree so no runtime hierarchy math is
+/// Each node carries its **world** (baked) matrix, [`world`](Self::world) — the
+/// static importer flattens the glTF node tree so no runtime hierarchy math is
 /// needed — an optional [`mesh`](Self::mesh) index into
 /// [`SceneAsset::meshes`](SceneAsset::meshes), and its child node indices.
+///
+/// The world matrix is kept whole rather than as position/rotation/scale: a
+/// rotated child under a non-uniformly scaled parent is sheared, which a
+/// [`Transform`](kaman_math::Transform) cannot represent.
 #[derive(Debug, Clone)]
 pub struct Node {
-    /// The node's baked world-space transform.
-    pub transform: Transform,
+    /// The node's baked model-to-world matrix: every ancestor's local matrix
+    /// times its own, exactly as glTF composes them.
+    pub world: Mat4,
     /// Index into [`SceneAsset::meshes`] if this node draws a mesh, else `None`.
     pub mesh: Option<usize>,
     /// Indices (into [`SceneAsset::nodes`]) of this node's children.
@@ -253,14 +258,3 @@ pub(crate) fn pack_textured_vertices(
 /// The default per-vertex color imported geometry is packed with when the source
 /// has no color (a mid-grey), so real glTF meshes are visible immediately.
 pub const DEFAULT_IMPORT_COLOR: [f32; 3] = [0.75, 0.75, 0.78];
-
-/// Compose a glTF node's local TRS (given as a column-major 4×4 matrix from the
-/// `gltf` crate) into a [`Transform`], multiplied under a parent world matrix.
-pub(crate) fn bake_transform(world: kaman_math::glam::Mat4) -> Transform {
-    let (scale, rotation, translation) = world.to_scale_rotation_translation();
-    Transform {
-        position: translation,
-        rotation,
-        scale,
-    }
-}

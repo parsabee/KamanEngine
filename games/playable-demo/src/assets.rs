@@ -18,26 +18,27 @@
 
 use kaman_assets::AssetCache;
 use kaman_core::Renderer;
-use kaman_math::glam::{Quat, Vec3};
+use kaman_math::glam::{Mat4, Quat, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::{ColorSpace, MeshHandle, TextureData, TextureHandle, VertexLayout};
 
 use crate::config::{BUILDING_FOOTPRINT, CAR_BOTTOM, CAR_LEN, CAR_YAW};
 
-/// One drawable piece of an imported car: its `(fitted transform, mesh handle,
+/// One drawable piece of an imported car: its `(fitted model matrix, mesh handle,
 /// base-color texture)`. A textured part (`Some`) draws on the textured pipeline
 /// with its texture bound; an untextured part (`None`) draws on the Phong pipeline
 /// with the material base-color the importer packed as its vertex color.
-pub(crate) type CarPart = (Transform, MeshHandle, Option<TextureHandle>);
+pub(crate) type CarPart = (Mat4, MeshHandle, Option<TextureHandle>);
 
 /// Import a model through the asset cache and return its drawable parts: one
-/// `(fitted transform, mesh handle, base-color texture)` per mesh-node. The file is
+/// `(fitted model matrix, mesh handle, base-color texture)` per mesh-node. The file is
 /// parsed + its meshes uploaded exactly once; each mesh's decoded
 /// base-color image is uploaded here via `create_texture` (the cache uploads
 /// meshes, not textures). `fit` computes the model→world fit transform from the
 /// scene bounds ([`fit_transform`] for cars, [`building_fit`] for buildings); each
-/// part's stored transform is `fit ∘ node.transform` so the render pass only
-/// composes it with the entity's placement.
+/// part's stored matrix is `fit × node.world` (kept whole, so a sheared glTF
+/// hierarchy stays exact) and the render pass only composes it with the entity's
+/// placement.
 pub(crate) fn load_model(
     cache: &mut AssetCache,
     renderer: &mut dyn Renderer,
@@ -57,7 +58,7 @@ pub(crate) fn load_model(
             let mesh_idx = node
                 .mesh
                 .expect("mesh_nodes yields only mesh-bearing nodes");
-            let local = compose(fit, &node.transform);
+            let local = fit.to_matrix() * node.world;
             let handle = asset.mesh_handles[mesh_idx];
             // Upload this mesh's base-color image, if it has one, so the textured
             // pipeline can sample it. A mesh with no texture stays `None` and is
@@ -86,7 +87,7 @@ pub(crate) fn building_fit(scene: &kaman_assets::SceneAsset) -> Transform {
     for (_, node) in scene.mesh_nodes() {
         let mesh = &scene.meshes[node.mesh.expect("mesh node has a mesh")];
         for p in &mesh.positions {
-            let w = node.transform.transform_point(Vec3::from_array(*p));
+            let w = node.world.transform_point3(Vec3::from_array(*p));
             min = min.min(w);
             max = max.max(w);
         }
@@ -117,7 +118,7 @@ pub(crate) fn fit_transform(scene: &kaman_assets::SceneAsset) -> Transform {
     for (_, node) in scene.mesh_nodes() {
         let mesh = &scene.meshes[node.mesh.expect("mesh node has a mesh")];
         for p in &mesh.positions {
-            let w = node.transform.transform_point(Vec3::from_array(*p));
+            let w = node.world.transform_point3(Vec3::from_array(*p));
             min = min.min(w);
             max = max.max(w);
         }
@@ -184,21 +185,6 @@ pub(crate) fn pick_model(models: &[Vec<CarPart>], i: usize) -> &[CarPart] {
         .or_else(|| models.first())
         .map(Vec::as_slice)
         .unwrap_or(&[])
-}
-
-/// Compose a `parent` world transform with a `child` (local) transform, so an
-/// imported mesh part draws at its entity's placement times its baked node
-/// transform. Done via matrices so scale/rotation/translation all combine
-/// correctly (the demo's car nodes are authored at the origin, but this stays
-/// correct for any baked hierarchy).
-pub(crate) fn compose(parent: Transform, child: &Transform) -> Transform {
-    let m = parent.to_matrix() * child.to_matrix();
-    let (scale, rotation, position) = m.to_scale_rotation_translation();
-    Transform {
-        position,
-        rotation,
-        scale,
-    }
 }
 
 /// The untextured `[pos,normal,color]` layout (36-byte stride) every procedural

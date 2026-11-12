@@ -50,7 +50,7 @@ pub(crate) struct ModelEntry {
     pub(crate) state: ModelState,
     completion: Option<KamanCompletion>,
     pub(crate) parts: Vec<Part>,
-    /// `(part, node transform)` for every node that draws a part.
+    /// `(part, node world matrix)` for every node that draws a part.
     pub(crate) instances: Vec<(usize, Mat4)>,
     bounds: (Vec3, Vec3),
 }
@@ -219,7 +219,7 @@ fn parse(source: &Source) -> Result<Parsed, Error> {
     };
     let instances: Vec<(usize, Mat4)> = scene
         .mesh_nodes()
-        .filter_map(|(_, node)| Some((node.mesh?, node.transform.to_matrix())))
+        .filter_map(|(_, node)| Some((node.mesh?, node.world)))
         .filter(|&(mesh, _)| mesh < scene.meshes.len())
         .collect();
     let mut bounds: Option<(Vec3, Vec3)> = None;

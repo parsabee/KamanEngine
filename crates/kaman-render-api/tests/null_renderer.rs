@@ -8,7 +8,7 @@
 //! then record a frame (`begin_frame` → `set_pipeline` → `bind_texture` → `draw_mesh`×N →
 //! `submit`) and assert the recorded counts, handles, and bound state — all with no GPU.
 
-use kaman_math::glam::Vec3;
+use kaman_math::glam::{Mat4, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::{
     ColorSpace, FrameRecorder, MaterialParams, MeshData, MeshHandle, NullRenderer, OverlayQuad,
@@ -125,14 +125,31 @@ fn records_a_full_frame_with_bound_state_per_draw() {
     assert_eq!(draws[0].mesh, mesh_a);
     assert_eq!(draws[0].pipeline, Some(pipeline));
     assert_eq!(draws[0].texture, Some(tex));
-    assert_eq!(draws[0].transform.position, t_a.position);
+    assert_eq!(draws[0].model, t_a.to_matrix());
     assert_eq!(draws[0].material, mat_a);
 
     assert_eq!(draws[1].mesh, mesh_b);
     assert_eq!(draws[1].pipeline, Some(pipeline));
     assert_eq!(draws[1].texture, Some(tex));
-    assert_eq!(draws[1].transform.position, t_b.position);
+    assert_eq!(draws[1].model, t_b.to_matrix());
     assert_eq!(draws[1].material, mat_b);
+}
+
+#[test]
+fn a_matrix_draw_records_its_matrix_exactly() {
+    // A sheared model matrix (no position/rotation/scale can express it) must
+    // reach the draw unchanged.
+    let mut r = NullRenderer::new();
+    let mesh = make_mesh(&mut r);
+    let pipeline = make_pipeline(&mut r);
+    let sheared = Mat4::from_scale(Vec3::new(2.0, 1.0, 1.0))
+        * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_4);
+    r.begin_frame();
+    r.set_pipeline(pipeline);
+    r.draw_mesh_matrix(mesh, sheared, &MaterialParams::default());
+    r.submit();
+    assert_eq!(r.draws()[0].model, sheared);
+    assert!(r.protocol_violations().is_empty());
 }
 
 #[test]
