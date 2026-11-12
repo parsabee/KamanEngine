@@ -9,8 +9,8 @@ use std::ffi::c_void;
 
 use kaman_render::{MetalRenderer, Readback, RenderError};
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, MeshHandle, PipelineDescriptor, PipelineHandle,
-    PipelineKind, RenderDevice, RenderSettings, TextureData, TextureHandle,
+    ColorSpace, FrameRecorder, MaterialParams, MeshData, MeshHandle, PipelineDescriptor,
+    PipelineHandle, PipelineKind, RenderDevice, RenderSettings, TextureData, TextureHandle,
 };
 
 use crate::backend::{Backend, FrameData, PendingReadback, Submitted};
@@ -48,6 +48,7 @@ impl MetalBackend {
                 width: 1,
                 height: 1,
                 rgba8: &[255; 4],
+                color_space: ColorSpace::Srgb,
             })
             .map_err(error)?;
         Ok(Self {
@@ -123,12 +124,14 @@ impl Backend for MetalBackend {
         width: u32,
         height: u32,
         rgba8: &[u8],
+        color_space: ColorSpace,
     ) -> Result<TextureHandle, Error> {
         self.renderer
             .try_create_texture(&TextureData {
                 width,
                 height,
                 rgba8,
+                color_space,
             })
             .map_err(error)
     }

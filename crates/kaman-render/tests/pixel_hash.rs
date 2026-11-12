@@ -66,8 +66,8 @@ use kaman_math::glam::{Quat, Vec3};
 use kaman_math::Transform;
 use kaman_render::MetalRenderer;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, OverlayFill, OverlayQuad, RenderDevice, TextureData,
-    TextureHandle, VertexAttribute, VertexFormat, VertexLayout,
+    ColorSpace, FrameRecorder, MaterialParams, MeshData, OverlayFill, OverlayQuad, RenderDevice,
+    TextureData, TextureHandle, VertexAttribute, VertexFormat, VertexLayout,
 };
 
 mod common;
@@ -514,16 +514,20 @@ fn render_reference_overlay() -> Option<Vec<u8>> {
     let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
 
     // Both textures are built in code (see the builders above), so this render
-    // touches no file and is byte-identical on any machine.
+    // touches no file and is byte-identical on any machine. The pattern is
+    // display-ready colour (the overlay shows linear and sRGB textures the same);
+    // the SDF atlas is distance data, which must be linear.
     let pattern = renderer.create_texture(&TextureData {
         width: PATTERN_SIZE,
         height: PATTERN_SIZE,
         rgba8: &reference_pattern(),
+        color_space: ColorSpace::Linear,
     });
     let sdf = renderer.create_texture(&TextureData {
         width: SDF_SIZE,
         height: SDF_SIZE,
         rgba8: &reference_sdf(),
+        color_space: ColorSpace::Linear,
     });
 
     renderer.begin_frame();
@@ -960,11 +964,14 @@ fn render_shadow_scene(variant: ShadowVariant) -> Option<Vec<u8>> {
         layout: textured_layout(),
     });
     // A light, even base colour (2x2 so it has a real mip chain) — the shadow is
-    // what should vary across the west half, not the texture.
+    // what should vary across the west half, not the texture. Linear, so this
+    // reference pins the shadow pass and not texture decoding (which
+    // `textured_pixel_hash` pins).
     let texture = renderer.create_texture(&TextureData {
         width: 2,
         height: 2,
         rgba8: &[210u8, 200, 190, 255].repeat(4),
+        color_space: ColorSpace::Linear,
     });
 
     let camera = reference_shadow_camera();
@@ -1165,6 +1172,7 @@ fn reference_shadow_matches_committed_hash() {
             fnv1a_64(&pixels)
         );
         if let Err(why) = tolerance {
+            dump_frame("SHADOW_REFERENCE_BGRA", &pixels);
             panic!(
                 "SHADOW_REFERENCE on {device} is outside the paravirtualized-GPU tolerance: \
                  {why}. See SHADOW_REFERENCE_BGRA in tests/pixel_hash.rs."
@@ -1173,9 +1181,36 @@ fn reference_shadow_matches_committed_hash() {
         return;
     }
 
+    if fnv1a_64(&pixels) != SHADOW_REFERENCE_HASH {
+        dump_frame("SHADOW_REFERENCE_BGRA", &pixels);
+    }
     bless_or_assert(&pixels, SHADOW_REFERENCE_HASH, "SHADOW_REFERENCE_HASH");
     // Real GPU and the hash matched, so the frame *is* the committed image.
     assert_eq!(tolerance, Ok(()));
+}
+
+/// Print `frame` base64-encoded on one line between `BEGIN <name>` / `END <name>`
+/// markers, so a failing CI run carries the frame needed to re-record
+/// `tests/data/shadow_reference.bgra` (decode the line into that file).
+fn dump_frame(name: &str, frame: &[u8]) {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(frame.len().div_ceil(3) * 4);
+    for chunk in frame.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                encoded.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                encoded.push('=');
+            }
+        }
+    }
+    eprintln!("BEGIN {name}\n{encoded}\nEND {name}");
 }
 
 #[test]

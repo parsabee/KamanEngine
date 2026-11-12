@@ -19,7 +19,7 @@ use std::thread::JoinHandle;
 
 use kaman_assets::{ImportError, SceneAsset};
 use kaman_math::glam::{Mat4, Vec3};
-use kaman_render_api::{MeshHandle, PipelineKind, TextureHandle};
+use kaman_render_api::{ColorSpace, MeshHandle, PipelineKind, TextureHandle};
 
 use crate::backend::Backend;
 use crate::context::KamanContext;
@@ -264,8 +264,10 @@ fn upload(backend: &mut dyn Backend, scene: &SceneAsset) -> Result<Vec<Part>, Er
             let texture = match &mesh.base_color {
                 None => None,
                 Some(t) => {
-                    let created = validate_texture(t.width, t.height, &t.rgba8)
-                        .and_then(|()| backend.create_texture(t.width, t.height, &t.rgba8));
+                    // glTF base-colour images are sRGB-encoded.
+                    let created = validate_texture(t.width, t.height, &t.rgba8).and_then(|()| {
+                        backend.create_texture(t.width, t.height, &t.rgba8, ColorSpace::Srgb)
+                    });
                     match created {
                         Ok(texture) => Some(texture),
                         Err(e) => {

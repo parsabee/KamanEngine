@@ -5,7 +5,7 @@
 //! SDF fonts: an atlas texture plus a glyph table, laid out with
 //! [`FontAtlas`](kaman_render_api::FontAtlas).
 
-use kaman_render_api::{FontAtlas, Glyph};
+use kaman_render_api::{ColorSpace, FontAtlas, Glyph};
 
 use crate::context::KamanContext;
 use crate::context::{with_context, OwnedEvent};
@@ -69,11 +69,17 @@ pub unsafe extern "C" fn kaman_font_create(
                 .collect()
         };
         let id = with_context(ctx, |inner| {
-            let texture = inner
+            let atlas = inner
                 .textures
                 .get(desc.atlas.id)
-                .ok_or_else(|| Error::invalid_handle("atlas"))?
-                .handle;
+                .ok_or_else(|| Error::invalid_handle("atlas"))?;
+            if atlas.color_space != ColorSpace::Linear {
+                return Err(Error::invalid_argument(
+                    "an SDF font atlas holds distances, not colour: create it with \
+                     KAMAN_COLOR_SPACE_LINEAR",
+                ));
+            }
+            let texture = atlas.handle;
             let id = inner
                 .fonts
                 .insert(FontEntry {

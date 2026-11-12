@@ -24,8 +24,8 @@ use std::time::Duration;
 use kaman_math::Transform;
 use kaman_render::{MetalRenderer, RenderError};
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, OverlayQuad, PipelineDescriptor, PipelineKind,
-    RenderDevice, TextureData, VertexAttribute, VertexFormat, VertexLayout,
+    ColorSpace, FrameRecorder, MaterialParams, MeshData, OverlayQuad, PipelineDescriptor,
+    PipelineKind, RenderDevice, TextureData, VertexAttribute, VertexFormat, VertexLayout,
 };
 
 mod common;
@@ -194,6 +194,7 @@ fn try_create_texture_rejects_short_or_oversized_data() {
         width: 1024,
         height: 1024,
         rgba8: &[0; 4],
+        color_space: ColorSpace::Srgb,
     });
     assert!(
         matches!(short, Err(RenderError::InvalidTexture(_))),
@@ -203,6 +204,7 @@ fn try_create_texture_rejects_short_or_oversized_data() {
         width: 0,
         height: 1,
         rgba8: &[],
+        color_space: ColorSpace::Srgb,
     });
     assert!(
         matches!(zero, Err(RenderError::InvalidSize { .. })),
@@ -213,6 +215,7 @@ fn try_create_texture_rejects_short_or_oversized_data() {
             width: 2,
             height: 2,
             rgba8: &[255; 16],
+            color_space: ColorSpace::Srgb,
         })
         .is_ok());
 }
@@ -225,6 +228,7 @@ fn create_texture_panics_instead_of_reading_past_short_data() {
             width: 64,
             height: 64,
             rgba8: &[0; 4],
+            color_space: ColorSpace::Srgb,
         })
     }));
     let message = result
