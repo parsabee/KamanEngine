@@ -126,6 +126,7 @@ classDiagram
         +set_pipeline(PipelineHandle)
         +bind_texture(TextureHandle)
         +draw_mesh(MeshHandle, Transform, MaterialParams)
+        +draw_mesh_matrix(MeshHandle, Mat4, MaterialParams)
         +submit()
     }
     class Renderer {

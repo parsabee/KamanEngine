@@ -185,20 +185,20 @@ Every model the demo draws is a committed glTF file imported exactly once throug
 `kaman-assets` and thereafter referenced by handle. The two load paths are in
 [assets.rs](../games/playable-demo/src/assets.rs):
 
-- [`load_model`](../games/playable-demo/src/assets.rs#L41) — a multi-part model. Returns one
+- [`load_model`](../games/playable-demo/src/assets.rs#L42) — a multi-part model. Returns one
   `(fitted transform, MeshHandle, Option<TextureHandle>)` per mesh-bearing node. Parts whose
   material carries a base-color image get a texture and draw on the textured pipeline; parts
   without one draw on the Phong pipeline with the material color the importer packed as vertex
   color.
-- [`load_textured_mesh`](../games/playable-demo/src/assets.rs#L152) — a single always-textured
+- [`load_textured_mesh`](../games/playable-demo/src/assets.rs#L153) — a single always-textured
   mesh (the road tile, the skyline billboard).
 
 Both go through [`AssetCache::load`](../crates/kaman-assets/src/lib.rs), which dedups by path so
 one file is parsed and uploaded once (the engine's "upload once, reference by handle" rule). The *fit*
 functions turn a model's authored bounds into a placement transform:
-[`fit_transform`](../games/playable-demo/src/assets.rs#L113) scales a car so its longer horizontal
+[`fit_transform`](../games/playable-demo/src/assets.rs#L114) scales a car so its longer horizontal
 extent is `CAR_LEN`, yaws it to face `-Z`, and lifts its underside to the road;
-[`building_fit`](../games/playable-demo/src/assets.rs#L83) scales a prefab to a common footprint
+[`building_fit`](../games/playable-demo/src/assets.rs#L84) scales a prefab to a common footprint
 (heights preserved) with its base at the model origin. Both work from baked world-space bounds, so
 they are robust to whatever scale and orientation a model was authored at.
 
