@@ -87,13 +87,15 @@ const HEIGHT: u32 = 64;
 // darker here, which is why the filter compares per texel centre) and the whole
 // change is the blob removal. Mesh, texture, camera and transform are unchanged.
 //
-// re-bless REQUIRED (intended look change): 0x95a7782d5aea44e4 -> the value below.
+// re-bless REQUIRED (intended look change): 0x95a7782d5aea44e4 -> 0x9cc073f21160d04e
+// (rendered by CI's paravirtualized Apple GPU, which has matched real Apple GPUs
+// for this scene every time so far).
 // The checkerboard is now uploaded as sRGB, as base-colour textures are, so the
 // sampler decodes it to linear before lighting instead of the shader lighting
 // the encoded bytes and encoding them a second time. The quad is darker and more
 // saturated; `srgb_texture_samples_as_its_linear_decode` checks the decode itself.
 // Mesh, texture bytes, camera and transform are unchanged.
-const REFERENCE_HASH: u64 = 0x95a7782d5aea44e4;
+const REFERENCE_HASH: u64 = 0x9cc073f21160d04e;
 
 /// FNV-1a 64-bit over a byte buffer (self-contained, no external crate).
 fn fnv1a_64(bytes: &[u8]) -> u64 {
@@ -305,8 +307,13 @@ fn srgb_texture_samples_as_its_linear_decode() {
     );
 }
 
-/// Draw one full-frame overlay quad textured with `texels` (8x8) and return the
-/// frame, or `None` without a Metal device.
+/// Draw `texels` (8x8) as an 8x8-pixel overlay quad in the frame's corner and
+/// return the frame, or `None` without a Metal device.
+///
+/// The quad is drawn 1:1 so every pixel samples exactly one texel centre. Stretched,
+/// the linear sampler would blend neighbouring texels, and the GPU blends an sRGB
+/// texture in linear light (after decoding) but a linear one in stored values, so
+/// the two uploads would legitimately differ wherever texels mix.
 fn render_overlay_with(texels: &[u8], color_space: ColorSpace) -> Option<Vec<u8>> {
     let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
     let texture = renderer.create_texture(&TextureData {
@@ -317,7 +324,7 @@ fn render_overlay_with(texels: &[u8], color_space: ColorSpace) -> Option<Vec<u8>
     });
     renderer.begin_frame();
     renderer.draw_overlay_quad(&OverlayQuad {
-        rect: [0.0, 0.0, WIDTH as f32, HEIGHT as f32],
+        rect: [0.0, 0.0, 8.0, 8.0],
         uv: [0.0, 0.0, 1.0, 1.0],
         color: [1.0, 1.0, 1.0, 1.0],
         fill: OverlayFill::Textured(texture),
@@ -338,6 +345,15 @@ fn srgb_overlay_texture_shows_its_stored_colours() {
         common::no_gpu();
         return;
     };
+    // The quad really is on screen: the top-left pixel is the first texel, drawn
+    // straight from the linear upload (BGRA in the frame, RGBA in the texture).
+    let [b, g, r] = [linear[0], linear[1], linear[2]];
+    let [tr, tg, tb] = [texels[0], texels[1], texels[2]];
+    assert!(
+        r.abs_diff(tr) <= 1 && g.abs_diff(tg) <= 1 && b.abs_diff(tb) <= 1,
+        "the overlay quad is not where the test drew it: top-left pixel is \
+         rgb({r}, {g}, {b}), expected rgb({tr}, {tg}, {tb})"
+    );
     let delta = max_channel_delta(&srgb, &linear);
     assert!(
         delta <= 1,
