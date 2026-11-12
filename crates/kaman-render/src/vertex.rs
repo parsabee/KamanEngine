@@ -9,7 +9,7 @@
 //! match the Metal side exactly, so the sizes — and, for [`LightUniforms`], the
 //! offset of every alignment-sensitive field — are asserted by tests.
 
-use kaman_math::glam::{Mat4, Vec3};
+use kaman_math::glam::{Mat3, Mat4, Vec3};
 use kaman_render_api::SunSky;
 
 use crate::shadow::ShadowFit;
@@ -29,9 +29,10 @@ pub struct Vertex {
     pub color: [f32; 3],
 }
 
-/// Per-draw transform uniform: the model-view-projection **and** model matrices.
+/// Per-draw transform uniform: the model-view-projection, model and normal
+/// matrices.
 ///
-/// Matches `Uniforms` in `rasterization.metal` — two `float4x4`s, 128 bytes.
+/// Matches `Uniforms` in `rasterization.metal` — three `float4x4`s, 192 bytes.
 ///
 /// # Layout contract
 ///
@@ -47,7 +48,9 @@ pub struct Vertex {
 ///   position and normal from the un-projected model transform. The depth-only
 ///   shadow caster pass also reads it, combining it with the light's
 ///   view-projection instead of the camera's.
-/// - Size is **exactly 128 bytes** (asserted by `uniforms_is_128_bytes`).
+/// - Rust `normal_matrix: [[f32; 4]; 4]` ⇔ MSL `float4x4 normalMatrix`: what the
+///   lit vertex shaders transform normals by (see [`normal_matrix`]).
+/// - Size is **exactly 192 bytes** (asserted by `uniforms_is_192_bytes`).
 /// - When sub-allocated from the uniform ring the struct is written at a
 ///   [`UNIFORM_RING_STRIDE`]-byte-aligned offset so it satisfies the Apple GPU
 ///   256-byte `set_vertex_buffer` offset requirement; the struct itself only
@@ -61,12 +64,49 @@ pub struct Uniforms {
     /// Model (world) matrix, column-major — drives world-space fog + shadow lookups,
     /// and places casters in the shadow pass.
     pub model: [[f32; 4]; 4],
+    /// Normal matrix, column-major: [`normal_matrix`] of `model`. The shaders
+    /// multiply `float4(normal, 0)` by it and normalise.
+    pub normal_matrix: [[f32; 4]; 4],
+}
+
+/// The matrix that carries normals through `model`.
+///
+/// Normals transform by the inverse-transpose of the model's upper 3×3, not by
+/// the model itself: under non-uniform scale `model * n` tilts a normal away
+/// from its surface (squash a sphere and its highlights slide), while the
+/// inverse-transpose keeps it perpendicular.
+///
+/// When the 3×3 is a rotation times a **uniform** scale, the inverse-transpose
+/// is the 3×3 itself up to a positive factor, which the shaders' normalisation
+/// removes. Then `model` is returned unchanged, so those draws (all of the
+/// pixel-hash scenes) shade bit-for-bit as before. A singular 3×3 (a zero
+/// scale) has no inverse and also falls back to `model`.
+#[must_use]
+pub fn normal_matrix(model: Mat4) -> Mat4 {
+    let m = Mat3::from_mat4(model);
+    let gram = m.transpose() * m;
+    let scale = gram.x_axis.x;
+    let tolerance = 1e-5 * scale.abs().max(f32::MIN_POSITIVE);
+    let conformal = [
+        gram.y_axis.y - scale,
+        gram.z_axis.z - scale,
+        gram.x_axis.y,
+        gram.x_axis.z,
+        gram.y_axis.z,
+    ]
+    .iter()
+    .all(|d| d.abs() <= tolerance);
+    let det = m.determinant();
+    if conformal || det.abs() <= f32::EPSILON * scale.abs().powf(1.5) || !det.is_finite() {
+        return model;
+    }
+    Mat4::from_mat3(m.inverse().transpose())
 }
 
 /// Per-slot byte stride of the uniform ring.
 ///
 /// Apple GPUs require the `offset` passed to `setVertexBuffer:offset:atIndex:`
-/// to be a multiple of 256 bytes. A [`Uniforms`] is only 128 bytes, so each ring
+/// to be a multiple of 256 bytes. A [`Uniforms`] is only 192 bytes, so each ring
 /// slot is padded up to this stride and every per-draw offset is a multiple of
 /// it — see [`crate::backend`]'s uniform-ring docs. Kept next to [`Uniforms`] so
 /// the layout contract and its GPU alignment requirement live together.
@@ -338,10 +378,54 @@ mod tests {
     }
 
     #[test]
-    fn uniforms_is_128_bytes() {
-        // Two float4x4s (MVP + model). The model matrix drives world-space fog +
-        // shadow-map lookups in the look stack.
-        assert_eq!(size_of::<Uniforms>(), 128);
+    fn uniforms_is_192_bytes() {
+        // Three float4x4s (MVP, model, normal matrix), matching the MSL struct.
+        assert_eq!(size_of::<Uniforms>(), 192);
+        assert_eq!(std::mem::offset_of!(Uniforms, model), 64);
+        assert_eq!(std::mem::offset_of!(Uniforms, normal_matrix), 128);
+    }
+
+    #[test]
+    fn rotation_and_uniform_scale_keep_the_model_as_the_normal_matrix() {
+        let model = Mat4::from_scale_rotation_translation(
+            Vec3::splat(2.5),
+            kaman_math::glam::Quat::from_rotation_y(0.7),
+            Vec3::new(1.0, -2.0, 3.0),
+        );
+        assert_eq!(normal_matrix(model), model);
+        assert_eq!(normal_matrix(Mat4::IDENTITY), Mat4::IDENTITY);
+    }
+
+    #[test]
+    fn non_uniform_scale_uses_the_inverse_transpose() {
+        // A 45° slope squashed vertically: its true normal tips toward the
+        // horizontal, while `model * n` would tip it toward the vertical.
+        let model = Mat4::from_scale_rotation_translation(
+            Vec3::new(1.0, 3.0, 1.0),
+            kaman_math::glam::Quat::from_rotation_y(0.5),
+            Vec3::ZERO,
+        );
+        let n = Vec3::new(0.0, 1.0, 1.0).normalize();
+        // The surface's tangents, carried by the model, stay perpendicular to the
+        // carried normal only with the inverse-transpose.
+        let tangents = [Vec3::X, Vec3::new(0.0, 1.0, -1.0)];
+        let carried = normal_matrix(model).transform_vector3(n).normalize();
+        let naive = model.transform_vector3(n).normalize();
+        for t in tangents {
+            let t = model.transform_vector3(t);
+            assert!(carried.dot(t).abs() < 1e-5, "{carried} · {t}");
+        }
+        assert!(
+            naive.dot(model.transform_vector3(tangents[1])).abs() > 0.5,
+            "the naive transform should be measurably wrong here"
+        );
+        assert!((carried - naive).length() > 0.5);
+    }
+
+    #[test]
+    fn a_singular_model_falls_back_to_the_model() {
+        let flat = Mat4::from_scale(Vec3::new(1.0, 0.0, 1.0));
+        assert_eq!(normal_matrix(flat), flat);
     }
 
     #[test]

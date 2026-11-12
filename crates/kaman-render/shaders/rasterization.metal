@@ -59,7 +59,8 @@ struct VertexOut {
 /// Transformation matrices passed from CPU per draw call
 struct Uniforms {
     float4x4 modelViewProjection;      // Combined model-view-projection matrix
-    float4x4 model;                    // Model matrix (world pos/normal for fog + shadow lookups; places casters)
+    float4x4 model;                    // Model matrix (world pos for fog + shadow lookups; places casters)
+    float4x4 normalMatrix;             // Carries normals: inverse-transpose of model's 3x3 (or model itself)
 };
 
 /// Lighting parameters (directional light with Phong components) plus the
@@ -316,7 +317,7 @@ vertex VertexOut vertex_main(VertexIn in [[stage_in]],
     float4 world = uniforms.model * float4(in.position, 1.0);
     out.worldPosition = world.xyz;
     // Normal transformed by the model matrix (uniform scale assumed for boxes).
-    out.worldNormal = (uniforms.model * float4(in.normal, 0.0)).xyz;
+    out.worldNormal = (uniforms.normalMatrix * float4(in.normal, 0.0)).xyz;
     out.color = in.color;
     // Clip.w is the positive view-space depth for our right-handed projection.
     out.viewDepth = clip.w;
@@ -482,7 +483,7 @@ vertex TexturedVertexOut textured_vertex_main(TexturedVertexIn in [[stage_in]],
     out.position = clip;
     float4 world = uniforms.model * float4(in.position, 1.0);
     out.worldPosition = world.xyz;
-    out.worldNormal = (uniforms.model * float4(in.normal, 0.0)).xyz;
+    out.worldNormal = (uniforms.normalMatrix * float4(in.normal, 0.0)).xyz;
     out.uv = in.uv;
     out.viewDepth = clip.w;
     return out;

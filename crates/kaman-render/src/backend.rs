@@ -33,8 +33,8 @@
 //! no `new_buffer*` on the hot path. Invariants:
 //!
 //! - **Stride/alignment:** each slot is [`UNIFORM_RING_STRIDE`] (256) bytes so
-//!   every per-draw offset is a multiple of 256; a 128-byte [`Uniforms`] (MVP +
-//!   model matrix) fits with padding.
+//!   every per-draw offset is a multiple of 256; a 192-byte [`Uniforms`] (MVP,
+//!   model and normal matrices) fits with padding.
 //! - **Capacity:** the ring holds `ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT`
 //!   slots; [`MAX_FRAMES_IN_FLIGHT`] is `3`. A frame that exceeds its per-frame
 //!   capacity grows the ring (doubling, an allocation-time event), never a
@@ -195,7 +195,9 @@ use crate::shadow::{
     fit_shadow_frustum, resolve_shadow_distance, shadow_distance_for_fog, shadow_map_size_for,
     SHADOW_MAP_SIZE,
 };
-use crate::vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
+use crate::vertex::{
+    normal_matrix, LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE,
+};
 
 /// Store action for the shadow map's depth attachment: **`Store`**.
 ///
@@ -2439,6 +2441,8 @@ impl MetalRenderer {
             // position + normal for distance fog and shadow-map lookups, and the
             // shadow pass places the caster with it.
             model: model.to_cols_array_2d(),
+            // Normals use the inverse-transpose under non-uniform scale.
+            normal_matrix: normal_matrix(model).to_cols_array_2d(),
         };
         let uniform_offset = self.write_uniform_to_ring(&uniforms);
 
