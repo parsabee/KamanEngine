@@ -48,6 +48,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ### Changed
 
+- **Textures carry a colour space (breaking, Rust and C).** `TextureData` gains
+  `color_space: ColorSpace` (`Srgb` or `Linear`), and the C API's `KamanTextureDesc` gains
+  `color_space` (`KAMAN_COLOR_SPACE_SRGB` = 0, `KAMAN_COLOR_SPACE_LINEAR`), so
+  `KAMAN_API_VERSION` is now 2. sRGB textures upload as `RGBA8Unorm_sRGB` and are decoded to
+  linear when sampled; linear ones are sampled as stored. glTF base-colour images (Rust
+  `kaman-assets` users and C API models alike) are sRGB. SDF font atlases must be linear: the C
+  API refuses an sRGB atlas or `KAMAN_FILL_SDF` texture with `KAMAN_ERROR_INVALID_ARGUMENT`.
+  HUD quads show the colours a texture stores in either colour space.
 - **CI fails on unformatted code.** A new `cargo fmt --all -- --check` step runs first in the
   macOS CI job, and the whole workspace was reformatted with rustfmt's defaults (a
   formatting-only change). Run `cargo fmt --all` before pushing.
@@ -102,6 +110,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ### Fixed
 
+- **Colour textures were washed out.** Base-colour textures are sRGB-encoded, but they were
+  sampled as linear and then sRGB-encoded again on output, so every texture rendered too light
+  and desaturated. They are now decoded to linear before lighting. **Textured surfaces look
+  different** (darker and richer; in the demo, the road and the skyline), and the textured pixel
+  hash was re-recorded.
 - **`create_texture` could read past the end of its pixel data.** It took any `rgba8` slice, even
   one shorter than `4 * width * height` bytes. Short data is now rejected: the seam method panics
   with a message, and `try_create_texture` returns an error.
