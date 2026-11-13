@@ -1,6 +1,6 @@
 [package]
-name = "kaman-core"
-description = "Application lifecycle and platform layer for KamanEngine."
+name = "stickshift-core"
+description = "Application lifecycle and platform layer for Stick Shift Engine."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,17 +11,17 @@ homepage.workspace = true
 publish.workspace = true
 
 [dependencies]
-kaman-math.workspace = true
-# The audio layer. `kaman-audio` is a leaf that owns the `kira`/`cpal`
-# dependency, and `kaman-core` is its only engine-side consumer: the loop owns one
+stickshift-math.workspace = true
+# The audio layer. `stickshift-audio` is a leaf that owns the `kira`/`cpal`
+# dependency, and `stickshift-core` is its only engine-side consumer: the loop owns one
 # `Audio` and hands it to the game through `EngineCtx`. No other engine crate —
 # and nothing below the render seam — gains an audio dependency.
-kaman-audio.workspace = true
-kaman-ecs.workspace = true
-kaman-camera.workspace = true
-kaman-scene.workspace = true
-kaman-render-api.workspace = true
-kaman-perf.workspace = true
+stickshift-audio.workspace = true
+stickshift-ecs.workspace = true
+stickshift-camera.workspace = true
+stickshift-scene.workspace = true
+stickshift-render-api.workspace = true
+stickshift-perf.workspace = true
 winit.workspace = true
 
 # Native platform UI: the built-in Graphics menu (`NSMenu`) and settings

@@ -2,30 +2,30 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Raw-Metal implementation of the `kaman-render-api` seam for KamanEngine.
+//! Raw-Metal implementation of the `stickshift-render-api` seam for Stick Shift Engine.
 //!
 //! This crate is the concrete render backend that lives **below** the render
 //! seam (`docs/ARCHITECTURE.md` §2). It is the *only* engine crate that depends
-//! on `metal`; everything above the seam talks to the `kaman-render-api` traits
+//! on `metal`; everything above the seam talks to the `stickshift-render-api` traits
 //! and therefore never imports a Metal type. It migrates the prototype's
 //! rasterization renderer.
 //!
 //! # The backend and the seam
 //!
 //! [`MetalRenderer`] implements both halves of the seam —
-//! [`RenderDevice`](kaman_render_api::RenderDevice) (load-time resource
-//! create/destroy) and [`FrameRecorder`](kaman_render_api::FrameRecorder)
+//! [`RenderDevice`](stickshift_render_api::RenderDevice) (load-time resource
+//! create/destroy) and [`FrameRecorder`](stickshift_render_api::FrameRecorder)
 //! (per-frame `begin_frame` / `draw_mesh` / `submit`) — so it automatically
-//! satisfies `kaman-core`'s `Renderer` marker trait via that crate's blanket
-//! impl. `kaman-core` does **not** depend on this crate: the game binary
+//! satisfies `stickshift-core`'s `Renderer` marker trait via that crate's blanket
+//! impl. `stickshift-core` does **not** depend on this crate: the game binary
 //! constructs a [`MetalRenderer`] and hands it to the engine as a
-//! `Box<dyn Renderer>`, keeping `metal` out of `kaman-core`'s dependency tree.
+//! `Box<dyn Renderer>`, keeping `metal` out of `stickshift-core`'s dependency tree.
 //!
 //! ## Mesh / uniform / draw mapping
 //!
 //! - `create_mesh` uploads (deindexes) geometry into a **persistent** Metal
 //!   vertex buffer **once**, at load time, and stores it in a generational
-//!   [`Registry`] keyed by the returned [`MeshHandle`](kaman_render_api::MeshHandle).
+//!   [`Registry`] keyed by the returned [`MeshHandle`](stickshift_render_api::MeshHandle).
 //!   This is the "upload once, reference by handle" rule.
 //! - `create_pipeline` selects one of the two built-in pipelines (Phong or textured).
 //! - `draw_mesh(handle, transform, material)` looks the persistent vertex buffer
@@ -43,15 +43,15 @@
 //!
 //! The backend does **not** own a camera. The view-projection matrix arrives
 //! through the seam once per frame via
-//! [`FrameRecorder::set_view_projection`](kaman_render_api::FrameRecorder::set_view_projection):
+//! [`FrameRecorder::set_view_projection`](stickshift_render_api::FrameRecorder::set_view_projection):
 //! the game (or engine loop) computes it from a
-//! [`kaman_camera::Camera`](https://docs.rs/kaman-camera) and pushes it before
+//! [`stickshift_camera::Camera`](https://docs.rs/stickshift-camera) and pushes it before
 //! the first `draw_mesh`. `draw_mesh` combines the stored view-projection with
 //! each draw's model transform to form the MVP. The previously-inlined
 //! minimal camera was deleted with this migration.
 //!
 //! The camera's **world position** arrives the same way, via
-//! [`FrameRecorder::set_camera_position`](kaman_render_api::FrameRecorder::set_camera_position),
+//! [`FrameRecorder::set_camera_position`](stickshift_render_api::FrameRecorder::set_camera_position),
 //! because a matrix alone cannot say where the eye is and specular
 //! needs to know. Both are sticky and describe one camera; the backend folds them
 //! into the frame's light block as it opens each frame.
@@ -59,13 +59,13 @@
 //! # Sun and sky (via the seam)
 //!
 //! Lighting is likewise not the backend's choice. A
-//! [`SunSky`](kaman_render_api::SunSky) — sun elevation/azimuth, colour,
+//! [`SunSky`](stickshift_render_api::SunSky) — sun elevation/azimuth, colour,
 //! intensity, sky fill, and the sky gradient — is pushed through
-//! [`FrameRecorder::set_sun_sky`](kaman_render_api::FrameRecorder::set_sun_sky)
+//! [`FrameRecorder::set_sun_sky`](stickshift_render_api::FrameRecorder::set_sun_sky)
 //! and uploaded per frame. The backend derives the light direction from
 //! the angles once and uses that single vector for both the shading and the sun
 //! disc the sky pass draws, so they cannot disagree. Until something pushes one,
-//! the default is the `Default` impl of [`SunSky`](kaman_render_api::SunSky).
+//! the default is the `Default` impl of [`SunSky`](stickshift_render_api::SunSky).
 //!
 //! # Shadows
 //!
@@ -75,7 +75,7 @@
 //! whose untextured and textured lit shaders both sample it. The light's
 //! orthographic projection is refitted every frame to the camera's visible slab
 //! and snapped to whole texels so it never shimmers, and it is derived from the
-//! same [`SunSky`](kaman_render_api::SunSky) direction the shading uses. The
+//! same [`SunSky`](stickshift_render_api::SunSky) direction the shading uses. The
 //! fitting, bias and filtering live (and are unit-tested, GPU-free) in
 //! [`shadow`]; the pass wiring and its TBDR store-action reasoning in
 //! [`backend`]. Nothing about shadows crosses the seam: a game gets them by

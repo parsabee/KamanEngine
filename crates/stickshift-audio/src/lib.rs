@@ -2,9 +2,9 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Engine-generic audio for KamanEngine.
+//! Engine-generic audio for Stick Shift Engine.
 //!
-//! `kaman-audio` wraps [`kira`] in the smallest surface a game actually needs:
+//! `stickshift-audio` wraps [`kira`] in the smallest surface a game actually needs:
 //! **load a sound from a path**, **play it once**, **play it looping**, **stop the
 //! loop**, and **set the master volume**. That is the entire API ([`Audio`]).
 //!
@@ -38,14 +38,14 @@
 //!
 //! Because silence is a *behaviour* rather than an absence, it is also
 //! **assertable**: [`Audio`] records what it was asked to do — the way
-//! `kaman-render-api`'s `NullRenderer` records draws — so a plain `cargo test` on a
+//! `stickshift-render-api`'s `NullRenderer` records draws — so a plain `cargo test` on a
 //! machine with no output device can prove what a game asked to hear. See
 //! [`Audio::loop_starts`] and [`Audio::one_shots_played`].
 //!
 //! # Example
 //!
 //! ```rust
-//! use kaman_audio::{Audio, Volume};
+//! use stickshift_audio::{Audio, Volume};
 //!
 //! // No device needed — and no branch in the code below because of it.
 //! let mut audio = Audio::silent();
@@ -75,9 +75,9 @@ pub use volume::Volume;
 
 #[cfg(test)]
 mod guard_tests {
-    /// A-boundary guard: `kaman-audio` must stay engine-generic.
+    /// A-boundary guard: `stickshift-audio` must stay engine-generic.
     ///
-    /// Mirrors the `kaman-ecs` / `kaman-assets` / `kaman-core` guards: it scans
+    /// Mirrors the `stickshift-ecs` / `stickshift-assets` / `stickshift-core` guards: it scans
     /// every source file in this crate, token by token, for any game-specific
     /// identifier. The forbidden words are assembled from ASCII byte codes so they
     /// never appear literally in this file (the test cannot false-positive on its
@@ -117,7 +117,7 @@ mod guard_tests {
                     assert_ne!(
                         &lower, bad,
                         "game-specific identifier `{token}` found in {name}: \
-                         kaman-audio must stay engine-generic",
+                         stickshift-audio must stay engine-generic",
                     );
                 }
             }

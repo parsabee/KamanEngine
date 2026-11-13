@@ -10,9 +10,9 @@
 //! the UI scale is reported back. Like the other backend tests they **skip** when
 //! no Metal device is available.
 
-use kaman_render::shadow::{shadow_distance_for_fog, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE_LOW};
-use kaman_render::MetalRenderer;
-use kaman_render_api::{FrameRecorder, RenderDevice, RenderSettings, ShadowQuality};
+use stickshift_render::shadow::{shadow_distance_for_fog, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE_LOW};
+use stickshift_render::MetalRenderer;
+use stickshift_render_api::{FrameRecorder, RenderDevice, RenderSettings, ShadowQuality};
 
 mod common;
 

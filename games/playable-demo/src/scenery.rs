@@ -5,9 +5,9 @@
 //! Procedural geometry for the parts of the scene that aren't imported models:
 //! the guardrails and the hill terrain.
 //!
-//! Both are built once (in [`Game::init`](kaman_core::Game::init)) as raw
+//! Both are built once (in [`Game::init`](stickshift_core::Game::init)) as raw
 //! `[pos,normal,color]` vertex bytes ready for
-//! [`RenderDevice::create_mesh`](kaman_render_api::RenderDevice::create_mesh),
+//! [`RenderDevice::create_mesh`](stickshift_render_api::RenderDevice::create_mesh),
 //! then streamed/positioned every frame by transform alone — no per-frame
 //! allocation. [`push_box`] is the shared low-level primitive both build on.
 

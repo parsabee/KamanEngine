@@ -7,7 +7,7 @@
 //!
 //! The workers only read and decode (file IO, glTF parse, image decode). The
 //! GPU upload and every handle-table change happen on the host thread inside
-//! `kaman_poll_events` / `kaman_context_flush`, so the context itself is never
+//! `stickshift_poll_events` / `stickshift_context_flush`, so the context itself is never
 //! touched off the host thread.
 
 use std::collections::HashMap;
@@ -17,12 +17,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 
-use kaman_assets::{ImportError, SceneAsset};
-use kaman_math::glam::{Mat4, Vec3};
-use kaman_render_api::{ColorSpace, MeshHandle, PipelineKind, TextureHandle};
+use stickshift_assets::{ImportError, SceneAsset};
+use stickshift_math::glam::{Mat4, Vec3};
+use stickshift_render_api::{ColorSpace, MeshHandle, PipelineKind, TextureHandle};
 
 use crate::backend::Backend;
-use crate::context::KamanContext;
+use crate::context::StickShiftContext;
 use crate::context::{with_context, Inner, OwnedEvent};
 use crate::core::{call, output, utf8, Error};
 use crate::resources::{bytes, validate_mesh, validate_texture};
@@ -48,7 +48,7 @@ pub(crate) struct Part {
 
 pub(crate) struct ModelEntry {
     pub(crate) state: ModelState,
-    completion: Option<KamanCompletion>,
+    completion: Option<StickShiftCompletion>,
     pub(crate) parts: Vec<Part>,
     /// `(part, node world matrix)` for every node that draws a part.
     pub(crate) instances: Vec<(usize, Mat4)>,
@@ -96,7 +96,7 @@ pub(crate) struct Loader {
     threads: Vec<JoinHandle<()>>,
     in_flight: u32,
     /// Borrowed model bytes, by model id, released when their parse is done.
-    borrowed: HashMap<u64, KamanData>,
+    borrowed: HashMap<u64, StickShiftData>,
 }
 
 impl Loader {
@@ -110,7 +110,7 @@ impl Loader {
                 let (jobs, results, cancel) =
                     (Arc::clone(&jobs), result_tx.clone(), Arc::clone(&cancel));
                 std::thread::Builder::new()
-                    .name(format!("kaman-loader-{i}"))
+                    .name(format!("stickshift-loader-{i}"))
                     .spawn(move || worker(&jobs, &results, &cancel))
                     .ok()
             })
@@ -125,7 +125,7 @@ impl Loader {
         }
     }
 
-    fn submit(&mut self, job: Job, borrowed: Option<KamanData>) -> Result<(), Error> {
+    fn submit(&mut self, job: Job, borrowed: Option<StickShiftData>) -> Result<(), Error> {
         let model = job.model;
         let sent = self
             .jobs
@@ -133,7 +133,7 @@ impl Loader {
             .is_some_and(|jobs| !self.threads.is_empty() && jobs.send(job).is_ok());
         if !sent {
             return Err(Error::new(
-                KAMAN_ERROR_INTERNAL,
+                STICKSHIFT_ERROR_INTERNAL,
                 "the model loader threads are not running",
             ));
         }
@@ -152,7 +152,7 @@ impl Loader {
 
     /// Stop the workers (a parse in progress finishes, queued ones are
     /// skipped) and return every borrowed buffer for release.
-    pub(crate) fn shutdown(mut self) -> Vec<KamanData> {
+    pub(crate) fn shutdown(mut self) -> Vec<StickShiftData> {
         self.cancel.store(true, Ordering::SeqCst);
         drop(self.jobs.take());
         for thread in self.threads.drain(..) {
@@ -189,9 +189,9 @@ fn worker(
 
 fn import_error(e: &ImportError) -> Error {
     let code = if e.is_io() {
-        KAMAN_ERROR_IO
+        STICKSHIFT_ERROR_IO
     } else {
-        KAMAN_ERROR_PARSE
+        STICKSHIFT_ERROR_PARSE
     };
     Error::new(code, e.to_string())
 }
@@ -199,12 +199,12 @@ fn import_error(e: &ImportError) -> Error {
 /// Read and decode a model, off the host thread.
 fn parse(source: &Source) -> Result<Parsed, Error> {
     let imported = catch_unwind(AssertUnwindSafe(|| match source {
-        Source::File(path) => kaman_assets::import_gltf(path),
-        Source::Owned(bytes) => kaman_assets::import_slice(bytes),
+        Source::File(path) => stickshift_assets::import_gltf(path),
+        Source::Owned(bytes) => stickshift_assets::import_slice(bytes),
         // SAFETY: see `Source`'s `Send` impl: the bytes stay valid until this
         // job's result has been processed.
         Source::Borrowed { ptr, len } => {
-            kaman_assets::import_slice(unsafe { std::slice::from_raw_parts(*ptr, *len) })
+            stickshift_assets::import_slice(unsafe { std::slice::from_raw_parts(*ptr, *len) })
         }
     }));
     let scene = match imported {
@@ -212,7 +212,7 @@ fn parse(source: &Source) -> Result<Parsed, Error> {
         Ok(Err(e)) => return Err(import_error(&e)),
         Err(_) => {
             return Err(Error::new(
-                KAMAN_ERROR_PARSE,
+                STICKSHIFT_ERROR_PARSE,
                 "malformed glTF: the importer could not process this document",
             ))
         }
@@ -255,7 +255,7 @@ fn upload(backend: &mut dyn Backend, scene: &SceneAsset) -> Result<Vec<Part>, Er
         let part = (|| {
             let kind = PipelineKind::for_layout(&mesh.layout).ok_or_else(|| {
                 Error::new(
-                    KAMAN_ERROR_PARSE,
+                    STICKSHIFT_ERROR_PARSE,
                     "a mesh uses an unsupported vertex layout",
                 )
             })?;
@@ -322,11 +322,11 @@ pub(crate) fn pump(inner: &mut Inner) {
                 entry.parts = parts;
                 entry.instances = parsed.instances;
                 entry.bounds = parsed.bounds;
-                OwnedEvent::new(KAMAN_EVENT_RESOURCE_READY, result.model, 0)
+                OwnedEvent::new(STICKSHIFT_EVENT_RESOURCE_READY, result.model, 0)
             }
             Err(e) => {
                 entry.state = ModelState::Failed;
-                OwnedEvent::failed(KAMAN_EVENT_RESOURCE_FAILED, result.model, 0, &e)
+                OwnedEvent::failed(STICKSHIFT_EVENT_RESOURCE_FAILED, result.model, 0, &e)
             }
         };
         inner.emit(event, completion);
@@ -337,8 +337,8 @@ pub(crate) fn pump(inner: &mut Inner) {
 fn start_load(
     inner: &mut Inner,
     source: Source,
-    borrowed: Option<KamanData>,
-    completion: Option<KamanCompletion>,
+    borrowed: Option<StickShiftData>,
+    completion: Option<StickShiftCompletion>,
 ) -> Result<u64, Error> {
     let id = inner
         .models
@@ -349,7 +349,7 @@ fn start_load(
             instances: Vec::new(),
             bounds: (Vec3::ZERO, Vec3::ZERO),
         })
-        .map_err(|_| Error::new(KAMAN_ERROR_LIMIT_EXCEEDED, "too many live models"))?;
+        .map_err(|_| Error::new(STICKSHIFT_ERROR_LIMIT_EXCEEDED, "too many live models"))?;
     let loader = inner.loader.get_or_insert_with(Loader::new);
     if let Err(e) = loader.submit(Job { model: id, source }, borrowed) {
         inner.models.remove(id);
@@ -376,12 +376,12 @@ pub(crate) fn destroy(inner: &mut Inner, id: u64) -> bool {
 /// `ctx` must be NULL or a live context; `path` NULL or a NUL-terminated
 /// string; `completion` and `out` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_model_load_file(
-    ctx: *mut KamanContext,
+pub unsafe extern "C" fn stickshift_model_load_file(
+    ctx: *mut StickShiftContext,
     path: *const std::ffi::c_char,
-    completion: *const KamanCompletion,
-    out: *mut KamanModel,
-) -> KamanResult {
+    completion: *const StickShiftCompletion,
+    out: *mut StickShiftModel,
+) -> StickShiftResult {
     call(|| {
         let path = PathBuf::from(utf8(path, "path")?);
         let out = output(out, "out")?;
@@ -389,8 +389,8 @@ pub unsafe extern "C" fn kaman_model_load_file(
         let id = with_context(ctx, |inner| {
             start_load(inner, Source::File(path), None, completion)
         })?;
-        *out = KamanModel { id };
-        Ok(KAMAN_OK)
+        *out = StickShiftModel { id };
+        Ok(STICKSHIFT_OK)
     })
 }
 
@@ -399,14 +399,14 @@ pub unsafe extern "C" fn kaman_model_load_file(
 ///
 /// # Safety
 /// `ctx` must be NULL or a live context; `bytes` valid as documented for
-/// `KamanData`; `completion` and `out` NULL or valid.
+/// `StickShiftData`; `completion` and `out` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_model_load_memory(
-    ctx: *mut KamanContext,
-    bytes_in: KamanData,
-    completion: *const KamanCompletion,
-    out: *mut KamanModel,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_model_load_memory(
+    ctx: *mut StickShiftContext,
+    bytes_in: StickShiftData,
+    completion: *const StickShiftCompletion,
+    out: *mut StickShiftModel,
+) -> StickShiftResult {
     call(|| {
         let out = output(out, "out")?;
         let slice = bytes(&bytes_in, "bytes")?;
@@ -423,8 +423,8 @@ pub unsafe extern "C" fn kaman_model_load_memory(
             (Source::Owned(slice.to_vec()), None)
         };
         let id = with_context(ctx, |inner| start_load(inner, source, borrowed, completion))?;
-        *out = KamanModel { id };
-        Ok(KAMAN_OK)
+        *out = StickShiftModel { id };
+        Ok(STICKSHIFT_OK)
     })
 }
 
@@ -434,14 +434,14 @@ pub unsafe extern "C" fn kaman_model_load_memory(
 /// # Safety
 /// `ctx` must be NULL or a live context.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_model_destroy(
-    ctx: *mut KamanContext,
-    model: KamanModel,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_model_destroy(
+    ctx: *mut StickShiftContext,
+    model: StickShiftModel,
+) -> StickShiftResult {
     call(|| {
         with_context(ctx, |inner| {
             if destroy(inner, model.id) {
-                Ok(KAMAN_OK)
+                Ok(STICKSHIFT_OK)
             } else {
                 Err(Error::invalid_handle("model"))
             }
@@ -449,17 +449,17 @@ pub unsafe extern "C" fn kaman_model_destroy(
     })
 }
 
-/// The model's bounding box in model space. `KAMAN_NOT_READY` until it loads.
+/// The model's bounding box in model space. `STICKSHIFT_NOT_READY` until it loads.
 ///
 /// # Safety
 /// `ctx` must be NULL or a live context; `min` and `max` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_model_get_bounds(
-    ctx: *mut KamanContext,
-    model: KamanModel,
-    min: *mut KamanVec3,
-    max: *mut KamanVec3,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_model_get_bounds(
+    ctx: *mut StickShiftContext,
+    model: StickShiftModel,
+    min: *mut StickShiftVec3,
+    max: *mut StickShiftVec3,
+) -> StickShiftResult {
     call(|| {
         let min = output(min, "min")?;
         let max = output(max, "max")?;
@@ -469,11 +469,11 @@ pub unsafe extern "C" fn kaman_model_get_bounds(
                 .get(model.id)
                 .ok_or_else(|| Error::invalid_handle("model"))?;
             if entry.state != ModelState::Ready {
-                return Ok(KAMAN_NOT_READY);
+                return Ok(STICKSHIFT_NOT_READY);
             }
             *min = entry.bounds.0.into();
             *max = entry.bounds.1.into();
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }

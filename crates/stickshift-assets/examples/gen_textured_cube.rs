@@ -4,7 +4,7 @@
 //
 //! One-shot generator for a committed **textured** `cube.gltf` fixture.
 //!
-//! Run with `cargo run -p kaman-assets --example gen_textured_cube -- <out_path>`.
+//! Run with `cargo run -p stickshift-assets --example gen_textured_cube -- <out_path>`.
 //! It emits a self-contained glTF 2.0 file: a unit cube with per-face normals and
 //! UVs, plus a material whose base-color texture is a small embedded checkerboard
 //! **PNG** (a `data:` URI, so the repo carries no separate binary blob). The
@@ -188,7 +188,7 @@ fn main() {
     write!(
         json,
         r#"{{
-  "asset": {{ "version": "2.0", "generator": "KamanEngine textured cube fixture" }},
+  "asset": {{ "version": "2.0", "generator": "Stick Shift Engine textured cube fixture" }},
   "scene": 0,
   "scenes": [{{ "name": "cube_scene", "nodes": [0] }}],
   "nodes": [{{ "name": "cube", "mesh": 0 }}],

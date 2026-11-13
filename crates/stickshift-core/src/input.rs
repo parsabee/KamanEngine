@@ -106,7 +106,7 @@ pub enum MouseButton {
 /// # Example
 ///
 /// ```rust
-/// use kaman_core::input::{InputState, Key};
+/// use stickshift_core::input::{InputState, Key};
 ///
 /// let mut input = InputState::new();
 /// input.press_key(Key::W);

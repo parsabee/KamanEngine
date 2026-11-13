@@ -11,7 +11,7 @@
 //! the **skyline band** out of that photo (dropping the foreground trees, road and
 //! water), downscales it, and bakes it into a self-contained glTF 2.0 file
 //! (`assets/skyline.gltf`) whose mesh is a single **vertical billboard quad**. The
-//! demo imports it through `kaman-assets`, uploads the texture once, and draws it
+//! demo imports it through `stickshift-assets`, uploads the texture once, and draws it
 //! as a far billboard locked to the camera's XZ so it reads as a distant skyline.
 //! The photo's tops already dissolve into haze, which blends into the
 //! engine's distance fog + gradient sky.
@@ -259,7 +259,7 @@ fn main() {
     write!(
         json,
         r#"{{
-  "asset": {{ "version": "2.0", "generator": "KamanEngine skyline backdrop generator" }},
+  "asset": {{ "version": "2.0", "generator": "Stick Shift Engine skyline backdrop generator" }},
   "scene": 0,
   "scenes": [{{ "name": "skyline_scene", "nodes": [0] }}],
   "nodes": [{{ "name": "skyline", "mesh": 0 }}],

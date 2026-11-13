@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use kaman_render_api::{MeshData, MeshHandle, RenderDevice};
+use stickshift_render_api::{MeshData, MeshHandle, RenderDevice};
 
 use crate::error::ImportError;
 use crate::import::import_gltf;

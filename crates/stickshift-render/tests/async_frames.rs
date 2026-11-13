@@ -12,8 +12,8 @@
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use kaman_render::{FrameSkip, MetalRenderer};
-use kaman_render_api::{FrameRecorder, OverlayQuad};
+use stickshift_render::{FrameSkip, MetalRenderer};
+use stickshift_render_api::{FrameRecorder, OverlayQuad};
 
 mod common;
 
@@ -80,7 +80,7 @@ fn the_non_blocking_path_never_blocks_and_every_frame_completes() {
                 Err(FrameSkip::FramesInFlight) => skipped += 1,
                 Err(other) => panic!("unexpected skip {other:?}"),
             }
-            assert!(r.frames_in_flight() <= kaman_render::backend::MAX_FRAMES_IN_FLIGHT);
+            assert!(r.frames_in_flight() <= stickshift_render::backend::MAX_FRAMES_IN_FLIGHT);
         }
         assert!(
             wait_until(|| r.completed_frame_count() == r.submitted_frame_count()),

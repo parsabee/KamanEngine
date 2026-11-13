@@ -18,7 +18,7 @@
 //! # Blessing the baseline
 //!
 //! ```text
-//! BLESS=1 cargo test -p kaman-render --test textured_pixel_hash -- --nocapture
+//! BLESS=1 cargo test -p stickshift-render --test textured_pixel_hash -- --nocapture
 //! ```
 //!
 //! prints the new hash and passes without asserting.
@@ -28,11 +28,11 @@
 //! Skips (prints a line, returns) when no Metal device is available, so a
 //! GPU-less runner never fails this test. It runs and asserts on a real Mac.
 
-use kaman_camera::Camera;
-use kaman_math::glam::Vec3;
-use kaman_math::Transform;
-use kaman_render::MetalRenderer;
-use kaman_render_api::{
+use stickshift_camera::Camera;
+use stickshift_math::glam::Vec3;
+use stickshift_math::Transform;
+use stickshift_render::MetalRenderer;
+use stickshift_render_api::{
     ColorSpace, FrameRecorder, MaterialParams, MeshData, OverlayFill, OverlayQuad,
     PipelineDescriptor, PipelineKind, RenderDevice, TextureData, VertexAttribute, VertexFormat,
     VertexLayout,
@@ -59,7 +59,7 @@ const HEIGHT: u32 = 64;
 /// — but the pixel bytes shift, so the hash MUST be re-blessed:
 ///
 /// ```text
-/// BLESS=1 cargo test -p kaman-render --test textured_pixel_hash -- --nocapture
+/// BLESS=1 cargo test -p stickshift-render --test textured_pixel_hash -- --nocapture
 /// ```
 // re-blessed. Was 0x2bb6c070d635c975; the modern-look stack
 // (linear+ACES tonemap+sRGB, sky, fog, shadow, 4x MSAA) intentionally changes the
@@ -247,7 +247,7 @@ fn textured_quad_is_non_uniform_and_matches_committed_hash() {
     assert_eq!(
         hash, REFERENCE_HASH,
         "textured-quad pixel hash changed ({hash:#018x} != {REFERENCE_HASH:#018x}). \
-         Re-bless with `BLESS=1 cargo test -p kaman-render --test textured_pixel_hash` \
+         Re-bless with `BLESS=1 cargo test -p stickshift-render --test textured_pixel_hash` \
          and update REFERENCE_HASH with a justification note."
     );
 }

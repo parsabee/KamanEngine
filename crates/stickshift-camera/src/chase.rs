@@ -31,7 +31,7 @@
 //! smoothing (the camera jumps straight to the desired pose); `1.0` also snaps.
 //! Values in between trail the target with an exponential ease.
 
-use kaman_math::glam::Vec3;
+use stickshift_math::glam::Vec3;
 
 use crate::camera::Camera;
 
@@ -64,7 +64,7 @@ impl ChaseController {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_camera::ChaseController;
+    /// use stickshift_camera::ChaseController;
     ///
     /// let chase = ChaseController::new(8.0, 4.0);
     /// ```
@@ -130,8 +130,8 @@ impl ChaseController {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_camera::{Camera, ChaseController};
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_camera::{Camera, ChaseController};
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
     /// let chase = ChaseController::new(8.0, 4.0);

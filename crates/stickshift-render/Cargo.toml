@@ -1,6 +1,6 @@
 [package]
-name = "kaman-render"
-description = "Raw-Metal implementation of the kaman-render-api seam for KamanEngine."
+name = "stickshift-render"
+description = "Raw-Metal implementation of the stickshift-render-api seam for Stick Shift Engine."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -35,8 +35,8 @@ precompiled-shaders = []
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(cargo_clippy)'] }
 
 [dependencies]
-kaman-math.workspace = true
-kaman-render-api.workspace = true
+stickshift-math.workspace = true
+stickshift-render-api.workspace = true
 metal.workspace = true
 block.workspace = true
 objc.workspace = true
@@ -47,5 +47,5 @@ raw-window-handle.workspace = true
 [dev-dependencies]
 # Tests build a real Camera to produce the view-projection they push through the
 # seam (`set_view_projection`). The backend itself owns no camera and never
-# depends on kaman-camera.
-kaman-camera.workspace = true
+# depends on stickshift-camera.
+stickshift-camera.workspace = true

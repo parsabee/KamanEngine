@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Entity Component System (ECS) components and tags for KamanEngine.
+//! Entity Component System (ECS) components and tags for Stick Shift Engine.
 //!
 //! This crate is the stable component vocabulary that the `Game` trait
 //! and any other engine consumer bind against. It defines the
@@ -26,9 +26,9 @@
 //! # Example
 //!
 //! ```rust
-//! use kaman_ecs::{TransformComponent, RenderComponent, DynamicTag};
-//! use kaman_ecs::hecs::World;
-//! use kaman_math::glam::Vec3;
+//! use stickshift_ecs::{TransformComponent, RenderComponent, DynamicTag};
+//! use stickshift_ecs::hecs::World;
+//! use stickshift_math::glam::Vec3;
 //!
 //! let mut world = World::new();
 //! let entity = world.spawn((
@@ -41,14 +41,14 @@
 
 #![deny(missing_docs)]
 
-use kaman_math::glam::Vec3;
-use kaman_math::Transform;
 use rapier3d::prelude::RigidBodyHandle;
+use stickshift_math::glam::Vec3;
+use stickshift_math::Transform;
 
 /// Re-export of the [`hecs`] entity-component-system crate.
 ///
 /// Downstream crates should reach `hecs` types (e.g. `World`, `Entity`) through
-/// this path (`kaman_ecs::hecs::World`) so the whole workspace shares one pinned
+/// this path (`stickshift_ecs::hecs::World`) so the whole workspace shares one pinned
 /// version.
 pub use hecs;
 
@@ -61,8 +61,8 @@ pub use hecs;
 /// # Example
 ///
 /// ```rust
-/// use kaman_ecs::TransformComponent;
-/// use kaman_math::glam::Vec3;
+/// use stickshift_ecs::TransformComponent;
+/// use stickshift_math::glam::Vec3;
 ///
 /// let transform_comp = TransformComponent::from_position(Vec3::new(1.0, 2.0, 3.0));
 /// assert_eq!(transform_comp.transform.position, Vec3::new(1.0, 2.0, 3.0));
@@ -94,8 +94,8 @@ impl TransformComponent {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_ecs::TransformComponent;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_ecs::TransformComponent;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let transform = TransformComponent::from_position(Vec3::new(5.0, 0.0, -3.0));
     /// assert_eq!(transform.transform.position, Vec3::new(5.0, 0.0, -3.0));
@@ -120,12 +120,12 @@ impl TransformComponent {
 /// body lives in the physics world; this component is a non-owning reference.
 /// Callers are responsible for keeping the handle and the physics world in sync:
 /// a handle whose body has been removed from the set is dangling and must not be
-/// dereferenced. (Handle-removal safety lives in `kaman-physics` and `kaman-scene`.)
+/// dereferenced. (Handle-removal safety lives in `stickshift-physics` and `stickshift-scene`.)
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use kaman_ecs::PhysicsBodyComponent;
+/// use stickshift_ecs::PhysicsBodyComponent;
 /// use rapier3d::prelude::RigidBodyHandle;
 ///
 /// let handle = RigidBodyHandle::from_raw_parts(0, 1);
@@ -158,7 +158,7 @@ impl PhysicsBodyComponent {
 /// # Example
 ///
 /// ```rust
-/// use kaman_ecs::RenderComponent;
+/// use stickshift_ecs::RenderComponent;
 ///
 /// let red_cube = RenderComponent::cube([1.0, 0.0, 0.0]);
 /// let blue_sphere = RenderComponent::sphere([0.0, 0.0, 1.0]);
@@ -191,7 +191,7 @@ impl RenderComponent {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_ecs::RenderComponent;
+    /// use stickshift_ecs::RenderComponent;
     ///
     /// let red_cube = RenderComponent::cube([1.0, 0.0, 0.0]);
     /// ```
@@ -213,7 +213,7 @@ impl RenderComponent {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_ecs::RenderComponent;
+    /// use stickshift_ecs::RenderComponent;
     ///
     /// let green_sphere = RenderComponent::sphere([0.0, 1.0, 0.0]);
     /// ```
@@ -236,7 +236,7 @@ impl RenderComponent {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use kaman_ecs::RenderComponent;
+    /// use stickshift_ecs::RenderComponent;
     ///
     /// // Create a simple triangle
     /// let vertices = vec![
@@ -427,9 +427,9 @@ impl RenderShape {
 /// # Example
 ///
 /// ```rust
-/// use kaman_ecs::{TransformComponent, RenderComponent, StaticTag};
-/// use kaman_ecs::hecs::World;
-/// use kaman_math::glam::Vec3;
+/// use stickshift_ecs::{TransformComponent, RenderComponent, StaticTag};
+/// use stickshift_ecs::hecs::World;
+/// use stickshift_math::glam::Vec3;
 ///
 /// let mut world = World::new();
 /// world.spawn((
@@ -449,9 +449,9 @@ pub struct StaticTag;
 /// # Example
 ///
 /// ```rust,no_run
-/// use kaman_ecs::{TransformComponent, RenderComponent, PhysicsBodyComponent, DynamicTag};
-/// use kaman_ecs::hecs::World;
-/// use kaman_math::glam::Vec3;
+/// use stickshift_ecs::{TransformComponent, RenderComponent, PhysicsBodyComponent, DynamicTag};
+/// use stickshift_ecs::hecs::World;
+/// use stickshift_math::glam::Vec3;
 /// use rapier3d::prelude::RigidBodyHandle;
 ///
 /// let mut world = World::new();
@@ -470,7 +470,7 @@ pub struct DynamicTag;
 mod tests {
     use super::*;
     use hecs::World;
-    use kaman_math::glam::Vec3;
+    use stickshift_math::glam::Vec3;
 
     #[test]
     fn test_create_entity_with_components() {
@@ -748,7 +748,7 @@ mod tests {
                 assert_ne!(
                     &lower, bad,
                     "game-specific identifier `{token}` found in lib.rs: \
-                     kaman-ecs must stay engine-generic (engine/game boundary)",
+                     stickshift-ecs must stay engine-generic (engine/game boundary)",
                 );
             }
         }

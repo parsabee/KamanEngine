@@ -7,8 +7,8 @@
 
 use std::ffi::c_void;
 
-use kaman_render::{MetalRenderer, Readback, RenderError};
-use kaman_render_api::{
+use stickshift_render::{MetalRenderer, Readback, RenderError};
+use stickshift_render_api::{
     ColorSpace, FrameRecorder, MaterialParams, MeshData, MeshHandle, PipelineDescriptor,
     PipelineHandle, PipelineKind, RenderDevice, RenderSettings, TextureData, TextureHandle,
 };
@@ -20,10 +20,12 @@ use crate::types::*;
 /// Map a backend error onto a result code.
 fn error(e: RenderError) -> Error {
     let code = match &e {
-        RenderError::NoDevice => KAMAN_ERROR_NO_DEVICE,
-        RenderError::LimitExceeded(_) => KAMAN_ERROR_LIMIT_EXCEEDED,
-        RenderError::ShaderCompile(_) | RenderError::PipelineCreation(_) => KAMAN_ERROR_INTERNAL,
-        _ => KAMAN_ERROR_INVALID_ARGUMENT,
+        RenderError::NoDevice => STICKSHIFT_ERROR_NO_DEVICE,
+        RenderError::LimitExceeded(_) => STICKSHIFT_ERROR_LIMIT_EXCEEDED,
+        RenderError::ShaderCompile(_) | RenderError::PipelineCreation(_) => {
+            STICKSHIFT_ERROR_INTERNAL
+        }
+        _ => STICKSHIFT_ERROR_INVALID_ARGUMENT,
     };
     Error::new(code, e.to_string())
 }

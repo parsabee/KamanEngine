@@ -1,6 +1,6 @@
 [package]
-name = "kaman-perf"
-description = "Profiling and frame-timing instrumentation for KamanEngine."
+name = "stickshift-perf"
+description = "Profiling and frame-timing instrumentation for Stick Shift Engine."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

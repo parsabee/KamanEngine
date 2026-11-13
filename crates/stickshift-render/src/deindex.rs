@@ -5,7 +5,7 @@
 //! Expanding an indexed mesh into the flat vertex stream the backend draws.
 //!
 //! The backend draws non-indexed triangles, so
-//! [`create_mesh`](kaman_render_api::RenderDevice::create_mesh) copies one
+//! [`create_mesh`](stickshift_render_api::RenderDevice::create_mesh) copies one
 //! vertex record per index. This module holds that expansion as a pure function,
 //! kept apart from the Metal code so its edge cases can be tested on their own.
 

@@ -14,7 +14,7 @@ use std::io::Write;
 ///
 /// The notice goes straight to the stderr handle, past the test harness's output
 /// capture, so a plain `cargo test` shows which tests did not run. With
-/// `KAMAN_REQUIRE_GPU=1` (CI sets it) a missing device **fails** the test
+/// `STICKSHIFT_REQUIRE_GPU=1` (CI sets it) a missing device **fails** the test
 /// instead: a runner that lost its GPU must not turn the render suite green with
 /// nothing checked.
 pub fn no_gpu() {
@@ -23,12 +23,12 @@ pub fn no_gpu() {
         .unwrap_or("a GPU test")
         .to_owned();
     assert!(
-        !env_flag("KAMAN_REQUIRE_GPU"),
-        "{test}: no Metal device, and KAMAN_REQUIRE_GPU is set"
+        !env_flag("STICKSHIFT_REQUIRE_GPU"),
+        "{test}: no Metal device, and STICKSHIFT_REQUIRE_GPU is set"
     );
     let _ = writeln!(
         std::io::stderr(),
-        "SKIPPED {test}: no Metal device (set KAMAN_REQUIRE_GPU=1 to fail instead)"
+        "SKIPPED {test}: no Metal device (set STICKSHIFT_REQUIRE_GPU=1 to fail instead)"
     );
 }
 

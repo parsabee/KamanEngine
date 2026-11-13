@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Asset loading: import glTF models/textures once through `kaman-assets` and
+//! Asset loading: import glTF models/textures once through `stickshift-assets` and
 //! fit them to the road.
 //!
 //! Every model the demo draws (the player car, the traffic cars, the roadside
@@ -16,11 +16,11 @@
 //! bounds into a placement transform, and the small helpers the render pass
 //! ([`crate::render`]) uses to compose and pick among loaded parts.
 
-use kaman_assets::AssetCache;
-use kaman_core::Renderer;
-use kaman_math::glam::{Mat4, Quat, Vec3};
-use kaman_math::Transform;
-use kaman_render_api::{ColorSpace, MeshHandle, TextureData, TextureHandle, VertexLayout};
+use stickshift_assets::AssetCache;
+use stickshift_core::Renderer;
+use stickshift_math::glam::{Mat4, Quat, Vec3};
+use stickshift_math::Transform;
+use stickshift_render_api::{ColorSpace, MeshHandle, TextureData, TextureHandle, VertexLayout};
 
 use crate::config::{BUILDING_FOOTPRINT, CAR_BOTTOM, CAR_LEN, CAR_YAW};
 
@@ -43,7 +43,7 @@ pub(crate) fn load_model(
     cache: &mut AssetCache,
     renderer: &mut dyn Renderer,
     path: &str,
-    fit: fn(&kaman_assets::SceneAsset) -> Transform,
+    fit: fn(&stickshift_assets::SceneAsset) -> Transform,
 ) -> Vec<CarPart> {
     let asset = cache
         .load(renderer, path)
@@ -81,7 +81,7 @@ pub(crate) fn load_model(
 /// tall/short character), centered in `X`/`Z`, with its **underside at the model
 /// origin** so the spawn transform drops the base onto the ground plane. No
 /// rotation — buildings keep their authored upright orientation.
-pub(crate) fn building_fit(scene: &kaman_assets::SceneAsset) -> Transform {
+pub(crate) fn building_fit(scene: &stickshift_assets::SceneAsset) -> Transform {
     let mut min = Vec3::splat(f32::INFINITY);
     let mut max = Vec3::splat(f32::NEG_INFINITY);
     for (_, node) in scene.mesh_nodes() {
@@ -111,7 +111,7 @@ pub(crate) fn building_fit(scene: &kaman_assets::SceneAsset) -> Transform {
 /// it faces the travel direction, and a translation centering it in `X`/`Z` with
 /// its underside at [`CAR_BOTTOM`]. Robust to any model's authored scale /
 /// orientation, since it works from the baked world-space bounds of the geometry.
-pub(crate) fn fit_transform(scene: &kaman_assets::SceneAsset) -> Transform {
+pub(crate) fn fit_transform(scene: &stickshift_assets::SceneAsset) -> Transform {
     // World-space AABB over every mesh-node's baked vertices.
     let mut min = Vec3::splat(f32::INFINITY);
     let mut max = Vec3::splat(f32::NEG_INFINITY);
@@ -190,5 +190,5 @@ pub(crate) fn pick_model(models: &[Vec<CarPart>], i: usize) -> &[CarPart] {
 /// The untextured `[pos,normal,color]` layout (36-byte stride) every procedural
 /// mesh uses — the same layout the untextured Phong pipeline binds.
 pub(crate) fn color_layout() -> VertexLayout {
-    kaman_assets::render_vertex_layout()
+    stickshift_assets::render_vertex_layout()
 }

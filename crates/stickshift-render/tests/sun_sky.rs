@@ -22,10 +22,10 @@
 //! Like the other backend tests these **skip** when no Metal device is available
 //! (GPU-less CI) and run + assert on a real Mac.
 
-use kaman_math::glam::Vec3;
-use kaman_render::backend::MAX_FRAMES_IN_FLIGHT;
-use kaman_render::MetalRenderer;
-use kaman_render_api::{FrameRecorder, SunSky};
+use stickshift_math::glam::Vec3;
+use stickshift_render::backend::MAX_FRAMES_IN_FLIGHT;
+use stickshift_render::MetalRenderer;
+use stickshift_render_api::{FrameRecorder, SunSky};
 
 mod common;
 
@@ -146,8 +146,8 @@ fn light_upload_rotates_one_slot_per_in_flight_frame() {
 
 #[test]
 fn shadow_distance_follows_the_draw_distance_unless_overridden() {
-    use kaman_math::glam::Mat4;
-    use kaman_render::shadow::{shadow_distance_for_fog, MIN_SHADOW_DISTANCE};
+    use stickshift_math::glam::Mat4;
+    use stickshift_render::shadow::{shadow_distance_for_fog, MIN_SHADOW_DISTANCE};
 
     let Some(mut r) = MetalRenderer::new_offscreen(WIDTH, HEIGHT) else {
         common::no_gpu();

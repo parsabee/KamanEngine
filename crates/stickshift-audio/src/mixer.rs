@@ -85,7 +85,7 @@ struct Device {
 ///
 /// Because silence is a behaviour and not an absence, it has to be *provable*.
 /// `Audio` therefore records what it was asked to do, the way
-/// `kaman-render-api`'s `NullRenderer` records draws:
+/// `stickshift-render-api`'s `NullRenderer` records draws:
 /// [`is_silent`](Self::is_silent), [`looping`](Self::looping),
 /// [`loop_starts`](Self::loop_starts), [`one_shots_played`](Self::one_shots_played),
 /// [`one_shots_of`](Self::one_shots_of), [`sound_count`](Self::sound_count),
@@ -135,7 +135,7 @@ impl Audio {
             // The whole point of the fallback: no device is a perfectly ordinary
             // state (CI, a remote shell), not an error the game should handle.
             Err(error) => {
-                eprintln!("kaman-audio: no audio output device ({error}); running silent");
+                eprintln!("stickshift-audio: no audio output device ({error}); running silent");
                 Output::Silent
             }
         };
@@ -206,7 +206,7 @@ impl Audio {
                 }
                 Err(error) => {
                     eprintln!(
-                        "kaman-audio: could not load {} ({error}); this sound will be silent",
+                        "stickshift-audio: could not load {} ({error}); this sound will be silent",
                         key.display()
                     );
                     None
@@ -249,7 +249,7 @@ impl Audio {
         // one-shot copies no audio.
         let shot = data.volume(Decibels(volume.0));
         if let Err(error) = device.manager.play(shot) {
-            eprintln!("kaman-audio: could not play a sound ({error})");
+            eprintln!("stickshift-audio: could not play a sound ({error})");
         }
     }
 
@@ -295,7 +295,7 @@ impl Audio {
                 self.looping = Some(sound);
                 self.loop_starts += 1;
             }
-            Err(error) => eprintln!("kaman-audio: could not start a looping sound ({error})"),
+            Err(error) => eprintln!("stickshift-audio: could not start a looping sound ({error})"),
         }
     }
 
@@ -416,9 +416,9 @@ mod tests {
 
     /// A path that does not exist. Silent mode never opens it (nothing is
     /// decoded), which is what lets these tests run anywhere.
-    const A: &str = "/kaman-audio/tests/does-not-exist-a.wav";
+    const A: &str = "/stickshift-audio/tests/does-not-exist-a.wav";
     /// A second such path.
-    const B: &str = "/kaman-audio/tests/does-not-exist-b.wav";
+    const B: &str = "/stickshift-audio/tests/does-not-exist-b.wav";
 
     #[test]
     fn silent_mode_accepts_everything_and_decodes_nothing() {

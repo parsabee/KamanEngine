@@ -1,5 +1,5 @@
 {
-  "asset": { "version": "2.0", "generator": "KamanEngine skyline backdrop generator" },
+  "asset": { "version": "2.0", "generator": "Stick Shift Engine skyline backdrop generator" },
   "scene": 0,
   "scenes": [{ "name": "skyline_scene", "nodes": [0] }],
   "nodes": [{ "name": "skyline", "mesh": 0 }],

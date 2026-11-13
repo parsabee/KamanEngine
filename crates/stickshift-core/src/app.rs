@@ -15,13 +15,13 @@
 //! single `render`; per-frame drawing goes through the backend the game binary
 //! supplies via a **backend factory**.
 //!
-//! # The backend seam (metal stays out of `kaman-core`)
+//! # The backend seam (metal stays out of `stickshift-core`)
 //!
-//! `kaman-core` must never depend on `metal` or on the concrete `kaman-render`
+//! `stickshift-core` must never depend on `metal` or on the concrete `stickshift-render`
 //! crate (ARCHITECTURE §2, enforced by CI). So the windowed entry does not
 //! construct a backend itself: [`run_with_backend`] takes a **factory** (a
 //! `FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`) that the *game binary*
-//! (which does depend on `kaman-render`) provides. The factory is invoked once
+//! (which does depend on `stickshift-render`) provides. The factory is invoked once
 //! in `resumed`, right after the window is created, and
 //! the returned `Box<dyn Renderer>` drives every frame through the seam. The
 //! headless driver and the plain [`run`] entry keep the GPU-free
@@ -30,8 +30,8 @@
 //! # Audio
 //!
 //! This is also the only entry that opens an **audio output device**: it replaces
-//! the loop's silent [`Audio`](kaman_audio::Audio) layer with
-//! [`Audio::with_output_device`](kaman_audio::Audio::with_output_device) at
+//! the loop's silent [`Audio`](stickshift_audio::Audio) layer with
+//! [`Audio::with_output_device`](stickshift_audio::Audio::with_output_device) at
 //! startup. The headless driver keeps the silent layer, so tests and `--smoke`
 //! never touch audio hardware; and since the device-bound constructor falls back
 //! to silence when there is no output, even this path cannot fail on that account.
@@ -70,7 +70,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
-use kaman_render_api::NullRenderer;
+use stickshift_render_api::NullRenderer;
 
 use crate::context::Renderer;
 use crate::driver::{drive_frame, Loop};
@@ -83,11 +83,11 @@ use crate::settings_menu::MenuCommand;
 ///
 /// The engine calls this once, in `resumed`, after the
 /// window exists, passing the window plus its pixel size. The game binary (the
-/// only place that depends on `kaman-render`) returns a boxed
+/// only place that depends on `stickshift-render`) returns a boxed
 /// [`Renderer`] — a type that is both a
-/// [`RenderDevice`](kaman_render_api::RenderDevice) and a
-/// [`FrameRecorder`](kaman_render_api::FrameRecorder). This is the single seam
-/// that keeps `metal` out of `kaman-core`'s dependency tree while still letting
+/// [`RenderDevice`](stickshift_render_api::RenderDevice) and a
+/// [`FrameRecorder`](stickshift_render_api::FrameRecorder). This is the single seam
+/// that keeps `metal` out of `stickshift-core`'s dependency tree while still letting
 /// the windowed loop drive a real GPU backend.
 pub type BackendFactory<'f> = Box<dyn FnOnce(&Window, u32, u32) -> Box<dyn Renderer> + 'f>;
 
@@ -106,7 +106,7 @@ pub type BackendFactory<'f> = Box<dyn FnOnce(&Window, u32, u32) -> Box<dyn Rende
 /// # Example
 ///
 /// ```no_run
-/// use kaman_core::{Game, EngineCtx, run};
+/// use stickshift_core::{Game, EngineCtx, run};
 ///
 /// struct MyGame;
 /// impl Game for MyGame {
@@ -126,7 +126,7 @@ pub fn run<G: Game>(game: &mut G) {
 /// Identical to [`run`] except that the engine calls `factory` once after the
 /// window is created and drives every frame through the returned
 /// `Box<dyn Renderer>` — the real GPU present path. The factory is the seam that
-/// lets the game binary inject a `metal` backend without `kaman-core` depending
+/// lets the game binary inject a `metal` backend without `stickshift-core` depending
 /// on `metal`.
 ///
 /// # Panics
@@ -136,8 +136,8 @@ pub fn run<G: Game>(game: &mut G) {
 /// # Example
 ///
 /// ```no_run
-/// use kaman_core::{Game, EngineCtx, run_with_backend, Renderer};
-/// use kaman_render_api::NullRenderer;
+/// use stickshift_core::{Game, EngineCtx, run_with_backend, Renderer};
+/// use stickshift_render_api::NullRenderer;
 ///
 /// struct MyGame;
 /// impl Game for MyGame {
@@ -165,7 +165,7 @@ pub fn run_with_backend<G: Game>(game: &mut G, factory: BackendFactory<'_>) {
 /// [`EngineCtx::set_graphics_settings`](crate::EngineCtx::set_graphics_settings):
 ///
 /// ```no_run
-/// use kaman_core::{run_with_config, EngineCtx, Game, RunConfig};
+/// use stickshift_core::{run_with_config, EngineCtx, Game, RunConfig};
 ///
 /// struct MyGame;
 /// impl Game for MyGame {
@@ -238,7 +238,7 @@ pub(crate) enum EngineEvent {
 }
 
 /// Window title used by the windowed entry.
-const WINDOW_TITLE: &str = "KamanEngine";
+const WINDOW_TITLE: &str = "Stick Shift Engine";
 /// Initial window width in logical pixels.
 const WINDOW_WIDTH: u32 = 800;
 /// Initial window height in logical pixels.
@@ -246,7 +246,7 @@ const WINDOW_HEIGHT: u32 = 600;
 
 /// The `winit` [`ApplicationHandler`] that owns engine state and drives the game.
 ///
-/// Holds the shared [`Loop`] (ECS [`World`](kaman_ecs::hecs::World), input, perf,
+/// Holds the shared [`Loop`] (ECS [`World`](stickshift_ecs::hecs::World), input, perf,
 /// and the fixed-timestep [`Accumulator`](crate::timestep::Accumulator)) exactly
 /// like [`Headless`](crate::headless::Headless) does, plus the window, the render
 /// seam, and the game reference. The render seam is a `Box<dyn Renderer>`: a
@@ -287,7 +287,7 @@ impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
         // still runs, just quietly. Audio is intentionally *not* deferred to
         // `resumed` like the render backend is — it needs no window.
         let mut lp = Loop::new();
-        lp.audio = kaman_audio::Audio::with_output_device();
+        lp.audio = stickshift_audio::Audio::with_output_device();
 
         // Restore last launch's graphics settings. Queued, so they take
         // effect before `Game::init` (see `Loop::init_once`).
@@ -621,8 +621,8 @@ mod tests {
     /// display). A `NullRenderer` stands in for a real GPU backend.
     #[test]
     fn backend_factory_yields_a_usable_renderer() {
-        use kaman_math::Transform;
-        use kaman_render_api::{MaterialParams, NullRenderer};
+        use stickshift_math::Transform;
+        use stickshift_render_api::{MaterialParams, NullRenderer};
 
         // A factory shaped exactly like the windowed entry expects. We can't
         // pass a real `&Window` here, so call the closure's body directly with
@@ -630,16 +630,16 @@ mod tests {
         let make: fn() -> Box<dyn Renderer> = || Box::new(NullRenderer::new());
         let mut renderer = make();
 
-        let layout = kaman_render_api::PipelineKind::VertexColor.vertex_layout();
+        let layout = stickshift_render_api::PipelineKind::VertexColor.vertex_layout();
         let vertices = vec![0u8; 3 * layout.stride as usize];
-        let mesh = renderer.create_mesh(&kaman_render_api::MeshData {
+        let mesh = renderer.create_mesh(&stickshift_render_api::MeshData {
             vertices: &vertices,
             indices: &[0, 1, 2],
             layout,
         });
         renderer.begin_frame();
-        let pipeline = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor::new(
-            kaman_render_api::PipelineKind::VertexColor,
+        let pipeline = renderer.create_pipeline(&stickshift_render_api::PipelineDescriptor::new(
+            stickshift_render_api::PipelineKind::VertexColor,
         ));
         renderer.set_pipeline(pipeline);
         renderer.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());

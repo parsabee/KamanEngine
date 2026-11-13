@@ -4,7 +4,7 @@
 //
 //! One-shot generator for the committed `cube.gltf` test/runtime fixture.
 //!
-//! Run with `cargo run -p kaman-assets --example gen_cube -- <out_path>`. It emits
+//! Run with `cargo run -p stickshift-assets --example gen_cube -- <out_path>`. It emits
 //! a self-contained glTF 2.0 file (embedded base64 buffer) for a unit cube with
 //! per-face normals, so the repo carries no binary blob and the fixture is fully
 //! reproducible. Kept as an example (not a build step) so normal builds never run
@@ -146,7 +146,7 @@ fn main() {
     write!(
         json,
         r#"{{
-  "asset": {{ "version": "2.0", "generator": "KamanEngine cube fixture" }},
+  "asset": {{ "version": "2.0", "generator": "Stick Shift Engine cube fixture" }},
   "scene": 0,
   "scenes": [{{ "name": "cube_scene", "nodes": [0] }}],
   "nodes": [{{ "name": "cube", "mesh": 0 }}],

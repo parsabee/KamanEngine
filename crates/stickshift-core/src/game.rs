@@ -15,7 +15,7 @@
 use crate::context::EngineCtx;
 use crate::graphics::GraphicsSettings;
 
-/// A KamanEngine game: implement this to be driven by the engine loop.
+/// A Stick Shift Engine game: implement this to be driven by the engine loop.
 ///
 /// The engine calls the three hooks in a fixed order (see below). All engine
 /// access flows through the [`EngineCtx`] argument — a game never touches a
@@ -59,12 +59,12 @@ use crate::graphics::GraphicsSettings;
 /// A minimal game that spawns one entity in `init` and nudges it every frame:
 ///
 /// ```rust
-/// use kaman_core::{Game, EngineCtx, headless};
-/// use kaman_ecs::TransformComponent;
-/// use kaman_math::glam::Vec3;
+/// use stickshift_core::{Game, EngineCtx, headless};
+/// use stickshift_ecs::TransformComponent;
+/// use stickshift_math::glam::Vec3;
 ///
 /// struct MyGame {
-///     entity: Option<kaman_ecs::hecs::Entity>,
+///     entity: Option<stickshift_ecs::hecs::Entity>,
 /// }
 ///
 /// impl Game for MyGame {

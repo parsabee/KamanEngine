@@ -31,14 +31,14 @@
 //! resolution the Graphics menu offers. At 100% on Retina the text is
 //! drawn with twice the pixels, not at half the size.
 //!
-//! [surface_size]: kaman_render_api::RenderDevice::surface_size
-//! [insets]: kaman_render_api::RenderDevice::safe_area_insets
-//! [scale]: kaman_render_api::RenderDevice::surface_scale
+//! [surface_size]: stickshift_render_api::RenderDevice::surface_size
+//! [insets]: stickshift_render_api::RenderDevice::safe_area_insets
+//! [scale]: stickshift_render_api::RenderDevice::surface_scale
 
 use std::fmt::Write as _;
 
-use kaman_core::Renderer;
-use kaman_render_api::{ColorSpace, FontAtlas, Glyph, OverlayQuad, TextureData};
+use stickshift_core::Renderer;
+use stickshift_render_api::{ColorSpace, FontAtlas, Glyph, OverlayQuad, TextureData};
 
 use crate::config::{
     HUD_BANNER_PX, HUD_BLACK_COLOR, HUD_DIM_COLOR, HUD_MARGIN, HUD_SCORE_PX, HUD_TEXT_COLOR,
@@ -232,7 +232,7 @@ impl CarRunner {
         let banner: &[(&str, f32)] = match self.state {
             GameState::Playing => &[],
             GameState::Ready => &[
-                ("KAMAN RUNNER", title_px),
+                ("STICKSHIFT RUNNER", title_px),
                 ("PRESS SPACE TO START", banner_px),
             ],
             GameState::GameOver => {
@@ -275,9 +275,9 @@ impl CarRunner {
 mod tests {
     use super::*;
 
-    use kaman_core::headless::Headless;
-    use kaman_core::input::Key;
-    use kaman_render_api::{OverlayFill, RenderDevice as _};
+    use stickshift_core::headless::Headless;
+    use stickshift_core::input::Key;
+    use stickshift_render_api::{OverlayFill, RenderDevice as _};
 
     use crate::config::HUD_FADE_SECONDS;
 
@@ -300,7 +300,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Headless HUD assertions
     //
-    // These drive the *real* demo through `kaman_core::headless::Headless` and read
+    // These drive the *real* demo through `stickshift_core::headless::Headless` and read
     // back what `draw_hud` recorded on the `NullRenderer`'s overlay stream — no GPU,
     // no window, fixed timestep, seeded PRNG, so every run is identical.
     //
@@ -321,7 +321,7 @@ mod tests {
 
     /// Boot the demo headlessly and leave it on its title screen.
     ///
-    /// Zero frames still runs [`kaman_core::Game::init`] (which loads the HUD font),
+    /// Zero frames still runs [`stickshift_core::Game::init`] (which loads the HUD font),
     /// so nothing has been rendered yet and the first `hud_frame` after this is
     /// genuinely the demo's first HUD frame.
     fn booted() -> (CarRunner, Headless) {
@@ -523,8 +523,8 @@ mod tests {
         // exact count is stable here because both strings are fixed and the expected
         // value is derived from the atlas rather than hardcoded.
         let font = font_of(&game);
-        let expected =
-            visible_glyphs(font, "KAMAN RUNNER") + visible_glyphs(font, "PRESS SPACE TO START");
+        let expected = visible_glyphs(font, "STICKSHIFT RUNNER")
+            + visible_glyphs(font, "PRESS SPACE TO START");
         assert_eq!(
             quads.len() - 1,
             expected,

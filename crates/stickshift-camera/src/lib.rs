@@ -2,12 +2,12 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Camera state and controller math for KamanEngine.
+//! Camera state and controller math for Stick Shift Engine.
 //!
 //! This crate owns the engine's camera model: a target-based perspective
 //! [`Camera`] (view / projection / view-projection matrices, aspect update,
 //! position / target setters, basis vectors) and the controllers that drive it.
-//! It is engine-generic — it depends only on [`kaman_math`] and names no game
+//! It is engine-generic — it depends only on [`stickshift_math`] and names no game
 //! type or render backend — so any game or engine layer can compute a
 //! view-projection matrix and hand it across the render seam.
 //!
@@ -21,8 +21,8 @@
 //! # Example
 //!
 //! ```rust
-//! use kaman_camera::{Camera, ChaseController};
-//! use kaman_math::glam::Vec3;
+//! use stickshift_camera::{Camera, ChaseController};
+//! use stickshift_math::glam::Vec3;
 //!
 //! let mut camera = Camera::new(16.0 / 9.0);
 //! let chase = ChaseController::new(8.0, 4.0);

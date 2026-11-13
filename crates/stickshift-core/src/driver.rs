@@ -12,11 +12,11 @@
 //! engine state in [`Loop`]. This is the single loop implementation the design
 //! calls for: neither driver reimplements the accumulator.
 
-use kaman_audio::Audio;
-use kaman_camera::Camera;
-use kaman_perf::PerfTracker;
-use kaman_scene::{Scene, StreamingConfig};
 use std::time::Duration;
+use stickshift_audio::Audio;
+use stickshift_camera::Camera;
+use stickshift_perf::PerfTracker;
+use stickshift_scene::{Scene, StreamingConfig};
 
 use crate::context::{EngineCtx, Renderer};
 use crate::game::Game;
@@ -211,7 +211,7 @@ impl Default for Loop {
 /// dynamic transforms back into the ECS. A game that also rebases should call
 /// [`Scene::maybe_rebase`] from its `update` *after* driving streaming — the
 /// documented `stream` → `step_physics` → `maybe_rebase` order lives in
-/// `kaman-scene`; since the loop steps physics right after `update`, a game rebases
+/// `stickshift-scene`; since the loop steps physics right after `update`, a game rebases
 /// at the top of the *next* `update` (i.e. between this step and the next).
 ///
 /// [`init_once`](Loop::init_once) must have run first.
@@ -289,7 +289,7 @@ pub fn drive_frame<G: Game>(
 mod tests {
     use super::*;
     use crate::timestep::MAX_STEPS_PER_FRAME;
-    use kaman_render_api::NullRenderer;
+    use stickshift_render_api::NullRenderer;
 
     /// A game that counts how many times each hook fired, so the loop's cadence
     /// can be asserted directly.
@@ -387,7 +387,7 @@ mod tests {
     /// camera in `update` sees that pose reflected in the recorder before it draws.
     #[test]
     fn driver_pushes_the_engine_camera_view_projection_before_render() {
-        use kaman_math::glam::Vec3;
+        use stickshift_math::glam::Vec3;
 
         /// A game that moves the engine camera in `update` and records a one-draw
         /// frame in `render` (whose `begin_frame` must not clear the seam camera).
@@ -430,7 +430,7 @@ mod tests {
     /// it asked to hear.
     #[test]
     fn the_loop_hands_the_game_a_silent_audio_layer() {
-        use kaman_audio::{SoundHandle, Volume};
+        use stickshift_audio::{SoundHandle, Volume};
 
         /// A game that loads one sound in `init` and, every step, asks for it once
         /// as a one-shot and (repeatedly) as the looping bed.
@@ -442,7 +442,7 @@ mod tests {
             fn init(&mut self, ctx: &mut EngineCtx) {
                 // A path that does not exist: silent mode decodes nothing, so the
                 // load still succeeds and hands back a usable handle.
-                self.sound = Some(ctx.audio().load("/kaman-core/tests/absent.wav"));
+                self.sound = Some(ctx.audio().load("/stickshift-core/tests/absent.wav"));
             }
             fn update(&mut self, ctx: &mut EngineCtx, _dt: f32) {
                 let sound = self.sound.expect("loaded in init");

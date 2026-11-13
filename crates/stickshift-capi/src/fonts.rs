@@ -3,11 +3,11 @@
 // This software is released under the Apache-2.0 License.
 
 //! SDF fonts: an atlas texture plus a glyph table, laid out with
-//! [`FontAtlas`](kaman_render_api::FontAtlas).
+//! [`FontAtlas`](stickshift_render_api::FontAtlas).
 
-use kaman_render_api::{ColorSpace, FontAtlas, Glyph};
+use stickshift_render_api::{ColorSpace, FontAtlas, Glyph};
 
-use crate::context::KamanContext;
+use crate::context::StickShiftContext;
 use crate::context::{with_context, OwnedEvent};
 use crate::core::{call, input, output, utf8, Error};
 use crate::types::*;
@@ -20,8 +20,8 @@ pub(crate) struct FontEntry {
     pub(crate) atlas: FontAtlas,
 }
 
-impl From<KamanGlyph> for Glyph {
-    fn from(g: KamanGlyph) -> Self {
+impl From<StickShiftGlyph> for Glyph {
+    fn from(g: StickShiftGlyph) -> Self {
         Self {
             uv: [g.u0, g.v0, g.u1, g.v1],
             size: [g.width, g.height],
@@ -37,12 +37,12 @@ impl From<KamanGlyph> for Glyph {
 /// `ctx` must be NULL or a live context; `desc`, `completion` and `out` NULL or
 /// valid; `desc->glyphs` valid for `desc->glyph_count` glyphs.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_font_create(
-    ctx: *mut KamanContext,
-    desc: *const KamanFontDesc,
-    completion: *const KamanCompletion,
-    out: *mut KamanFont,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_font_create(
+    ctx: *mut StickShiftContext,
+    desc: *const StickShiftFontDesc,
+    completion: *const StickShiftCompletion,
+    out: *mut StickShiftFont,
+) -> StickShiftResult {
     call(|| {
         let desc = input(desc, "desc")?;
         let out = output(out, "out")?;
@@ -76,7 +76,7 @@ pub unsafe extern "C" fn kaman_font_create(
             if atlas.color_space != ColorSpace::Linear {
                 return Err(Error::invalid_argument(
                     "an SDF font atlas holds distances, not colour: create it with \
-                     KAMAN_COLOR_SPACE_LINEAR",
+                     STICKSHIFT_COLOR_SPACE_LINEAR",
                 ));
             }
             let texture = atlas.handle;
@@ -92,15 +92,15 @@ pub unsafe extern "C" fn kaman_font_create(
                         fallback: desc.fallback.into(),
                     },
                 })
-                .map_err(|_| Error::new(KAMAN_ERROR_LIMIT_EXCEEDED, "too many live fonts"))?;
+                .map_err(|_| Error::new(STICKSHIFT_ERROR_LIMIT_EXCEEDED, "too many live fonts"))?;
             inner.emit(
-                OwnedEvent::new(KAMAN_EVENT_RESOURCE_READY, id, 0),
+                OwnedEvent::new(STICKSHIFT_EVENT_RESOURCE_READY, id, 0),
                 completion,
             );
             Ok(id)
         })?;
-        *out = KamanFont { id };
-        Ok(KAMAN_OK)
+        *out = StickShiftFont { id };
+        Ok(STICKSHIFT_OK)
     })
 }
 
@@ -109,16 +109,16 @@ pub unsafe extern "C" fn kaman_font_create(
 /// # Safety
 /// `ctx` must be NULL or a live context.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_font_destroy(
-    ctx: *mut KamanContext,
-    font: KamanFont,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_font_destroy(
+    ctx: *mut StickShiftContext,
+    font: StickShiftFont,
+) -> StickShiftResult {
     call(|| {
         with_context(ctx, |inner| {
             inner
                 .fonts
                 .remove(font.id)
-                .map(|_| KAMAN_OK)
+                .map(|_| STICKSHIFT_OK)
                 .ok_or_else(|| Error::invalid_handle("font"))
         })
     })
@@ -131,13 +131,13 @@ pub unsafe extern "C" fn kaman_font_destroy(
 /// `ctx` must be NULL or a live context; `text` NULL or NUL-terminated;
 /// `out_width` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_font_measure(
-    ctx: *mut KamanContext,
-    font: KamanFont,
+pub unsafe extern "C" fn stickshift_font_measure(
+    ctx: *mut StickShiftContext,
+    font: StickShiftFont,
     text: *const std::ffi::c_char,
     px: f32,
     out_width: *mut f32,
-) -> KamanResult {
+) -> StickShiftResult {
     call(|| {
         let text = utf8(text, "text")?;
         let out_width = output(out_width, "out_width")?;
@@ -147,7 +147,7 @@ pub unsafe extern "C" fn kaman_font_measure(
                 .get(font.id)
                 .ok_or_else(|| Error::invalid_handle("font"))?;
             *out_width = font.atlas.measure(text, px);
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }

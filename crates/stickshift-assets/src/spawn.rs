@@ -4,9 +4,9 @@
 
 //! Spawn ECS entities from an imported [`SceneAsset`]'s node graph.
 //!
-//! This is the one place `kaman-assets` touches `kaman-ecs`. The dependency
-//! direction is acyclic: `kaman-ecs` is a leaf (math + hecs + rapier) that never
-//! depends on `kaman-assets`, so this helper adds a `kaman-assets → kaman-ecs`
+//! This is the one place `stickshift-assets` touches `stickshift-ecs`. The dependency
+//! direction is acyclic: `stickshift-ecs` is a leaf (math + hecs + rapier) that never
+//! depends on `stickshift-assets`, so this helper adds a `stickshift-assets → stickshift-ecs`
 //! edge and no cycle. Keeping the helper here (rather than in the game) lets any
 //! title spawn imported scenes with one call while staying engine-generic — there
 //! are no game concepts in this module.
@@ -23,10 +23,10 @@
 //! rest of the matrix is baked into its vertices, so the entity still draws
 //! exactly where the glTF puts it.
 
-use kaman_ecs::hecs::{Entity, World};
-use kaman_ecs::{RenderComponent, RenderShape, StaticTag, TransformComponent};
-use kaman_math::glam::{Mat3, Mat4, Vec3};
-use kaman_math::Transform;
+use stickshift_ecs::hecs::{Entity, World};
+use stickshift_ecs::{RenderComponent, RenderShape, StaticTag, TransformComponent};
+use stickshift_math::glam::{Mat3, Mat4, Vec3};
+use stickshift_math::Transform;
 
 use crate::scene::{MeshAsset, SceneAsset, RENDER_VERTEX_FLOATS};
 

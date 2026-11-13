@@ -40,7 +40,7 @@
 //! light *travels*, which is what a shader shades with). Nothing above or below
 //! the seam hand-builds a light vector.
 
-use kaman_math::glam::Vec3;
+use stickshift_math::glam::Vec3;
 
 /// A sun and the sky it hangs in: the complete lighting *description* the seam
 /// accepts.

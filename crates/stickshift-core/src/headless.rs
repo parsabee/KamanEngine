@@ -6,7 +6,7 @@
 //!
 //! This is the engine loop with the platform layer stripped away: it holds a
 //! [`Loop`] (the ECS world, an [`InputState`],
-//! a [`PerfTracker`](kaman_perf::PerfTracker), and the fixed-timestep
+//! a [`PerfTracker`](stickshift_perf::PerfTracker), and the fixed-timestep
 //! [`Accumulator`](crate::timestep::Accumulator)) plus a
 //! [`NullRenderer`] standing in for the render
 //! seam, and drives a game for a fixed number of frames. It requires **no display
@@ -31,11 +31,11 @@
 
 use std::time::Duration;
 
-use kaman_audio::Audio;
-use kaman_camera::Camera;
-use kaman_ecs::hecs::World;
-use kaman_render_api::NullRenderer;
-use kaman_scene::Scene;
+use stickshift_audio::Audio;
+use stickshift_camera::Camera;
+use stickshift_ecs::hecs::World;
+use stickshift_render_api::NullRenderer;
+use stickshift_scene::Scene;
 
 use crate::driver::{drive_frame, Loop};
 use crate::game::Game;
@@ -62,7 +62,7 @@ pub use crate::timestep::FIXED_DT;
 /// # Example
 ///
 /// ```rust
-/// use kaman_core::{Game, EngineCtx, headless};
+/// use stickshift_core::{Game, EngineCtx, headless};
 ///
 /// struct Empty;
 /// impl Game for Empty {
@@ -274,16 +274,16 @@ mod tests {
     /// A game that spawns an entity in `init` and records one draw per frame,
     /// so we can assert engine state after a headless run.
     struct SpawnAndDraw {
-        entity: Option<kaman_ecs::hecs::Entity>,
-        mesh: Option<kaman_render_api::MeshHandle>,
-        pipeline: Option<kaman_render_api::PipelineHandle>,
+        entity: Option<stickshift_ecs::hecs::Entity>,
+        mesh: Option<stickshift_render_api::MeshHandle>,
+        pipeline: Option<stickshift_render_api::PipelineHandle>,
     }
 
     impl Game for SpawnAndDraw {
         fn init(&mut self, ctx: &mut EngineCtx) {
-            use kaman_ecs::TransformComponent;
-            use kaman_math::glam::Vec3;
-            use kaman_render_api::{MeshData, PipelineDescriptor, PipelineKind};
+            use stickshift_ecs::TransformComponent;
+            use stickshift_math::glam::Vec3;
+            use stickshift_render_api::{MeshData, PipelineDescriptor, PipelineKind};
 
             self.entity = Some(
                 ctx.world_mut()
@@ -303,7 +303,7 @@ mod tests {
         }
 
         fn update(&mut self, ctx: &mut EngineCtx, dt: f32) {
-            use kaman_ecs::TransformComponent;
+            use stickshift_ecs::TransformComponent;
             let e = self.entity.unwrap();
             if let Ok(mut t) = ctx.world_mut().get::<&mut TransformComponent>(e) {
                 t.transform.position.x += dt;
@@ -311,8 +311,8 @@ mod tests {
         }
 
         fn render(&mut self, ctx: &mut EngineCtx) {
-            use kaman_math::Transform;
-            use kaman_render_api::MaterialParams;
+            use stickshift_math::Transform;
+            use stickshift_render_api::MaterialParams;
             let (mesh, pipeline) = (self.mesh.unwrap(), self.pipeline.unwrap());
             let r = ctx.renderer();
             r.begin_frame();
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn game_mutates_world_and_records_draws_through_seam() {
-        use kaman_ecs::TransformComponent;
+        use stickshift_ecs::TransformComponent;
 
         let mut game = SpawnAndDraw {
             entity: None,

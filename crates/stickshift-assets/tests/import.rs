@@ -7,17 +7,17 @@
 //! The fixture (`fixtures/cube.gltf`) is a self-contained glTF 2.0 unit cube with
 //! per-face normals and an embedded base64 buffer, so these tests need no binary
 //! blob and are fully reproducible (regenerate via
-//! `cargo run -p kaman-assets --example gen_cube`).
+//! `cargo run -p stickshift-assets --example gen_cube`).
 
 use std::io::Write;
 
-use kaman_assets::scene::{
+use stickshift_assets::scene::{
     textured_vertex_layout, DEFAULT_IMPORT_COLOR, RENDER_VERTEX_STRIDE, TEXTURED_VERTEX_STRIDE,
 };
-use kaman_assets::{
+use stickshift_assets::{
     import_gltf, import_slice, render_vertex_layout, AssetCache, ImportError, MeshAsset, SceneAsset,
 };
-use kaman_render_api::{MeshData, MeshHandle, NullRenderer, RenderDevice, VertexFormat};
+use stickshift_render_api::{MeshData, MeshHandle, NullRenderer, RenderDevice, VertexFormat};
 
 /// The committed cube fixture, embedded so slice-import tests are hermetic.
 const CUBE_GLTF: &[u8] = include_bytes!("fixtures/cube.gltf");
@@ -46,7 +46,7 @@ fn import_via_file(bytes: &[u8]) -> SceneAsset {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "kaman-assets-file-{}-{}",
+        "stickshift-assets-file-{}-{}",
         std::process::id(),
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));
@@ -331,8 +331,8 @@ fn uvs_are_retained_even_when_source_has_none() {
 fn mesh_data_round_trips_through_the_seam() {
     // The packed MeshAsset drops straight into MeshData, and the device draws it:
     // its layout is the vertex-colour pipeline's and it has whole triangles.
-    use kaman_math::Transform;
-    use kaman_render_api::{
+    use stickshift_math::Transform;
+    use stickshift_render_api::{
         FrameRecorder, MaterialParams, PipelineDescriptor, PipelineKind, ProtocolViolation,
     };
     let scene = cube_scene();
@@ -651,7 +651,7 @@ fn untextured_mesh_keeps_default_color_layout() {
 fn cache_parses_each_path_once() {
     // Write two distinct copies of the fixture to temp files, then load each
     // several times. The cache must parse each path exactly once.
-    let dir = std::env::temp_dir().join(format!("kaman-assets-cache-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("stickshift-assets-cache-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let a = dir.join("a.gltf");
     let b = dir.join("b.gltf");
@@ -678,7 +678,7 @@ fn cache_parses_each_path_once() {
 
 #[test]
 fn cache_uploads_meshes_once_and_shares_handles() {
-    let dir = std::env::temp_dir().join(format!("kaman-assets-upload-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("stickshift-assets-upload-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("cube.gltf");
     std::fs::File::create(&path)
@@ -727,9 +727,9 @@ fn sheared_hierarchy_bakes_exactly() {
     // old TRS bake put (1, 0, 0) at (1.108, 1.061, 0) instead of here.
     let scene = import_slice(SHEARED_HIERARCHY_GLTF).unwrap();
     let (_, node) = scene.mesh_nodes().next().expect("one mesh node");
-    let world = node.world.transform_point3(kaman_math::glam::Vec3::X);
+    let world = node.world.transform_point3(stickshift_math::glam::Vec3::X);
     let h = std::f32::consts::FRAC_1_SQRT_2;
-    let expected = kaman_math::glam::Vec3::new(2.0 * h, h, 0.0);
+    let expected = stickshift_math::glam::Vec3::new(2.0 * h, h, 0.0);
     assert!(
         (world - expected).length() < 1e-5,
         "(1, 0, 0) baked to {world}, expected {expected}"
@@ -742,10 +742,10 @@ fn spawning_a_sheared_hierarchy_keeps_its_vertices_exact() {
     // An ECS transform cannot hold shear either, so the spawn helper keeps only
     // the translation and bakes the rest into the vertices. Either way the
     // entity's vertices must land where the node matrix puts them.
-    use kaman_ecs::{RenderShape, TransformComponent};
+    use stickshift_ecs::{RenderShape, TransformComponent};
     let scene = import_slice(SHEARED_HIERARCHY_GLTF).unwrap();
-    let mut world = kaman_ecs::hecs::World::new();
-    let entities = kaman_assets::spawn_scene(&mut world, &scene);
+    let mut world = stickshift_ecs::hecs::World::new();
+    let entities = stickshift_assets::spawn_scene(&mut world, &scene);
     assert_eq!(entities.len(), 1);
     let (_, node) = scene.mesh_nodes().next().unwrap();
     let transform = world
@@ -753,16 +753,16 @@ fn spawning_a_sheared_hierarchy_keeps_its_vertices_exact() {
         .unwrap()
         .transform;
     let render = world
-        .get::<&kaman_ecs::RenderComponent>(entities[0])
+        .get::<&stickshift_ecs::RenderComponent>(entities[0])
         .unwrap();
     let RenderShape::Mesh { vertices, .. } = &render.shape else {
         panic!("an imported node spawns a mesh");
     };
     for (v, p) in vertices.iter().zip(&scene.meshes[0].positions) {
-        let drawn = transform.transform_point(kaman_math::glam::Vec3::new(v[0], v[1], v[2]));
+        let drawn = transform.transform_point(stickshift_math::glam::Vec3::new(v[0], v[1], v[2]));
         let expected = node
             .world
-            .transform_point3(kaman_math::glam::Vec3::from_array(*p));
+            .transform_point3(stickshift_math::glam::Vec3::from_array(*p));
         assert!((drawn - expected).length() < 1e-5, "{drawn} != {expected}");
     }
 }

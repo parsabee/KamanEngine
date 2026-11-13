@@ -5,12 +5,12 @@
 //! Game-side ECS components and the model-placement enum.
 //!
 //! These types ride alongside the engine-generic components
-//! ([`TransformComponent`](kaman_ecs::TransformComponent),
-//! [`RenderComponent`](kaman_ecs::RenderComponent),
-//! [`PhysicsBodyComponent`](kaman_ecs::PhysicsBodyComponent), …) on the same ECS
+//! ([`TransformComponent`](stickshift_ecs::TransformComponent),
+//! [`RenderComponent`](stickshift_ecs::RenderComponent),
+//! [`PhysicsBodyComponent`](stickshift_ecs::PhysicsBodyComponent), …) on the same ECS
 //! entities, but they name game concepts (which car model, which building, which
 //! decoration) — which is exactly why they live here in the game crate and not in
-//! `kaman-ecs`: the engine's no-game-symbol guard would reject them there.
+//! `stickshift-ecs`: the engine's no-game-symbol guard would reject them there.
 
 /// A game-side ECS component tagging an obstacle with which traffic car variant it
 /// draws (index into [`crate::config::TRAFFIC_CAR_ASSETS`]). Assigned once at

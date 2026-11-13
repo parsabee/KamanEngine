@@ -2,18 +2,18 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Backend-agnostic render seam for KamanEngine: [`RenderDevice`] / [`FrameRecorder`] traits.
+//! Backend-agnostic render seam for Stick Shift Engine: [`RenderDevice`] / [`FrameRecorder`] traits.
 //!
 //! This crate is the **blast-radius firewall** described in `docs/ARCHITECTURE.md` §2. It
 //! defines *only* a contract — opaque resource handles plus two traits — and never depends on
-//! `metal`. A concrete renderer (`kaman-render`) implements these traits below the
+//! `metal`. A concrete renderer (`stickshift-render`) implements these traits below the
 //! seam; every crate above the seam (ECS, scene, physics, game code) talks to the
 //! contract and therefore never imports a Metal type. A full renderer rewrite is provably
 //! contained to the implementing crate.
 //!
 //! # The "no Metal above this line" rule
 //!
-//! `kaman-render-api` depends on `std` and [`kaman_math`] (for [`kaman_math::Transform`]) and
+//! `stickshift-render-api` depends on `std` and [`stickshift_math`] (for [`stickshift_math::Transform`]) and
 //! nothing else. It must never list `metal` in its `Cargo.toml`; a CI check asserts `metal` is
 //! absent from this crate's dependency tree.
 //!
@@ -41,11 +41,11 @@
 //! # Example
 //!
 //! ```rust
-//! use kaman_render_api::{
+//! use stickshift_render_api::{
 //!     FrameRecorder, MaterialParams, MeshData, NullRenderer, PipelineDescriptor,
 //!     PipelineKind, RenderDevice,
 //! };
-//! use kaman_math::Transform;
+//! use stickshift_math::Transform;
 //!
 //! let mut r = NullRenderer::new();
 //!

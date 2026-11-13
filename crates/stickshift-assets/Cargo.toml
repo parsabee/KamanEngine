@@ -1,6 +1,6 @@
 [package]
-name = "kaman-assets"
-description = "Engine-generic static glTF import + asset cache for KamanEngine (metal-free)."
+name = "stickshift-assets"
+description = "Engine-generic static glTF import + asset cache for Stick Shift Engine (metal-free)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,15 +13,15 @@ publish.workspace = true
 [dependencies]
 gltf.workspace = true
 image.workspace = true
-kaman-math.workspace = true
-kaman-render-api.workspace = true
-# `kaman-ecs` powers the ECS spawn helper (`spawn` module), behind the default
+stickshift-math.workspace = true
+stickshift-render-api.workspace = true
+# `stickshift-ecs` powers the ECS spawn helper (`spawn` module), behind the default
 # `ecs` feature so a graphics-only consumer (the C API) can import glTF without
-# pulling in hecs and rapier. The dep direction stays acyclic: kaman-ecs depends
-# only on kaman-math/hecs/rapier, never on kaman-assets.
-kaman-ecs = { workspace = true, optional = true }
+# pulling in hecs and rapier. The dep direction stays acyclic: stickshift-ecs depends
+# only on stickshift-math/hecs/rapier, never on stickshift-assets.
+stickshift-ecs = { workspace = true, optional = true }
 
 [features]
 default = ["ecs"]
 # The `spawn` module: turn an imported scene into ECS entities.
-ecs = ["dep:kaman-ecs"]
+ecs = ["dep:stickshift-ecs"]

@@ -3,14 +3,14 @@
 // This software is released under the Apache-2.0 License.
 
 //! The [`Scene`] — owner of the ECS [`World`] and the [`PhysicsWorld`], plus the
-//! engine-generic **world-streaming** layer for KamanEngine.
+//! engine-generic **world-streaming** layer for Stick Shift Engine.
 //!
 //! A [`Scene`] bundles the two simulation stores a running world needs — a hecs
 //! [`World`] of entities/components and a
 //! [`PhysicsWorld`] of rigid bodies — behind one
 //! type, and drives them in lockstep at the engine's fixed timestep
 //! ([`step_physics`](Scene::step_physics), stepping at
-//! [`kaman_physics::FIXED_DT`]).
+//! [`stickshift_physics::FIXED_DT`]).
 //!
 //! On top of that it provides three things an endless-world game needs, all
 //! **engine-generic** (there are deliberately no game concepts here — no vehicle,
@@ -57,10 +57,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use kaman_ecs::hecs::{Entity, World};
-use kaman_ecs::{DynamicTag, PhysicsBodyComponent, TransformComponent};
-use kaman_math::glam::Vec3;
-use kaman_physics::{PhysicsWorld, RigidBodyHandle, FIXED_DT};
+use stickshift_ecs::hecs::{Entity, World};
+use stickshift_ecs::{DynamicTag, PhysicsBodyComponent, TransformComponent};
+use stickshift_math::glam::Vec3;
+use stickshift_physics::{PhysicsWorld, RigidBodyHandle, FIXED_DT};
 
 /// Configuration for the [`Scene`]'s spawn-ahead / despawn-behind streaming and
 /// its floating-origin rebase, along a single travel axis.
@@ -75,8 +75,8 @@ use kaman_physics::{PhysicsWorld, RigidBodyHandle, FIXED_DT};
 /// # Example
 ///
 /// ```rust
-/// use kaman_scene::StreamingConfig;
-/// use kaman_math::glam::Vec3;
+/// use stickshift_scene::StreamingConfig;
+/// use stickshift_math::glam::Vec3;
 ///
 /// let cfg = StreamingConfig {
 ///     axis: Vec3::new(0.0, 0.0, -1.0),
@@ -131,9 +131,9 @@ impl Default for StreamingConfig {
 /// # Example
 ///
 /// ```rust
-/// use kaman_scene::Scene;
-/// use kaman_ecs::TransformComponent;
-/// use kaman_math::glam::Vec3;
+/// use stickshift_scene::Scene;
+/// use stickshift_ecs::TransformComponent;
+/// use stickshift_math::glam::Vec3;
 ///
 /// let mut scene = Scene::new();
 /// scene.world_mut().spawn((TransformComponent::from_position(Vec3::ZERO),));
@@ -240,7 +240,7 @@ impl Scene {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_scene::{Scene, StreamingConfig};
+    /// use stickshift_scene::{Scene, StreamingConfig};
     ///
     /// let mut scene = Scene::new();
     /// scene.set_config(StreamingConfig {
@@ -275,7 +275,7 @@ impl Scene {
     /// carrying a [`PhysicsBodyComponent`] and a
     /// [`DynamicTag`] are synced; static geometry keeps its
     /// authored transform). Call this exactly once per fixed engine update so the
-    /// solver stays in lockstep with `kaman_core`'s fixed-timestep driver.
+    /// solver stays in lockstep with `stickshift_core`'s fixed-timestep driver.
     ///
     /// Only the position and rotation are synced; the entity's authored `scale`
     /// is kept (rigid bodies have no scale).
@@ -334,7 +334,7 @@ impl Scene {
     /// The fixed timestep [`step_physics`](Self::step_physics) advances by.
     ///
     /// Re-exported through the scene for callers that drive the loop; equal to
-    /// [`kaman_physics::FIXED_DT`] (and thus `kaman_core::FIXED_DT`).
+    /// [`stickshift_physics::FIXED_DT`] (and thus `stickshift_core::FIXED_DT`).
     #[must_use]
     pub const fn fixed_dt() -> f32 {
         FIXED_DT
@@ -346,7 +346,7 @@ impl Scene {
     ///
     /// This upholds the handle-ownership invariant: the ECS
     /// entity and its physics body are torn down together, so no live component is
-    /// ever left holding a freed [`RigidBodyHandle`](kaman_physics::RigidBodyHandle),
+    /// ever left holding a freed [`RigidBodyHandle`](stickshift_physics::RigidBodyHandle),
     /// and no rigid body outlives the entity that owned it. The body is removed
     /// **before** the entity, so even a mid-teardown observer never sees the
     /// component without its body.
@@ -390,9 +390,9 @@ impl Scene {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_scene::{Scene, StreamingConfig};
-    /// use kaman_ecs::TransformComponent;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_scene::{Scene, StreamingConfig};
+    /// use stickshift_ecs::TransformComponent;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut scene = Scene::with_config(StreamingConfig {
     ///     spawn_interval: 10.0,
@@ -576,12 +576,12 @@ impl SpawnCtx<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kaman_ecs::{DynamicTag, PhysicsBodyComponent, TransformComponent};
-    use kaman_math::glam::Vec3;
+    use stickshift_ecs::{DynamicTag, PhysicsBodyComponent, TransformComponent};
+    use stickshift_math::glam::Vec3;
 
     /// Helper: spawn a dynamic entity with a physics body at `position`.
     fn spawn_body(scene: &mut Scene, position: Vec3) -> Entity {
-        use kaman_math::Transform;
+        use stickshift_math::Transform;
         let handle = scene
             .physics_mut()
             .create_dynamic_body(Transform::from_position(position));
@@ -618,8 +618,8 @@ mod tests {
     /// authored scale (it used to reset it to 1, halving a scale-2 mesh).
     #[test]
     fn step_physics_preserves_authored_scale() {
-        use kaman_math::glam::Quat;
-        use kaman_math::Transform;
+        use stickshift_math::glam::Quat;
+        use stickshift_math::Transform;
         let mut scene = Scene::new();
         let authored = Transform {
             position: Vec3::new(0.0, 5.0, 0.0),
@@ -888,7 +888,7 @@ mod tests {
         for frame in 0..2000i64 {
             let focus = Vec3::new(0.0, 0.0, -(frame as f32) * cfg.spawn_interval);
             scene.stream(focus, |cx| {
-                use kaman_math::Transform;
+                use stickshift_math::Transform;
                 let h = cx
                     .physics
                     .create_dynamic_body(Transform::from_position(cx.position));
@@ -918,7 +918,7 @@ mod tests {
     /// for both ECS transforms and physics body translations.
     #[test]
     fn rebase_preserves_relative_positions() {
-        use kaman_math::Transform;
+        use stickshift_math::Transform;
         let cfg = StreamingConfig {
             axis: Vec3::new(0.0, 0.0, -1.0),
             spawn_interval: 10.0,
@@ -988,9 +988,9 @@ mod tests {
         assert_eq!(offset, Vec3::ZERO);
     }
 
-    /// Engine/game boundary guard: `kaman-scene` must stay engine-generic — no game-named
-    /// symbol may appear anywhere in its source. Mirrors the `kaman-ecs` /
-    /// `kaman-core` guards: forbidden words are built from ASCII byte codes so
+    /// Engine/game boundary guard: `stickshift-scene` must stay engine-generic — no game-named
+    /// symbol may appear anywhere in its source. Mirrors the `stickshift-ecs` /
+    /// `stickshift-core` guards: forbidden words are built from ASCII byte codes so
     /// this test's own body contains no literal occurrence, letting it scan the
     /// whole file (including itself) with no exclusion window.
     #[test]
@@ -1020,7 +1020,7 @@ mod tests {
                 assert_ne!(
                     &lower, bad,
                     "game-specific identifier `{token}` found in lib.rs: \
-                     kaman-scene must stay engine-generic (engine/game boundary)",
+                     stickshift-scene must stay engine-generic (engine/game boundary)",
                 );
             }
         }

@@ -1,6 +1,6 @@
 [package]
-name = "kaman-ecs"
-description = "hecs wrapper and shared engine components for KamanEngine."
+name = "stickshift-ecs"
+description = "hecs wrapper and shared engine components for Stick Shift Engine."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,5 +12,5 @@ publish.workspace = true
 
 [dependencies]
 hecs.workspace = true
-kaman-math.workspace = true
+stickshift-math.workspace = true
 rapier3d.workspace = true

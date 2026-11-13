@@ -21,12 +21,12 @@
 //!    frames-in-flight machinery adds no `new_buffer*` to the hot path.
 //!
 //! Like the other backend tests, these **skip** when no Metal device is
-//! available (a failure instead under `KAMAN_REQUIRE_GPU=1`, as in CI).
+//! available (a failure instead under `STICKSHIFT_REQUIRE_GPU=1`, as in CI).
 
-use kaman_math::Transform;
-use kaman_render::backend::MAX_FRAMES_IN_FLIGHT;
-use kaman_render::MetalRenderer;
-use kaman_render_api::{
+use stickshift_math::Transform;
+use stickshift_render::backend::MAX_FRAMES_IN_FLIGHT;
+use stickshift_render::MetalRenderer;
+use stickshift_render_api::{
     FrameRecorder, MaterialParams, MeshData, MeshHandle, OverlayQuad, RenderDevice,
     VertexAttribute, VertexFormat, VertexLayout,
 };

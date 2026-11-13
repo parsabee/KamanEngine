@@ -39,7 +39,7 @@
 //! correct frame of each pass. To re-bless after an *intended* visual change, run:
 //!
 //! ```text
-//! BLESS=1 cargo test -p kaman-render --test pixel_hash -- --nocapture
+//! BLESS=1 cargo test -p stickshift-render --test pixel_hash -- --nocapture
 //! ```
 //!
 //! Each test prints its new hash, named after the constant that holds it, and
@@ -51,7 +51,7 @@
 //!
 //! Where `MTLCreateSystemDefaultDevice` returns nil the tests **skip**: they print
 //! a `SKIPPED` line that a plain `cargo test` shows, and return. CI sets
-//! `KAMAN_REQUIRE_GPU=1`, which turns a missing device into a failure, so a
+//! `STICKSHIFT_REQUIRE_GPU=1`, which turns a missing device into a failure, so a
 //! runner that lost its GPU cannot pass the suite without running it.
 //!
 //! GitHub's current macOS runners are virtual machines that *do* expose a Metal
@@ -61,11 +61,11 @@
 //! against a committed reference image within tolerances instead of by hash. See
 //! [`SHADOW_REFERENCE_BGRA`] for the rule and why it still catches regressions.
 
-use kaman_camera::Camera;
-use kaman_math::glam::{Quat, Vec3};
-use kaman_math::Transform;
-use kaman_render::MetalRenderer;
-use kaman_render_api::{
+use stickshift_camera::Camera;
+use stickshift_math::glam::{Quat, Vec3};
+use stickshift_math::Transform;
+use stickshift_render::MetalRenderer;
+use stickshift_render_api::{
     ColorSpace, FrameRecorder, MaterialParams, MeshData, OverlayFill, OverlayQuad, RenderDevice,
     TextureData, TextureHandle, VertexAttribute, VertexFormat, VertexLayout,
 };
@@ -79,13 +79,13 @@ const HEIGHT: u32 = 64;
 
 /// Committed baseline hash of the reference scene's pixels (FNV-1a 64-bit).
 ///
-/// Blessed from the migrated `kaman-render` first correct frame. Hold stable
+/// Blessed from the migrated `stickshift-render` first correct frame. Hold stable
 /// across the buffer/ring/pacing refactors; re-bless only via the documented `BLESS=1` path.
 ///
 /// # Camera-migration re-bless review (value unchanged)
 ///
 /// The camera **path** changed: the view now flows through the render seam
-/// (`FrameRecorder::set_view_projection`) from a `kaman_camera::Camera` this test
+/// (`FrameRecorder::set_view_projection`) from a `stickshift_camera::Camera` this test
 /// builds, instead of a backend-owned inline camera. The camera **math** did not:
 /// `Camera::new(WIDTH/HEIGHT)` (aspect `64/64 = 1.0`, the exact aspect the old
 /// backend applied for this offscreen size) with the same
@@ -104,7 +104,7 @@ const HEIGHT: u32 = 64;
 /// these changes the rendered pixel values, so this hash MUST be re-blessed. Run:
 ///
 /// ```text
-/// BLESS=1 cargo test -p kaman-render --test pixel_hash -- --nocapture
+/// BLESS=1 cargo test -p stickshift-render --test pixel_hash -- --nocapture
 /// ```
 ///
 /// and paste the printed value below. The re-bless is justified because the
@@ -265,12 +265,12 @@ fn bless_or_assert(pixels: &[u8], baseline: u64, constant: &str) {
         hash, baseline,
         "{constant} pixel hash changed ({hash:#018x} != {baseline:#018x}). \
          If this is an intended visual change, re-bless with \
-         `BLESS=1 cargo test -p kaman-render --test pixel_hash` and update {constant} \
+         `BLESS=1 cargo test -p stickshift-render --test pixel_hash` and update {constant} \
          with a justification note."
     );
 }
 
-/// The 9-float-per-vertex layout used by `kaman-ecs` meshes, packed as raw bytes
+/// The 9-float-per-vertex layout used by `stickshift-ecs` meshes, packed as raw bytes
 /// for the seam: `[pos_xyz, normal_xyz, color_rgb]` == 36-byte stride.
 fn vertex_layout() -> VertexLayout {
     VertexLayout::new(
@@ -338,7 +338,7 @@ fn render_reference() -> Option<Vec<u8>> {
 
     // Fixed camera looking at the cube. The view now comes through the seam
     // (`set_view_projection`) instead of a backend-owned camera: build a
-    // `kaman_camera::Camera` here and push its view-projection below.
+    // `stickshift_camera::Camera` here and push its view-projection below.
     let mut camera = Camera::new(WIDTH as f32 / HEIGHT as f32);
     camera.set_position(Vec3::new(0.0, 0.0, 3.0));
     camera.set_target(Vec3::new(0.0, 0.0, 0.0));
@@ -350,8 +350,8 @@ fn render_reference() -> Option<Vec<u8>> {
         indices: &indices,
         layout: vertex_layout(),
     });
-    let pipeline = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor::new(
-        kaman_render_api::PipelineKind::VertexColor,
+    let pipeline = renderer.create_pipeline(&stickshift_render_api::PipelineDescriptor::new(
+        stickshift_render_api::PipelineKind::VertexColor,
     ));
 
     // A fixed, slightly-rotated transform so lighting is visible.
@@ -573,8 +573,8 @@ fn reference_overlay_matches_committed_hash() {
 ///
 /// The colours match the `playable-demo`'s summer-afternoon sun, so this
 /// reference guards the look the game actually asks for.
-fn reference_sun_sky() -> kaman_render_api::SunSky {
-    kaman_render_api::SunSky {
+fn reference_sun_sky() -> stickshift_render_api::SunSky {
+    stickshift_render_api::SunSky {
         sun_elevation_deg: 8.0,
         sun_azimuth_deg: 0.0,
         sun_color: [1.0, 0.96, 0.88],
@@ -773,11 +773,11 @@ const SHADOW_CENTROID_TOLERANCE_PX: f32 = 0.35;
 /// The sun the shadow reference is lit by: 50° up at `azimuth_deg` (the reference
 /// uses `270`, due **west**, so the light travels toward `+X` and the caster's
 /// shadow falls to its east).
-fn reference_shadow_sun(azimuth_deg: f32) -> kaman_render_api::SunSky {
-    kaman_render_api::SunSky {
+fn reference_shadow_sun(azimuth_deg: f32) -> stickshift_render_api::SunSky {
+    stickshift_render_api::SunSky {
         sun_elevation_deg: 50.0,
         sun_azimuth_deg: azimuth_deg,
-        ..kaman_render_api::SunSky::default()
+        ..stickshift_render_api::SunSky::default()
     }
 }
 
@@ -930,19 +930,19 @@ fn render_shadow_scene(variant: ShadowVariant) -> Option<Vec<u8>> {
     } = variant;
     let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
     if quality_off {
-        renderer.set_render_settings(&kaman_render_api::RenderSettings {
-            shadows: kaman_render_api::ShadowQuality::Off,
-            ..kaman_render_api::RenderSettings::default()
+        renderer.set_render_settings(&stickshift_render_api::RenderSettings {
+            shadows: stickshift_render_api::ShadowQuality::Off,
+            ..stickshift_render_api::RenderSettings::default()
         });
     }
     renderer.set_shadows_enabled(shadows);
     renderer.set_shadow_distance(shadow_distance);
 
-    let untextured = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor::new(
-        kaman_render_api::PipelineKind::VertexColor,
+    let untextured = renderer.create_pipeline(&stickshift_render_api::PipelineDescriptor::new(
+        stickshift_render_api::PipelineKind::VertexColor,
     ));
-    let textured = renderer.create_pipeline(&kaman_render_api::PipelineDescriptor::new(
-        kaman_render_api::PipelineKind::Textured,
+    let textured = renderer.create_pipeline(&stickshift_render_api::PipelineDescriptor::new(
+        stickshift_render_api::PipelineKind::Textured,
     ));
 
     let (cube_v, cube_i) = caster_cube();

@@ -48,11 +48,11 @@
 //! - [`RenderScale`]: the drawable's resolution as a fraction of the window's
 //!   native pixels. The platform upscales it to the window. The default, 50%, is
 //!   one drawable pixel per point on a Retina display. The
-//!   [`surface_scale`](kaman_render_api::RenderDevice::surface_scale) the
+//!   [`surface_scale`](stickshift_render_api::RenderDevice::surface_scale) the
 //!   renderer reports lets a HUD keep a constant size at every scale.
 
-use kaman_render_api::RenderSettings;
-pub use kaman_render_api::ShadowQuality;
+use stickshift_render_api::RenderSettings;
+pub use stickshift_render_api::ShadowQuality;
 
 /// How far shadows reach, relative to the [`DrawDistance`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -169,7 +169,7 @@ impl RenderScale {
     /// `physical_height` native pixels at `scale_factor` pixels per point.
     ///
     /// Returns `(width, height, pixels_per_point)`, what
-    /// [`RenderDevice::resize_surface`](kaman_render_api::RenderDevice::resize_surface)
+    /// [`RenderDevice::resize_surface`](stickshift_render_api::RenderDevice::resize_surface)
     /// takes. Dimensions are rounded and at least 1.
     #[must_use]
     pub fn surface_for(
@@ -209,8 +209,8 @@ pub const SHADOW_QUALITIES: [ShadowQuality; 3] =
 /// A game with its own options screen, cycling the draw distance on a key press:
 ///
 /// ```rust
-/// use kaman_core::graphics::{DrawDistance, GraphicsSettings};
-/// use kaman_core::{EngineCtx, Game, Key};
+/// use stickshift_core::graphics::{DrawDistance, GraphicsSettings};
+/// use stickshift_core::{EngineCtx, Game, Key};
 ///
 /// struct MyGame;
 /// impl Game for MyGame {
@@ -479,7 +479,7 @@ mod loop_tests {
     use super::*;
     use crate::headless::Headless;
     use crate::{EngineCtx, Game, Key};
-    use kaman_ecs::TransformComponent;
+    use stickshift_ecs::TransformComponent;
 
     /// Streams around a fixed focus every update, requests `on_q` when Q is
     /// pressed, and records every settings hook call.
@@ -500,12 +500,13 @@ mod loop_tests {
                     ctx.set_graphics_settings(s);
                 }
             }
-            ctx.scene_mut().stream(kaman_math::glam::Vec3::ZERO, |cx| {
-                let e = cx
-                    .world
-                    .spawn((TransformComponent::from_position(cx.position),));
-                cx.spawned(e);
-            });
+            ctx.scene_mut()
+                .stream(stickshift_math::glam::Vec3::ZERO, |cx| {
+                    let e = cx
+                        .world
+                        .spawn((TransformComponent::from_position(cx.position),));
+                    cx.spawned(e);
+                });
         }
         fn render(&mut self, _: &mut EngineCtx) {}
         fn graphics_settings_changed(&mut self, ctx: &mut EngineCtx, s: &GraphicsSettings) {

@@ -9,8 +9,8 @@
 //! match the Metal side exactly, so the sizes — and, for [`LightUniforms`], the
 //! offset of every alignment-sensitive field — are asserted by tests.
 
-use kaman_math::glam::{Mat3, Mat4, Vec3};
-use kaman_render_api::SunSky;
+use stickshift_math::glam::{Mat3, Mat4, Vec3};
+use stickshift_render_api::SunSky;
 
 use crate::shadow::ShadowFit;
 
@@ -389,7 +389,7 @@ mod tests {
     fn rotation_and_uniform_scale_keep_the_model_as_the_normal_matrix() {
         let model = Mat4::from_scale_rotation_translation(
             Vec3::splat(2.5),
-            kaman_math::glam::Quat::from_rotation_y(0.7),
+            stickshift_math::glam::Quat::from_rotation_y(0.7),
             Vec3::new(1.0, -2.0, 3.0),
         );
         assert_eq!(normal_matrix(model), model);
@@ -402,7 +402,7 @@ mod tests {
         // horizontal, while `model * n` would tip it toward the vertical.
         let model = Mat4::from_scale_rotation_translation(
             Vec3::new(1.0, 3.0, 1.0),
-            kaman_math::glam::Quat::from_rotation_y(0.5),
+            stickshift_math::glam::Quat::from_rotation_y(0.5),
             Vec3::ZERO,
         );
         let n = Vec3::new(0.0, 1.0, 1.0).normalize();

@@ -5,7 +5,7 @@
 //! The opaque [`SoundHandle`] a loaded sound is referenced by.
 //!
 //! Mirrors the render seam's handle discipline
-//! (`kaman-render-api`'s `MeshHandle` and friends): a load returns a token, and
+//! (`stickshift-render-api`'s `MeshHandle` and friends): a load returns a token, and
 //! everything afterwards is expressed in terms of that token. Game code stores
 //! handles and never learns what a sound is made of — no sample buffer, no
 //! decoder, and no `kira` type ever crosses the boundary.

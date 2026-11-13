@@ -1,4 +1,4 @@
-// Build script for kaman-render.
+// Build script for stickshift-render.
 //
 // The DEFAULT build needs no toolchain here: shaders compile at runtime via
 // `new_library_with_source` (see src/backend.rs). This script only does work when
@@ -28,7 +28,7 @@ fn main() {
         "macos" => "macosx",
         "ios" => "iphoneos",
         other => panic!(
-            "precompiled-shaders: unsupported target_os `{other}` — KamanEngine is Apple-only"
+            "precompiled-shaders: unsupported target_os `{other}` — Stick Shift Engine is Apple-only"
         ),
     };
 
@@ -71,7 +71,7 @@ fn main() {
 
     // Hand the compiled library path to the crate (src/backend.rs include_bytes! it).
     println!(
-        "cargo:rustc-env=KAMAN_RASTER_METALLIB={}",
+        "cargo:rustc-env=STICKSHIFT_RASTER_METALLIB={}",
         metallib.display()
     );
 }

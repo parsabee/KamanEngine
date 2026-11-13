@@ -11,8 +11,8 @@
 //! # Example
 //!
 //! ```rust
-//! use kaman_math::Transform;
-//! use kaman_math::glam::Vec3;
+//! use stickshift_math::Transform;
+//! use stickshift_math::glam::Vec3;
 //!
 //! // Create a transform at a position
 //! let transform = Transform::from_position(Vec3::new(1.0, 2.0, 3.0));
@@ -37,8 +37,8 @@ use glam::{Mat4, Quat, Vec3};
 /// # Example
 ///
 /// ```rust
-/// use kaman_math::Transform;
-/// use kaman_math::glam::{Vec3, Quat};
+/// use stickshift_math::Transform;
+/// use stickshift_math::glam::{Vec3, Quat};
 /// use std::f32::consts::PI;
 ///
 /// let mut transform = Transform::from_position(Vec3::new(0.0, 5.0, 0.0));
@@ -66,8 +66,8 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::{Vec3, Quat};
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::{Vec3, Quat};
     ///
     /// let transform = Transform::identity();
     /// assert_eq!(transform.position, Vec3::ZERO);
@@ -91,8 +91,8 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let transform = Transform::from_position(Vec3::new(1.0, 2.0, 3.0));
     /// assert_eq!(transform.position, Vec3::new(1.0, 2.0, 3.0));
@@ -117,8 +117,8 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::{Vec3, Quat};
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::{Vec3, Quat};
     /// use std::f32::consts::PI;
     ///
     /// let rotation = Quat::from_rotation_y(PI / 2.0); // 90° around Y axis
@@ -147,8 +147,8 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let transform = Transform::from_position(Vec3::new(1.0, 2.0, 3.0));
     /// let matrix = transform.to_matrix();
@@ -174,8 +174,8 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let transform = Transform::from_position(Vec3::new(5.0, 0.0, 0.0));
     /// let local = Vec3::new(1.0, 0.0, 0.0);
@@ -201,8 +201,8 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::{Vec3, Quat};
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::{Vec3, Quat};
     /// use std::f32::consts::PI;
     ///
     /// let rotation = Quat::from_rotation_y(PI / 2.0);
@@ -226,8 +226,8 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Quat;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Quat;
     /// use std::f32::consts::PI;
     ///
     /// let mut transform = Transform::identity();
@@ -246,8 +246,8 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut transform = Transform::identity();
     /// transform.translate(Vec3::new(1.0, 2.0, 3.0));

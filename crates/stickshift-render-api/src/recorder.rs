@@ -4,8 +4,8 @@
 
 //! The [`FrameRecorder`] trait — per-frame command recording.
 
-use kaman_math::glam::{Mat4, Vec3};
-use kaman_math::Transform;
+use stickshift_math::glam::{Mat4, Vec3};
+use stickshift_math::Transform;
 
 use crate::descriptor::MaterialParams;
 use crate::handles::{MeshHandle, PipelineHandle, TextureHandle};
@@ -75,9 +75,9 @@ pub trait FrameRecorder {
     ///
     /// This is the seam's per-frame camera state: the backend combines it with
     /// each draw's model transform to form the MVP (`mvp = view_proj * model`).
-    /// The matrix is a plain [`Mat4`] from [`kaman_math::glam`]; **no GPU or Metal
+    /// The matrix is a plain [`Mat4`] from [`stickshift_math::glam`]; **no GPU or Metal
     /// type crosses the seam**. A game computes it from a
-    /// [`kaman_camera::Camera`](https://docs.rs/kaman-camera) (or any source) and
+    /// [`stickshift_camera::Camera`](https://docs.rs/stickshift-camera) (or any source) and
     /// pushes it here.
     ///
     /// # Contract (ordering)
@@ -99,7 +99,7 @@ pub trait FrameRecorder {
     /// know where the eye is — needs the camera's *position* in world space, and
     /// recovering it by inverting the view-projection is both wasteful and
     /// numerically fragile. So the caller that already owns the camera pushes it
-    /// here, as a plain [`Vec3`] from [`kaman_math::glam`].
+    /// here, as a plain [`Vec3`] from [`stickshift_math::glam`].
     ///
     /// # Contract (ordering)
     /// - **Describes the same camera** as the most recent

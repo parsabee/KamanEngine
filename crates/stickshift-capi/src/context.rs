@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! [`KamanContext`]: the busy guard, the event queue and callback dispatch, the
+//! [`StickShiftContext`]: the busy guard, the event queue and callback dispatch, the
 //! per-call housekeeping, and the context and event functions.
 
 use std::cell::UnsafeCell;
@@ -11,8 +11,8 @@ use std::ffi::{c_char, CString};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
-use kaman_math::glam::{Mat4, Vec3};
-use kaman_render_api::{RenderSettings, ShadowQuality, SunSky};
+use stickshift_math::glam::{Mat4, Vec3};
+use stickshift_render_api::{RenderSettings, ShadowQuality, SunSky};
 
 use crate::backend::{Backend, NullBackend, PendingReadback};
 use crate::core::{call, call_or, input, output, Error};
@@ -30,45 +30,50 @@ pub(crate) const MAX_FRAMES_IN_FLIGHT: u64 = 3;
 pub(crate) const MAX_DIMENSION: u32 = 16384;
 
 /// An opaque rendering context. See `docs/C_API.md`.
-pub struct KamanContext {
+pub struct StickShiftContext {
     /// Set while a call is inside the context; a second, overlapping call gets
-    /// `KAMAN_ERROR_BUSY`.
+    /// `STICKSHIFT_ERROR_BUSY`.
     busy: AtomicBool,
     /// Callbacks being delivered (re-entrant calls are allowed; destroy is not).
     dispatching: AtomicU32,
     device_name: CString,
     inner: UnsafeCell<Inner>,
-    /// The one frame object, handed out by `kaman_frame_acquire`. Boxed so its
+    /// The one frame object, handed out by `stickshift_frame_acquire`. Boxed so its
     /// address is stable for the context's lifetime.
-    frame: Box<KamanFrame>,
+    frame: Box<StickShiftFrame>,
 }
 
 /// The frame being recorded on a context. See `docs/C_API.md`.
-pub struct KamanFrame {
-    ctx: *const KamanContext,
+pub struct StickShiftFrame {
+    ctx: *const StickShiftContext,
 }
 
 /// An event owned by the context until it is delivered.
 pub(crate) struct OwnedEvent {
-    pub(crate) kind: KamanEventType,
-    pub(crate) result: KamanResult,
+    pub(crate) kind: StickShiftEventType,
+    pub(crate) result: StickShiftResult,
     pub(crate) object: u64,
     pub(crate) frame: u64,
     pub(crate) message: Option<CString>,
 }
 
 impl OwnedEvent {
-    pub(crate) fn new(kind: KamanEventType, object: u64, frame: u64) -> Self {
+    pub(crate) fn new(kind: StickShiftEventType, object: u64, frame: u64) -> Self {
         Self {
             kind,
-            result: KAMAN_OK,
+            result: STICKSHIFT_OK,
             object,
             frame,
             message: None,
         }
     }
 
-    pub(crate) fn failed(kind: KamanEventType, object: u64, frame: u64, error: &Error) -> Self {
+    pub(crate) fn failed(
+        kind: StickShiftEventType,
+        object: u64,
+        frame: u64,
+        error: &Error,
+    ) -> Self {
         Self {
             kind,
             result: error.code,
@@ -78,8 +83,8 @@ impl OwnedEvent {
         }
     }
 
-    fn as_c(&self) -> KamanEvent {
-        KamanEvent {
+    fn as_c(&self) -> StickShiftEvent {
+        StickShiftEvent {
             kind: self.kind,
             result: self.result,
             object: self.object,
@@ -95,8 +100,8 @@ impl OwnedEvent {
 /// Callbacks and releases to run once the busy guard is dropped.
 #[derive(Default)]
 pub(crate) struct Due {
-    callbacks: Vec<(KamanCompletion, OwnedEvent)>,
-    releases: Vec<KamanData>,
+    callbacks: Vec<(StickShiftCompletion, OwnedEvent)>,
+    releases: Vec<StickShiftData>,
 }
 
 impl Due {
@@ -130,7 +135,7 @@ pub(crate) struct PendingRead {
     pub(crate) copy: Box<dyn PendingReadback>,
     pub(crate) dst: *mut u8,
     pub(crate) len: usize,
-    pub(crate) completion: Option<KamanCompletion>,
+    pub(crate) completion: Option<StickShiftCompletion>,
 }
 
 /// Counters not derived from the tables.
@@ -148,7 +153,7 @@ pub(crate) struct Inner {
     pub(crate) textures: Slots<TextureEntry>,
     pub(crate) models: Slots<ModelEntry>,
     pub(crate) fonts: Slots<FontEntry>,
-    /// Events waiting for `kaman_poll_events`.
+    /// Events waiting for `stickshift_poll_events`.
     queue: VecDeque<OwnedEvent>,
     /// Messages of the last poll batch; valid until the next poll.
     delivered: Vec<CString>,
@@ -161,14 +166,14 @@ pub(crate) struct Inner {
     /// Sticky sun and sky.
     pub(crate) sun: SunSky,
     /// Submitted frames not yet reported complete, oldest first.
-    pub(crate) pending_frames: VecDeque<(u64, Option<KamanCompletion>)>,
+    pub(crate) pending_frames: VecDeque<(u64, Option<StickShiftCompletion>)>,
     pub(crate) pending_reads: Vec<PendingRead>,
     pub(crate) counters: Counters,
 }
 
 impl Inner {
     /// Queue `event` for its completion callback, or for polling.
-    pub(crate) fn emit(&mut self, event: OwnedEvent, completion: Option<KamanCompletion>) {
+    pub(crate) fn emit(&mut self, event: OwnedEvent, completion: Option<StickShiftCompletion>) {
         match completion.filter(|c| c.callback.is_some()) {
             Some(completion) => self.due.callbacks.push((completion, event)),
             None => self.queue.push_back(event),
@@ -177,7 +182,7 @@ impl Inner {
 
     /// Release borrowed `data` at the end of the current call (a no-op for
     /// copied data).
-    pub(crate) fn release(&mut self, data: KamanData) {
+    pub(crate) fn release(&mut self, data: StickShiftData) {
         if data.release.is_some() {
             self.due.releases.push(data);
         }
@@ -195,7 +200,7 @@ impl Inner {
             }
             self.pending_frames.pop_front();
             self.emit(
-                OwnedEvent::new(KAMAN_EVENT_FRAME_COMPLETED, 0, frame),
+                OwnedEvent::new(STICKSHIFT_EVENT_FRAME_COMPLETED, 0, frame),
                 completion,
             );
         }
@@ -211,13 +216,13 @@ impl Inner {
             // this frame's read-back event, which is delivered after this copy.
             let dst = unsafe { std::slice::from_raw_parts_mut(read.dst, read.len) };
             let event = if read.copy.copy_to(dst) {
-                OwnedEvent::new(KAMAN_EVENT_READBACK_COMPLETE, 0, read.frame)
+                OwnedEvent::new(STICKSHIFT_EVENT_READBACK_COMPLETE, 0, read.frame)
             } else {
                 OwnedEvent::failed(
-                    KAMAN_EVENT_READBACK_FAILED,
+                    STICKSHIFT_EVENT_READBACK_FAILED,
                     0,
                     read.frame,
-                    &Error::new(KAMAN_ERROR_INTERNAL, "the read-back copy failed"),
+                    &Error::new(STICKSHIFT_ERROR_INTERNAL, "the read-back copy failed"),
                 )
             };
             self.emit(event, read.completion);
@@ -238,7 +243,7 @@ impl Inner {
 
 /// Holds the busy flag for the duration of a call.
 pub(crate) struct Guard<'a> {
-    ctx: &'a KamanContext,
+    ctx: &'a StickShiftContext,
 }
 
 impl Guard<'_> {
@@ -254,14 +259,14 @@ impl Drop for Guard<'_> {
     }
 }
 
-impl KamanContext {
+impl StickShiftContext {
     pub(crate) fn enter(&self) -> Result<Guard<'_>, Error> {
         self.busy
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .map(|_| Guard { ctx: self })
             .map_err(|_| {
                 Error::new(
-                    KAMAN_ERROR_BUSY,
+                    STICKSHIFT_ERROR_BUSY,
                     "another call on this context is in progress",
                 )
             })
@@ -283,7 +288,7 @@ impl KamanContext {
 /// # Safety
 /// `ctx` must be NULL or a live context.
 pub(crate) unsafe fn with_context<T>(
-    ctx: *mut KamanContext,
+    ctx: *mut StickShiftContext,
     body: impl FnOnce(&mut Inner) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let ctx = input(ctx.cast_const(), "ctx")?;
@@ -303,43 +308,43 @@ pub(crate) unsafe fn with_context<T>(
 /// # Safety
 /// `frame` must be NULL or a frame from a live context.
 pub(crate) unsafe fn with_frame<T>(
-    frame: *mut KamanFrame,
+    frame: *mut StickShiftFrame,
     body: impl FnOnce(&mut Inner) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let frame = input(frame.cast_const(), "frame")?;
     with_context(frame.ctx.cast_mut(), |inner| {
         if !inner.frame_open {
             return Err(Error::wrong_state(
-                "the frame is not open: acquire one with kaman_frame_acquire",
+                "the frame is not open: acquire one with stickshift_frame_acquire",
             ));
         }
         body(inner)
     })
 }
 
-/// The frame object of `ctx`, for `kaman_frame_acquire`.
-pub(crate) fn frame_of(ctx: &KamanContext) -> *mut KamanFrame {
-    std::ptr::from_ref::<KamanFrame>(&ctx.frame).cast_mut()
+/// The frame object of `ctx`, for `stickshift_frame_acquire`.
+pub(crate) fn frame_of(ctx: &StickShiftContext) -> *mut StickShiftFrame {
+    std::ptr::from_ref::<StickShiftFrame>(&ctx.frame).cast_mut()
 }
 
-fn shadow_quality(value: KamanShadowQuality) -> Result<ShadowQuality, Error> {
+fn shadow_quality(value: StickShiftShadowQuality) -> Result<ShadowQuality, Error> {
     match value {
-        KAMAN_SHADOW_QUALITY_OFF => Ok(ShadowQuality::Off),
-        KAMAN_SHADOW_QUALITY_LOW => Ok(ShadowQuality::Low),
-        KAMAN_SHADOW_QUALITY_HIGH => Ok(ShadowQuality::High),
+        STICKSHIFT_SHADOW_QUALITY_OFF => Ok(ShadowQuality::Off),
+        STICKSHIFT_SHADOW_QUALITY_LOW => Ok(ShadowQuality::Low),
+        STICKSHIFT_SHADOW_QUALITY_HIGH => Ok(ShadowQuality::High),
         other => Err(Error::invalid_argument(format!(
-            "{other} is not a KAMAN_SHADOW_QUALITY_* value"
+            "{other} is not a STICKSHIFT_SHADOW_QUALITY_* value"
         ))),
     }
 }
 
-impl From<RenderSettings> for KamanRenderSettings {
+impl From<RenderSettings> for StickShiftRenderSettings {
     fn from(s: RenderSettings) -> Self {
         Self {
             shadows: match s.shadows {
-                ShadowQuality::Off => KAMAN_SHADOW_QUALITY_OFF,
-                ShadowQuality::Low => KAMAN_SHADOW_QUALITY_LOW,
-                ShadowQuality::High => KAMAN_SHADOW_QUALITY_HIGH,
+                ShadowQuality::Off => STICKSHIFT_SHADOW_QUALITY_OFF,
+                ShadowQuality::Low => STICKSHIFT_SHADOW_QUALITY_LOW,
+                ShadowQuality::High => STICKSHIFT_SHADOW_QUALITY_HIGH,
             },
             shadow_distance: s.shadow_distance.unwrap_or(0.0),
             draw_distance_scale: s.draw_distance_scale,
@@ -347,7 +352,7 @@ impl From<RenderSettings> for KamanRenderSettings {
     }
 }
 
-fn render_settings(s: &KamanRenderSettings) -> Result<RenderSettings, Error> {
+fn render_settings(s: &StickShiftRenderSettings) -> Result<RenderSettings, Error> {
     let shadows = shadow_quality(s.shadows)?;
     if !(s.draw_distance_scale.is_finite() && s.draw_distance_scale > 0.0) {
         return Err(Error::invalid_argument(
@@ -384,25 +389,25 @@ fn check_dimensions(width: u32, height: u32) -> Result<(), Error> {
 ///
 /// # Safety
 /// `desc.metal_layer` must be NULL or a live Objective-C object.
-unsafe fn create_backend(desc: &KamanContextDesc) -> Result<Box<dyn Backend>, Error> {
+unsafe fn create_backend(desc: &StickShiftContextDesc) -> Result<Box<dyn Backend>, Error> {
     match desc.backend {
-        KAMAN_BACKEND_NULL => {
+        STICKSHIFT_BACKEND_NULL => {
             if !desc.metal_layer.is_null() {
                 return Err(Error::invalid_argument(
-                    "metal_layer must be NULL with KAMAN_BACKEND_NULL",
+                    "metal_layer must be NULL with STICKSHIFT_BACKEND_NULL",
                 ));
             }
             Ok(Box::new(NullBackend::new(desc.width, desc.height)))
         }
-        KAMAN_BACKEND_METAL => metal_backend(desc),
+        STICKSHIFT_BACKEND_METAL => metal_backend(desc),
         other => Err(Error::invalid_argument(format!(
-            "{other} is not a KAMAN_BACKEND_* value"
+            "{other} is not a STICKSHIFT_BACKEND_* value"
         ))),
     }
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn metal_backend(desc: &KamanContextDesc) -> Result<Box<dyn Backend>, Error> {
+unsafe fn metal_backend(desc: &StickShiftContextDesc) -> Result<Box<dyn Backend>, Error> {
     use crate::metal::MetalBackend;
     let backend = if desc.metal_layer.is_null() {
         MetalBackend::offscreen(desc.width, desc.height)?
@@ -413,32 +418,32 @@ unsafe fn metal_backend(desc: &KamanContextDesc) -> Result<Box<dyn Backend>, Err
 }
 
 #[cfg(not(target_os = "macos"))]
-unsafe fn metal_backend(_: &KamanContextDesc) -> Result<Box<dyn Backend>, Error> {
+unsafe fn metal_backend(_: &StickShiftContextDesc) -> Result<Box<dyn Backend>, Error> {
     Err(Error::new(
-        KAMAN_ERROR_NO_DEVICE,
-        "this build has no Metal backend (macOS only); use KAMAN_BACKEND_NULL",
+        STICKSHIFT_ERROR_NO_DEVICE,
+        "this build has no Metal backend (macOS only); use STICKSHIFT_BACKEND_NULL",
     ))
 }
 
 /// Create a context. On success `*out` is the new context, with
-/// `KAMAN_EVENT_CONTEXT_READY` already queued.
+/// `STICKSHIFT_EVENT_CONTEXT_READY` already queued.
 ///
 /// # Safety
 /// `desc` and `out` must be NULL or valid; `desc->metal_layer` must be NULL or
 /// a live `CAMetalLayer *`.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_context_create(
-    desc: *const KamanContextDesc,
-    out: *mut *mut KamanContext,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_context_create(
+    desc: *const StickShiftContextDesc,
+    out: *mut *mut StickShiftContext,
+) -> StickShiftResult {
     call(|| {
         let desc = input(desc, "desc")?;
         let out = output(out, "out")?;
-        if desc.api_version != KAMAN_API_VERSION {
+        if desc.api_version != STICKSHIFT_API_VERSION {
             return Err(Error::new(
-                KAMAN_ERROR_UNSUPPORTED,
+                STICKSHIFT_ERROR_UNSUPPORTED,
                 format!(
-                    "the header is API version {} but the library is {KAMAN_API_VERSION}",
+                    "the header is API version {} but the library is {STICKSHIFT_API_VERSION}",
                     desc.api_version
                 ),
             ));
@@ -465,20 +470,20 @@ pub unsafe extern "C" fn kaman_context_create(
             pending_reads: Vec::new(),
             counters: Counters::default(),
         };
-        inner.emit(OwnedEvent::new(KAMAN_EVENT_CONTEXT_READY, 0, 0), None);
-        let ctx = Box::into_raw(Box::new(KamanContext {
+        inner.emit(OwnedEvent::new(STICKSHIFT_EVENT_CONTEXT_READY, 0, 0), None);
+        let ctx = Box::into_raw(Box::new(StickShiftContext {
             busy: AtomicBool::new(false),
             dispatching: AtomicU32::new(0),
             device_name,
             inner: UnsafeCell::new(inner),
-            frame: Box::new(KamanFrame {
+            frame: Box::new(StickShiftFrame {
                 ctx: std::ptr::null(),
             }),
         }));
         // SAFETY: just allocated; the frame points back at its context.
         (*ctx).frame.ctx = ctx;
         *out = ctx;
-        Ok(KAMAN_OK)
+        Ok(STICKSHIFT_OK)
     })
 }
 
@@ -488,16 +493,18 @@ pub unsafe extern "C" fn kaman_context_create(
 ///
 /// # Safety
 /// `ctx` must be NULL or a live context; it is invalid after this returns
-/// `KAMAN_OK`.
+/// `STICKSHIFT_OK`.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_context_destroy(ctx: *mut KamanContext) -> KamanResult {
+pub unsafe extern "C" fn stickshift_context_destroy(
+    ctx: *mut StickShiftContext,
+) -> StickShiftResult {
     call(|| {
         let Some(context) = ctx.as_ref() else {
-            return Ok(KAMAN_OK);
+            return Ok(STICKSHIFT_OK);
         };
         if context.dispatching.load(Ordering::SeqCst) > 0 {
             return Err(Error::wrong_state(
-                "kaman_context_destroy cannot be called from a callback",
+                "stickshift_context_destroy cannot be called from a callback",
             ));
         }
         {
@@ -516,7 +523,7 @@ pub unsafe extern "C" fn kaman_context_destroy(ctx: *mut KamanContext) -> KamanR
                 std::thread::sleep(Duration::from_millis(1));
             }
             // Run releases while still holding the guard, so a release callback
-            // that calls back into the dying context gets KAMAN_ERROR_BUSY.
+            // that calls back into the dying context gets STICKSHIFT_ERROR_BUSY.
             // Undelivered callbacks are dropped with the context.
             Due {
                 callbacks: Vec::new(),
@@ -525,28 +532,28 @@ pub unsafe extern "C" fn kaman_context_destroy(ctx: *mut KamanContext) -> KamanR
             .run();
         }
         drop(Box::from_raw(ctx));
-        Ok(KAMAN_OK)
+        Ok(STICKSHIFT_OK)
     })
 }
 
 /// Resize a layer context's drawable to `width` × `height` pixels with `scale`
 /// pixels per point (`<= 0`: 1). Offscreen contexts keep their size
-/// (`KAMAN_ERROR_UNSUPPORTED`).
+/// (`STICKSHIFT_ERROR_UNSUPPORTED`).
 ///
 /// # Safety
 /// `ctx` must be NULL or a live context.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_context_resize(
-    ctx: *mut KamanContext,
+pub unsafe extern "C" fn stickshift_context_resize(
+    ctx: *mut StickShiftContext,
     width: u32,
     height: u32,
     scale: f32,
-) -> KamanResult {
+) -> StickShiftResult {
     call(|| {
         with_context(ctx, |inner| {
             if inner.backend.is_offscreen() {
                 return Err(Error::new(
-                    KAMAN_ERROR_UNSUPPORTED,
+                    STICKSHIFT_ERROR_UNSUPPORTED,
                     "an offscreen context has a fixed size",
                 ));
             }
@@ -557,7 +564,7 @@ pub unsafe extern "C" fn kaman_context_resize(
                 1.0
             };
             inner.backend.resize(width, height, scale);
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -567,17 +574,17 @@ pub unsafe extern "C" fn kaman_context_resize(
 /// # Safety
 /// `ctx` must be NULL or a live context; `width` and `height` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_context_get_size(
-    ctx: *mut KamanContext,
+pub unsafe extern "C" fn stickshift_context_get_size(
+    ctx: *mut StickShiftContext,
     width: *mut u32,
     height: *mut u32,
-) -> KamanResult {
+) -> StickShiftResult {
     call(|| {
         let width = output(width, "width")?;
         let height = output(height, "height")?;
         with_context(ctx, |inner| {
             (*width, *height) = inner.surface_size();
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -587,15 +594,15 @@ pub unsafe extern "C" fn kaman_context_get_size(
 /// # Safety
 /// `ctx` must be NULL or a live context; `settings` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_context_set_settings(
-    ctx: *mut KamanContext,
-    settings: *const KamanRenderSettings,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_context_set_settings(
+    ctx: *mut StickShiftContext,
+    settings: *const StickShiftRenderSettings,
+) -> StickShiftResult {
     call(|| {
         let settings = render_settings(input(settings, "settings")?)?;
         with_context(ctx, |inner| {
             inner.backend.set_settings(&settings);
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -605,15 +612,15 @@ pub unsafe extern "C" fn kaman_context_set_settings(
 /// # Safety
 /// `ctx` must be NULL or a live context; `out` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_context_get_settings(
-    ctx: *mut KamanContext,
-    out: *mut KamanRenderSettings,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_context_get_settings(
+    ctx: *mut StickShiftContext,
+    out: *mut StickShiftRenderSettings,
+) -> StickShiftResult {
     call(|| {
         let out = output(out, "out")?;
         with_context(ctx, |inner| {
             *out = inner.backend.settings().into();
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -624,7 +631,7 @@ pub unsafe extern "C" fn kaman_context_get_settings(
 /// # Safety
 /// `out` must be NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_render_settings_default(out: *mut KamanRenderSettings) {
+pub unsafe extern "C" fn stickshift_render_settings_default(out: *mut StickShiftRenderSettings) {
     if let Some(out) = out.as_mut() {
         *out = RenderSettings::default().into();
     }
@@ -635,14 +642,14 @@ pub unsafe extern "C" fn kaman_render_settings_default(out: *mut KamanRenderSett
 /// # Safety
 /// `ctx` must be NULL or a live context; `out` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_context_get_stats(
-    ctx: *mut KamanContext,
-    out: *mut KamanStats,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_context_get_stats(
+    ctx: *mut StickShiftContext,
+    out: *mut StickShiftStats,
+) -> StickShiftResult {
     call(|| {
         let out = output(out, "out")?;
         with_context(ctx, |inner| {
-            *out = KamanStats {
+            *out = StickShiftStats {
                 frames_submitted: inner.backend.submitted_frames(),
                 frames_completed: inner.backend.completed_frames(),
                 frames_skipped: inner.counters.frames_skipped,
@@ -654,7 +661,7 @@ pub unsafe extern "C" fn kaman_context_get_stats(
                 fonts: inner.fonts.len(),
                 loads_pending: inner.loader.as_ref().map_or(0, Loader::in_flight),
             };
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -664,7 +671,9 @@ pub unsafe extern "C" fn kaman_context_get_stats(
 /// # Safety
 /// `ctx` must be NULL or a live context.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_context_device_name(ctx: *mut KamanContext) -> *const c_char {
+pub unsafe extern "C" fn stickshift_context_device_name(
+    ctx: *mut StickShiftContext,
+) -> *const c_char {
     match ctx.as_ref() {
         Some(ctx) => ctx.device_name.as_ptr(),
         None => c"".as_ptr(),
@@ -679,12 +688,12 @@ pub unsafe extern "C" fn kaman_context_device_name(ctx: *mut KamanContext) -> *c
 /// `ctx` must be NULL or a live context; `events` NULL (with `capacity` 0) or
 /// valid for `capacity` events; `out_count` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_poll_events(
-    ctx: *mut KamanContext,
-    events: *mut KamanEvent,
+pub unsafe extern "C" fn stickshift_poll_events(
+    ctx: *mut StickShiftContext,
+    events: *mut StickShiftEvent,
     capacity: u32,
     out_count: *mut u32,
-) -> KamanResult {
+) -> StickShiftResult {
     call(|| {
         let out_count = output(out_count, "out_count")?;
         if events.is_null() && capacity > 0 {
@@ -704,7 +713,7 @@ pub unsafe extern "C" fn kaman_poll_events(
                 }
             }
             *out_count = n as u32;
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -715,14 +724,14 @@ pub unsafe extern "C" fn kaman_poll_events(
 /// # Safety
 /// `ctx` must be NULL or a live context.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_context_flush(ctx: *mut KamanContext) -> KamanResult {
+pub unsafe extern "C" fn stickshift_context_flush(ctx: *mut StickShiftContext) -> StickShiftResult {
     call(|| loop {
         let idle = with_context(ctx, |inner| {
             inner.pump();
             Ok(inner.idle())
         })?;
         if idle {
-            return Ok(KAMAN_OK);
+            return Ok(STICKSHIFT_OK);
         }
         std::thread::sleep(Duration::from_millis(1));
     })
@@ -734,13 +743,13 @@ pub unsafe extern "C" fn kaman_context_flush(ctx: *mut KamanContext) -> KamanRes
 /// # Safety
 /// `ctx` must be NULL or a live context.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_resource_state(
-    ctx: *mut KamanContext,
+pub unsafe extern "C" fn stickshift_resource_state(
+    ctx: *mut StickShiftContext,
     handle_id: u64,
-) -> KamanResourceState {
-    call_or(KAMAN_RESOURCE_STATE_INVALID, || {
+) -> StickShiftResourceState {
+    call_or(STICKSHIFT_RESOURCE_STATE_INVALID, || {
         with_context(ctx, |inner| Ok(crate::resources::state(inner, handle_id)))
-            .unwrap_or(KAMAN_RESOURCE_STATE_INVALID)
+            .unwrap_or(STICKSHIFT_RESOURCE_STATE_INVALID)
     })
 }
 
@@ -750,9 +759,9 @@ mod tests {
 
     #[test]
     fn a_second_enter_is_busy_until_the_first_guard_drops() {
-        let desc = KamanContextDesc {
-            api_version: KAMAN_API_VERSION,
-            backend: KAMAN_BACKEND_NULL,
+        let desc = StickShiftContextDesc {
+            api_version: STICKSHIFT_API_VERSION,
+            backend: STICKSHIFT_BACKEND_NULL,
             metal_layer: std::ptr::null_mut(),
             width: 4,
             height: 4,
@@ -760,46 +769,49 @@ mod tests {
         };
         let mut ctx = std::ptr::null_mut();
         // SAFETY: valid pointers to locals.
-        assert_eq!(unsafe { kaman_context_create(&desc, &mut ctx) }, KAMAN_OK);
+        assert_eq!(
+            unsafe { stickshift_context_create(&desc, &mut ctx) },
+            STICKSHIFT_OK
+        );
         // SAFETY: just created.
         let context = unsafe { &*ctx };
         let guard = context.enter().expect("first entry");
         assert_eq!(
             context.enter().err().map(|e| e.code),
-            Some(KAMAN_ERROR_BUSY)
+            Some(STICKSHIFT_ERROR_BUSY)
         );
         drop(guard);
         assert!(context.enter().is_ok());
         // SAFETY: no guard is held.
-        assert_eq!(unsafe { kaman_context_destroy(ctx) }, KAMAN_OK);
+        assert_eq!(unsafe { stickshift_context_destroy(ctx) }, STICKSHIFT_OK);
     }
 
     #[test]
     fn settings_are_validated() {
-        let ok = KamanRenderSettings {
-            shadows: KAMAN_SHADOW_QUALITY_LOW,
+        let ok = StickShiftRenderSettings {
+            shadows: STICKSHIFT_SHADOW_QUALITY_LOW,
             shadow_distance: 0.5,
             draw_distance_scale: 2.0,
         };
         let s = render_settings(&ok).unwrap();
         assert_eq!(s.shadows, ShadowQuality::Low);
         assert_eq!(s.shadow_distance, Some(0.5));
-        let matching = KamanRenderSettings {
+        let matching = StickShiftRenderSettings {
             shadow_distance: -1.0,
             ..ok
         };
         assert_eq!(render_settings(&matching).unwrap().shadow_distance, None);
         for bad in [
-            KamanRenderSettings { shadows: 9, ..ok },
-            KamanRenderSettings {
+            StickShiftRenderSettings { shadows: 9, ..ok },
+            StickShiftRenderSettings {
                 shadow_distance: 1.5,
                 ..ok
             },
-            KamanRenderSettings {
+            StickShiftRenderSettings {
                 shadow_distance: f32::NAN,
                 ..ok
             },
-            KamanRenderSettings {
+            StickShiftRenderSettings {
                 draw_distance_scale: 0.0,
                 ..ok
             },

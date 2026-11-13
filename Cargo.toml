@@ -28,8 +28,8 @@ edition = "2021"
 rust-version = "1.91"
 license = "Apache-2.0"
 authors = ["Parsa Bagheri"]
-repository = "https://github.com/parsabee/KamanEngine"
-homepage = "https://parsabee.github.io/KamanEngine/"
+repository = "https://github.com/parsabee/StickShiftEngine"
+homepage = "https://parsabee.github.io/StickShiftEngine/"
 # Not published to crates.io yet: the API is pre-release and the intra-workspace
 # path deps carry no version requirement. Crates inherit this via
 # `publish.workspace = true`.
@@ -42,17 +42,17 @@ publish = false
 [workspace.dependencies]
 # Intra-workspace crates. Path deps live here too so every consumer resolves the
 # same local copy without repeating the relative path.
-kaman-math = { path = "crates/stickshift-math" }
-kaman-perf = { path = "crates/stickshift-perf" }
-kaman-ecs = { path = "crates/stickshift-ecs" }
-kaman-physics = { path = "crates/stickshift-physics" }
-kaman-camera = { path = "crates/stickshift-camera" }
-kaman-scene = { path = "crates/stickshift-scene" }
-kaman-render-api = { path = "crates/stickshift-render-api" }
-kaman-render = { path = "crates/stickshift-render" }
-kaman-assets = { path = "crates/stickshift-assets" }
-kaman-audio = { path = "crates/stickshift-audio" }
-kaman-core = { path = "crates/stickshift-core" }
+stickshift-math = { path = "crates/stickshift-math" }
+stickshift-perf = { path = "crates/stickshift-perf" }
+stickshift-ecs = { path = "crates/stickshift-ecs" }
+stickshift-physics = { path = "crates/stickshift-physics" }
+stickshift-camera = { path = "crates/stickshift-camera" }
+stickshift-scene = { path = "crates/stickshift-scene" }
+stickshift-render-api = { path = "crates/stickshift-render-api" }
+stickshift-render = { path = "crates/stickshift-render" }
+stickshift-assets = { path = "crates/stickshift-assets" }
+stickshift-audio = { path = "crates/stickshift-audio" }
+stickshift-core = { path = "crates/stickshift-core" }
 
 glam = "0.29"
 # glTF import: pure-Rust parser, builds on the Command Line Tools (no
@@ -61,9 +61,9 @@ glam = "0.29"
 # (image decoding is the separate `image` dependency below).
 gltf = { version = "1.4", default-features = false, features = ["import", "utils"] }
 # Image decoding: decode glTF base-color images (PNG/JPEG) to RGBA8 in
-# `kaman-assets`. Pure-Rust codecs (no C toolchain beyond std); default features
+# `stickshift-assets`. Pure-Rust codecs (no C toolchain beyond std); default features
 # off so only the two codecs glTF assets commonly embed are pulled in — no metal,
-# no game baggage. `kaman-assets` stays engine-generic and metal-free.
+# no game baggage. `stickshift-assets` stays engine-generic and metal-free.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # Pure-Rust TrueType rasterizer. Dev-dependency only: the demo's `gen_font`
 # example uses it to bake the committed SDF font atlas; no runtime crate links it.
@@ -92,7 +92,7 @@ objc = "0.2"
 cocoa = "0.25"
 core-graphics-types = "0.1"
 raw-window-handle = "0.6"
-# Native platform UI in `kaman-core`: the built-in Graphics menu and
+# Native platform UI in `stickshift-core`: the built-in Graphics menu and
 # settings persistence. Pinned to the objc2 generation winit 0.30 already uses
 # (so no duplicate AppKit bindings are built), with only the AppKit/Foundation
 # classes the menu and `NSUserDefaults` need; no Metal/QuartzCore features.

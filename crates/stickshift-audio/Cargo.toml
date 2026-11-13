@@ -1,6 +1,6 @@
 [package]
-name = "kaman-audio"
-description = "Engine-generic audio for KamanEngine: load-once sounds, one-shot playback, looping music, master volume (over `kira`)."
+name = "stickshift-audio"
+description = "Engine-generic audio for Stick Shift Engine: load-once sounds, one-shot playback, looping music, master volume (over `kira`)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,8 +12,8 @@ publish.workspace = true
 
 [dependencies]
 # `kira` (and, through it, `cpal`) is this crate's ONLY dependency — not even
-# `kaman-math`. That makes `kaman-audio` a leaf, which is the point: `cpal` /
+# `stickshift-math`. That makes `stickshift-audio` a leaf, which is the point: `cpal` /
 # CoreAudio reaches the process through exactly one engine crate, and the one
-# crate above it (`kaman-core`). No other engine crate, and no crate below the
+# crate above it (`stickshift-core`). No other engine crate, and no crate below the
 # render seam, gains an audio dependency.
 kira.workspace = true

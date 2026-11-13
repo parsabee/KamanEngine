@@ -112,8 +112,8 @@
 //! inside the fog, which is already ~55% opaque where it begins; with a shorter
 //! override it is a gentle ramp in clear air.
 
-use kaman_math::glam::{Mat4, Vec3, Vec4};
-use kaman_render_api::ShadowQuality;
+use stickshift_math::glam::{Mat4, Vec3, Vec4};
+use stickshift_render_api::ShadowQuality;
 
 /// Edge length, in texels, of the square shadow map.
 ///
@@ -227,7 +227,7 @@ pub fn resolve_shadow_distance(fog_distance: f32, override_distance: Option<f32>
 /// at the cut (or at the far plane, if that is nearer).
 ///
 /// Derived from the inverse of the seam-provided view-projection alone (depth
-/// range `0..1`, as every `kaman_camera` projection uses), so it works for any
+/// range `0..1`, as every `stickshift_camera` projection uses), so it works for any
 /// camera. View depth is measured as clip-space `w`, the same quantity the lit
 /// shaders fog and fade with.
 #[must_use]
@@ -299,7 +299,7 @@ pub struct ShadowFit {
 ///
 /// `view_projection` is the frame's camera (as pushed through the seam),
 /// `light_direction` the direction the sunlight travels (the
-/// [`SunSky::direction`](kaman_render_api::SunSky::direction) — the backend passes
+/// [`SunSky::direction`](stickshift_render_api::SunSky::direction) — the backend passes
 /// the very vector it shades with), `shadow_distance` how deep the slab is, and
 /// `map_size` the shadow map's edge in texels. See the [module docs](self) for the
 /// strategy and its stability guarantee.
@@ -396,7 +396,7 @@ impl ShadowFit {
 mod tests {
     use super::*;
     use crate::vertex::LightUniforms;
-    use kaman_render_api::SunSky;
+    use stickshift_render_api::SunSky;
 
     /// The playable demo's chase camera clip range.
     const NEAR: f32 = 0.3;

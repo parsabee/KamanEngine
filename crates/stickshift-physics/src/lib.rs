@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! rapier3d wrapper with a body/collider removal API for KamanEngine.
+//! rapier3d wrapper with a body/collider removal API for Stick Shift Engine.
 //!
 //! This crate wraps the [rapier3d](https://rapier.rs) physics engine behind a
 //! small, engine-owned surface so that a later custom arcade-physics layer can
@@ -23,7 +23,7 @@
 //!
 //! Rigid-body and collider handles are rapier's own [`RigidBodyHandle`] and
 //! [`ColliderHandle`], re-exported here so downstream crates (notably
-//! `kaman-ecs`, whose `PhysicsBodyComponent` stores a [`RigidBodyHandle`])
+//! `stickshift-ecs`, whose `PhysicsBodyComponent` stores a [`RigidBodyHandle`])
 //! depend on a single, version-pinned copy of the handle type.
 //!
 //! # Invariants
@@ -37,12 +37,12 @@
 //!   rapier's generational handles (a removed slot's generation is bumped) and
 //!   is enforced by the `use_after_free_*` tests.
 //! - **Handle ownership.** A [`RigidBodyHandle`] stored in a
-//!   `kaman_ecs::PhysicsBodyComponent` is owned jointly by the ECS and this
+//!   `stickshift_ecs::PhysicsBodyComponent` is owned jointly by the ECS and this
 //!   world. It must be removed from physics (via [`remove_body`]) *atomically*
 //!   with clearing / despawning the component, so no live component ever holds
 //!   a handle that has already been freed here. This crate cannot enforce that
 //!   coupling on its own (it does not know about the ECS); the despawn
-//!   orchestration that upholds it lives in `kaman-scene`. Stale-handle safety above
+//!   orchestration that upholds it lives in `stickshift-scene`. Stale-handle safety above
 //!   is the backstop that keeps a transient mismatch memory-safe.
 //!
 //! [`remove_body`]: PhysicsWorld::remove_body
@@ -50,19 +50,19 @@
 //! # Timestep
 //!
 //! The solver advances in a fixed timestep. [`PhysicsWorld::step`] defaults to
-//! [`FIXED_DT`], which **must equal** `kaman_core::FIXED_DT` (`1/60 s`, the
+//! [`FIXED_DT`], which **must equal** `stickshift_core::FIXED_DT` (`1/60 s`, the
 //! engine-wide single source of truth per ARCHITECTURE §4). It is redefined
-//! locally rather than imported to avoid a dependency cycle: `kaman-core`
-//! depends on the ECS/scene layers that will depend on `kaman-physics`, so
-//! `kaman-physics` must not depend on `kaman-core`. A test asserts the two
+//! locally rather than imported to avoid a dependency cycle: `stickshift-core`
+//! depends on the ECS/scene layers that will depend on `stickshift-physics`, so
+//! `stickshift-physics` must not depend on `stickshift-core`. A test asserts the two
 //! constants match once both crates are in the same build.
 //!
 //! # Example
 //!
 //! ```rust
-//! use kaman_physics::PhysicsWorld;
-//! use kaman_math::Transform;
-//! use kaman_math::glam::Vec3;
+//! use stickshift_physics::PhysicsWorld;
+//! use stickshift_math::Transform;
+//! use stickshift_math::glam::Vec3;
 //!
 //! let mut physics = PhysicsWorld::new();
 //!
@@ -88,15 +88,15 @@
 
 #![deny(missing_docs)]
 
-use kaman_math::glam::{Quat, Vec3};
-use kaman_math::Transform;
 use rapier3d::na::{Quaternion, UnitQuaternion};
 use rapier3d::prelude::*;
+use stickshift_math::glam::{Quat, Vec3};
+use stickshift_math::Transform;
 
 /// Re-export of rapier's [`RigidBodyHandle`].
 ///
 /// Downstream crates reach the handle type through this path so the whole
-/// workspace shares one pinned rapier version. `kaman_ecs::PhysicsBodyComponent`
+/// workspace shares one pinned rapier version. `stickshift_ecs::PhysicsBodyComponent`
 /// stores a value of this exact type.
 pub use rapier3d::prelude::RigidBodyHandle;
 
@@ -108,9 +108,9 @@ pub use rapier3d::prelude::ColliderHandle;
 /// Fixed physics timestep, in seconds (`1/60 s`).
 ///
 /// This is the default `dt` for [`PhysicsWorld::step`]. It **must** equal
-/// `kaman_core::FIXED_DT`, the engine-wide fixed-update rate (ARCHITECTURE §4).
-/// It is defined here — rather than imported from `kaman-core` — to avoid a
-/// dependency cycle (`kaman-core` sits above the physics/scene layers). The
+/// `stickshift_core::FIXED_DT`, the engine-wide fixed-update rate (ARCHITECTURE §4).
+/// It is defined here — rather than imported from `stickshift-core` — to avoid a
+/// dependency cycle (`stickshift-core` sits above the physics/scene layers). The
 /// equality is asserted by a test in any build that includes both crates.
 pub const FIXED_DT: f32 = 1.0 / 60.0;
 
@@ -127,9 +127,9 @@ pub const FIXED_DT: f32 = 1.0 / 60.0;
 /// # Example
 ///
 /// ```rust
-/// use kaman_physics::PhysicsWorld;
-/// use kaman_math::Transform;
-/// use kaman_math::glam::Vec3;
+/// use stickshift_physics::PhysicsWorld;
+/// use stickshift_math::Transform;
+/// use stickshift_math::glam::Vec3;
 ///
 /// let mut physics = PhysicsWorld::new();
 ///
@@ -173,7 +173,7 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
+    /// use stickshift_physics::PhysicsWorld;
     ///
     /// let physics = PhysicsWorld::new();
     /// ```
@@ -190,8 +190,8 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// // Moon gravity (approximately 1/6 of Earth).
     /// let physics = PhysicsWorld::with_gravity(Vec3::new(0.0, -1.62, 0.0));
@@ -216,14 +216,14 @@ impl PhysicsWorld {
     /// Advances the physics simulation by one fixed timestep ([`FIXED_DT`]).
     ///
     /// Callers step the world exactly once per fixed engine update, so the
-    /// solver stays in lockstep with `kaman_core`'s fixed-timestep driver.
+    /// solver stays in lockstep with `stickshift_core`'s fixed-timestep driver.
     /// This is a convenience wrapper over [`step_dt`](Self::step_dt) with
     /// `dt = FIXED_DT`.
     ///
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
+    /// use stickshift_physics::PhysicsWorld;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// physics.step(); // Advance by FIXED_DT (~16.67ms).
@@ -278,9 +278,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let transform = Transform::from_position(Vec3::new(0.0, 10.0, 0.0));
@@ -322,9 +322,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let transform = Transform::from_position(Vec3::new(0.0, -1.0, 0.0));
@@ -367,9 +367,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let body = physics.create_dynamic_body(Transform::default());
@@ -401,9 +401,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let body = physics.create_dynamic_body(Transform::from_position(Vec3::new(0.0, 5.0, 0.0)));
@@ -447,9 +447,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let body = physics.create_dynamic_body(Transform::default());
@@ -491,9 +491,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let body = physics.create_dynamic_body(Transform::default());
@@ -529,9 +529,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let body = physics.create_dynamic_body(Transform::from_position(Vec3::new(0.0, 5.0, 0.0)));
@@ -566,9 +566,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let body = physics.create_dynamic_body(Transform::default());
@@ -588,7 +588,7 @@ impl PhysicsWorld {
     /// floating-origin rebase uses to shift every body by a fixed offset: the
     /// scene layer calls it once per body **between** physics steps, never
     /// mid-solve, so the solver never sees a discontinuous position within a
-    /// step (see the rebase-ordering invariant in `kaman-scene`).
+    /// step (see the rebase-ordering invariant in `stickshift-scene`).
     ///
     /// A stale / invalid handle is a safe no-op (stale-handle safe).
     ///
@@ -600,9 +600,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let body = physics.create_dynamic_body(Transform::from_position(Vec3::new(0.0, 5.0, 0.0)));
@@ -630,9 +630,9 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_physics::PhysicsWorld;
-    /// use kaman_math::Transform;
-    /// use kaman_math::glam::Vec3;
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// let body = physics.create_dynamic_body(Transform::from_position(Vec3::new(0.0, 5.0, 0.0)));
@@ -789,8 +789,8 @@ mod tests {
 
     #[test]
     fn fixed_dt_is_sixtieth_of_a_second() {
-        // Guards the local constant against drift from kaman_core::FIXED_DT.
-        // (kaman-physics does not depend on kaman-core to avoid a cycle, so the
+        // Guards the local constant against drift from stickshift_core::FIXED_DT.
+        // (stickshift-physics does not depend on stickshift-core to avoid a cycle, so the
         // value is mirrored here and pinned by this test.)
         assert_eq!(FIXED_DT, 1.0 / 60.0);
     }

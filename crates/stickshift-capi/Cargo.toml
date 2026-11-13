@@ -1,6 +1,6 @@
 [package]
-name = "kaman-capi"
-description = "C API for KamanEngine: libkaman (static and dynamic) and the generated kaman.h."
+name = "stickshift-capi"
+description = "C API for Stick Shift Engine: libstickshift (static and dynamic) and the generated stickshift.h."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,28 +11,28 @@ homepage.workspace = true
 publish.workspace = true
 
 [lib]
-# Built as `libkaman.a` / `libkaman.dylib` for C and Swift hosts, and as an rlib
+# Built as `libstickshift.a` / `libstickshift.dylib` for C and Swift hosts, and as an rlib
 # so the Rust integration tests can call the `extern "C"` functions directly.
-name = "kaman"
+name = "stickshift"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-kaman-math.workspace = true
-kaman-render-api.workspace = true
-# Graphics only: kaman-assets' default `ecs` feature (hecs + rapier) stays off.
+stickshift-math.workspace = true
+stickshift-render-api.workspace = true
+# Graphics only: stickshift-assets' default `ecs` feature (hecs + rapier) stays off.
 # A path dependency rather than `workspace = true` so `default-features = false`
 # takes effect.
-kaman-assets = { path = "../stickshift-assets", default-features = false }
+stickshift-assets = { path = "../stickshift-assets", default-features = false }
 
 [dev-dependencies]
 # Only to check that the projection helper matches the camera's.
-kaman-camera.workspace = true
+stickshift-camera.workspace = true
 
 # The Metal pixel test renders the same scene through the Rust API to compare.
 [target.'cfg(target_os = "macos")'.dev-dependencies]
-kaman-render.workspace = true
+stickshift-render.workspace = true
 
 # The Metal backend. Elsewhere only the null backend exists, which keeps the
 # crate (and its tests) building on any platform.
 [target.'cfg(target_os = "macos")'.dependencies]
-kaman-render.workspace = true
+stickshift-render.workspace = true

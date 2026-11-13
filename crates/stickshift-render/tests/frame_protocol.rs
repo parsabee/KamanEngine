@@ -21,9 +21,9 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use kaman_math::Transform;
-use kaman_render::{MetalRenderer, RenderError};
-use kaman_render_api::{
+use stickshift_math::Transform;
+use stickshift_render::{MetalRenderer, RenderError};
+use stickshift_render_api::{
     ColorSpace, FrameRecorder, MaterialParams, MeshData, OverlayQuad, PipelineDescriptor,
     PipelineKind, RenderDevice, TextureData, VertexAttribute, VertexFormat, VertexLayout,
 };
@@ -73,7 +73,7 @@ fn triangle_bytes(floats_per_vertex: usize) -> Vec<u8> {
     bytes
 }
 
-fn pipeline(r: &mut MetalRenderer, kind: PipelineKind) -> kaman_render_api::PipelineHandle {
+fn pipeline(r: &mut MetalRenderer, kind: PipelineKind) -> stickshift_render_api::PipelineHandle {
     r.create_pipeline(&PipelineDescriptor::new(kind))
 }
 
@@ -283,7 +283,7 @@ fn constructors_reject_bad_sizes_and_surfaces_before_touching_the_gpu() {
         Err(RenderError::InvalidSize { .. })
     ));
     assert!(matches!(
-        MetalRenderer::try_new_offscreen(16, kaman_render::MAX_TEXTURE_DIMENSION + 1),
+        MetalRenderer::try_new_offscreen(16, stickshift_render::MAX_TEXTURE_DIMENSION + 1),
         Err(RenderError::InvalidSize { .. })
     ));
     // SAFETY: a null pointer is explicitly allowed (and rejected).

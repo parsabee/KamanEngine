@@ -2,13 +2,13 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Application lifecycle and the engine/game boundary for KamanEngine.
+//! Application lifecycle and the engine/game boundary for Stick Shift Engine.
 //!
-//! `kaman-core` owns the engine loop and defines the seam every game plugs into.
-//! It sits at the top of the engine stack: it depends on `kaman-ecs`,
-//! `kaman-render-api`, `kaman-perf`, `kaman-math`, and `winit`, but **never** on
+//! `stickshift-core` owns the engine loop and defines the seam every game plugs into.
+//! It sits at the top of the engine stack: it depends on `stickshift-ecs`,
+//! `stickshift-render-api`, `stickshift-perf`, `stickshift-math`, and `winit`, but **never** on
 //! `metal` or the concrete renderer — all rendering goes through the
-//! `kaman-render-api` traits (ARCHITECTURE §2). Game concepts (vehicles, tracks,
+//! `stickshift-render-api` traits (ARCHITECTURE §2). Game concepts (vehicles, tracks,
 //! tallies, …) never enter this crate; a test enforces that (see the crate's
 //! no-game-symbols guard).
 //!
@@ -20,9 +20,9 @@
 //!   ([`init`](Game::init), [`update`](Game::update), [`render`](Game::render))
 //!   with a fixed call order; all game-specific code lives behind it.
 //! - [`EngineCtx`] — the narrow handle passed into each hook. It exposes only
-//!   engine services (the ECS [`World`](kaman_ecs::hecs::World), the render seam,
+//!   engine services (the ECS [`World`](stickshift_ecs::hecs::World), the render seam,
 //!   an [`InputState`], the [`Audio`] layer, and a
-//!   [`PerfSnapshot`](kaman_perf::PerfSnapshot)) through short-lived accessors, so
+//!   [`PerfSnapshot`](stickshift_perf::PerfSnapshot)) through short-lived accessors, so
 //!   a game can neither reach engine internals nor alias engine state.
 //!
 //! # Two drivers, one loop
@@ -31,7 +31,7 @@
 //! [`Accumulator`] (only the clock source differs):
 //!
 //! - [`headless`] — no window, no GPU, **no audio device**: against a
-//!   [`NullRenderer`](kaman_render_api::NullRenderer) and a silent [`Audio`]
+//!   [`NullRenderer`](stickshift_render_api::NullRenderer) and a silent [`Audio`]
 //!   layer, driven by a synthetic clock. This is what the `--smoke` oracle and
 //!   tests use; it runs on headless CI.
 //! - [`run`] — a `winit` window on macOS driving the identical hook sequence off
@@ -54,7 +54,7 @@
 //! # Example
 //!
 //! ```rust
-//! use kaman_core::{Game, EngineCtx, headless};
+//! use stickshift_core::{Game, EngineCtx, headless};
 //!
 //! struct Demo;
 //! impl Game for Demo {
@@ -93,13 +93,13 @@ pub use input::{InputState, Key, MouseButton};
 // Re-exported for the same reason `Scene` is: these are the types a game names
 // when it uses `EngineCtx::audio`, so it should not have to add a second
 // dependency to spell them.
-pub use kaman_audio::{Audio, SoundHandle, Volume};
-pub use kaman_scene::{Scene, SpawnCtx, StreamingConfig};
+pub use stickshift_audio::{Audio, SoundHandle, Volume};
+pub use stickshift_scene::{Scene, SpawnCtx, StreamingConfig};
 pub use timestep::{Accumulator, FIXED_DT, MAX_STEPS_PER_FRAME};
 
 #[cfg(test)]
 mod boundary_tests {
-    /// Engine/game boundary guard (extends the `kaman-ecs` boundary guard to `kaman-core`):
+    /// Engine/game boundary guard (extends the `stickshift-ecs` boundary guard to `stickshift-core`):
     /// no game-named symbol may leak into this crate.
     ///
     /// It embeds every source file of the crate with `include_str!` and scans
@@ -107,7 +107,7 @@ mod boundary_tests {
     /// game-specific identifier. If one appears anywhere the test fails, so a
     /// forbidden concept can't be added without this test seeing it.
     ///
-    /// As in `kaman-ecs`, the forbidden words are assembled from ASCII byte codes
+    /// As in `stickshift-ecs`, the forbidden words are assembled from ASCII byte codes
     /// rather than written as string literals, so this test's own source contains
     /// no occurrence of them — it can scan every file (including itself) with no
     /// exclusion window and never false-positive on its own body. Matching is
@@ -157,7 +157,7 @@ mod boundary_tests {
                     assert_ne!(
                         &lower, bad,
                         "game-specific identifier `{token}` found in {name}: \
-                         kaman-core must stay game-agnostic (engine/game boundary)",
+                         stickshift-core must stay game-agnostic (engine/game boundary)",
                     );
                 }
             }

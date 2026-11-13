@@ -1,6 +1,6 @@
 [package]
-name = "kaman-math"
-description = "Shared math layer for KamanEngine: glam re-export plus the Transform (TRS) type."
+name = "stickshift-math"
+description = "Shared math layer for Stick Shift Engine: glam re-export plus the Transform (TRS) type."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

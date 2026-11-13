@@ -7,7 +7,7 @@
 //! # Upload once, reference by handle
 //!
 //! Mesh geometry is uploaded into a persistent `MTLBuffer` **once** at load time
-//! ([`RenderDevice::create_mesh`](kaman_render_api::RenderDevice::create_mesh))
+//! ([`RenderDevice::create_mesh`](stickshift_render_api::RenderDevice::create_mesh))
 //! and thereafter referenced by an opaque
 //! [`MeshHandle`] on the hot draw path. The draw
 //! path performs **no allocation**: it looks the buffer up in this registry by
@@ -24,7 +24,7 @@
 //! - high [`GENERATION_BITS`] bits: the slot's generation at creation time
 //!
 //! Nothing above the render seam interprets these bits — the packing is entirely
-//! private to `kaman-render`.
+//! private to `stickshift-render`.
 //!
 //! # Stale-handle invariant
 //!
@@ -44,7 +44,7 @@
 //! index space, so the registry runs out only after about
 //! `MAX_SLOTS * 2^GENERATION_BITS` (some four billion) creations.
 
-use kaman_render_api::MeshHandle;
+use stickshift_render_api::MeshHandle;
 
 /// Number of low bits of a [`MeshHandle`] used for the slot index.
 pub const INDEX_BITS: u32 = 20;
@@ -78,7 +78,7 @@ pub enum RegistryError {
     UnknownHandle,
     /// The handle names a real slot, but the slot has since been freed (and
     /// possibly reused) — its generation no longer matches. Using a
-    /// [`destroy_mesh`](kaman_render_api::RenderDevice::destroy_mesh)'d handle
+    /// [`destroy_mesh`](stickshift_render_api::RenderDevice::destroy_mesh)'d handle
     /// lands here.
     StaleHandle,
 }

@@ -2,13 +2,13 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! Engine-generic static-mesh asset import for KamanEngine.
+//! Engine-generic static-mesh asset import for Stick Shift Engine.
 //!
-//! `kaman-assets` imports static **glTF** (`.gltf` / `.glb`) files into
+//! `stickshift-assets` imports static **glTF** (`.gltf` / `.glb`) files into
 //! engine-neutral geometry ([`SceneAsset`]) that is ready for the render seam,
 //! and provides a load-once/dedup [`AssetCache`] plus an ECS [`spawn_scene`]
 //! helper. It is **metal-free** and **engine-generic**: it depends only on
-//! [`gltf`], [`kaman_math`], [`kaman_render_api`], and [`kaman_ecs`] — never on
+//! [`gltf`], [`stickshift_math`], [`stickshift_render_api`], and [`stickshift_ecs`] — never on
 //! `metal` and never on any game crate.
 //!
 //! # Import → seam mapping
@@ -22,8 +22,8 @@
 //! parsed **UVs are retained** on [`MeshAsset::uvs`] — deliberately *not* packed
 //! into the render bytes — so the textured path can build a UV-carrying, textured vertex
 //! buffer without re-parsing the file. Each [`MeshAsset`] carries the packed
-//! `vertices`, `indices`, and its [`VertexLayout`](kaman_render_api::VertexLayout),
-//! ready to drop into [`MeshData`](kaman_render_api::MeshData).
+//! `vertices`, `indices`, and its [`VertexLayout`](stickshift_render_api::VertexLayout),
+//! ready to drop into [`MeshData`](stickshift_render_api::MeshData).
 //!
 //! # Load once, reference by handle
 //!
@@ -35,12 +35,12 @@
 //!
 //! [`spawn_scene`] turns a [`SceneAsset`]'s baked node graph into ECS entities
 //! (`TransformComponent` + `RenderComponent` + `StaticTag`). It lives here (not in
-//! a game crate) so any title reuses it; the `kaman-assets → kaman-ecs` edge is
+//! a game crate) so any title reuses it; the `stickshift-assets → stickshift-ecs` edge is
 //! acyclic. See the `spawn` module, which needs the default `ecs` feature.
 //!
 //! # Engine-generic boundary
 //!
-//! Like `kaman-ecs`, this crate carries **no** game concepts. A unit test scans
+//! Like `stickshift-ecs`, this crate carries **no** game concepts. A unit test scans
 //! the crate source for forbidden concept words so a game type cannot slip in.
 
 #![deny(missing_docs)]
@@ -63,9 +63,9 @@ pub use spawn::{render_component_from_mesh, spawn_scene};
 
 #[cfg(test)]
 mod guard_tests {
-    /// A-boundary guard: `kaman-assets` must stay engine-generic.
+    /// A-boundary guard: `stickshift-assets` must stay engine-generic.
     ///
-    /// Mirrors the `kaman-ecs` guard: it scans every source file in this crate,
+    /// Mirrors the `stickshift-ecs` guard: it scans every source file in this crate,
     /// token by token, for any game-specific identifier. The forbidden words are
     /// assembled from ASCII byte codes so they never appear literally in this file
     /// (the test cannot false-positive on its own body). Matching is
@@ -105,7 +105,7 @@ mod guard_tests {
                     assert_ne!(
                         &lower, bad,
                         "game-specific identifier `{token}` found: \
-                         kaman-assets must stay engine-generic",
+                         stickshift-assets must stay engine-generic",
                     );
                 }
             }

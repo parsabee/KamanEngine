@@ -5,12 +5,12 @@
 //! Frames: recorded CPU-side, re-checked and handed to the backend whole at
 //! submit. Acquiring a frame never waits.
 
-use kaman_math::glam::Mat4;
-use kaman_render_api::{ColorSpace, OverlayFill, OverlayQuad, PipelineKind, SunSky};
+use stickshift_math::glam::Mat4;
+use stickshift_render_api::{ColorSpace, OverlayFill, OverlayQuad, PipelineKind, SunSky};
 
 use crate::backend::{DrawCall, FrameData};
 use crate::context::{frame_of, with_context, with_frame, Inner, OwnedEvent, PendingRead};
-use crate::context::{KamanContext, KamanFrame, MAX_FRAMES_IN_FLIGHT};
+use crate::context::{StickShiftContext, StickShiftFrame, MAX_FRAMES_IN_FLIGHT};
 use crate::core::{call, input, utf8, Error};
 use crate::handles::{kind_of, Kind, Slots};
 use crate::models::{ModelEntry, ModelState};
@@ -31,7 +31,7 @@ pub(crate) struct Recording {
     /// The draws and quads still valid at submit.
     kept_draws: Vec<DrawCall>,
     kept_quads: Vec<OverlayQuad>,
-    readback: Option<(*mut u8, usize, Option<KamanCompletion>)>,
+    readback: Option<(*mut u8, usize, Option<StickShiftCompletion>)>,
 }
 
 impl Recording {
@@ -64,7 +64,11 @@ fn live(
 }
 
 /// A texture handle's backend texture; `INVALID_HANDLE` if it is not live.
-fn texture(inner: &Inner, id: u64, what: &str) -> Result<kaman_render_api::TextureHandle, Error> {
+fn texture(
+    inner: &Inner,
+    id: u64,
+    what: &str,
+) -> Result<stickshift_render_api::TextureHandle, Error> {
     inner
         .textures
         .get(id)
@@ -73,26 +77,26 @@ fn texture(inner: &Inner, id: u64, what: &str) -> Result<kaman_render_api::Textu
 }
 
 /// Report a requested read-back that will never arrive.
-fn fail_readback(inner: &mut Inner, frame: u64, completion: Option<KamanCompletion>) {
+fn fail_readback(inner: &mut Inner, frame: u64, completion: Option<StickShiftCompletion>) {
     let event = OwnedEvent::failed(
-        KAMAN_EVENT_READBACK_FAILED,
+        STICKSHIFT_EVENT_READBACK_FAILED,
         0,
         frame,
-        &Error::new(KAMAN_FRAME_SKIPPED, "the frame was not rendered"),
+        &Error::new(STICKSHIFT_FRAME_SKIPPED, "the frame was not rendered"),
     );
     inner.emit(event, completion);
 }
 
-/// Open a frame for recording. Never waits: `KAMAN_FRAME_SKIPPED` (and `*out`
+/// Open a frame for recording. Never waits: `STICKSHIFT_FRAME_SKIPPED` (and `*out`
 /// NULL) when the GPU has the maximum frames in flight or the drawable is empty.
 ///
 /// # Safety
 /// `ctx` must be NULL or a live context; `out` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_acquire(
-    ctx: *mut KamanContext,
-    out: *mut *mut KamanFrame,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_frame_acquire(
+    ctx: *mut StickShiftContext,
+    out: *mut *mut StickShiftFrame,
+) -> StickShiftResult {
     call(|| {
         let out = crate::core::output(out, "out")?;
         *out = std::ptr::null_mut();
@@ -106,13 +110,13 @@ pub unsafe extern "C" fn kaman_frame_acquire(
             if width == 0 || height == 0 || inner.backend.frames_in_flight() >= MAX_FRAMES_IN_FLIGHT
             {
                 inner.counters.frames_skipped += 1;
-                return Ok(KAMAN_FRAME_SKIPPED);
+                return Ok(STICKSHIFT_FRAME_SKIPPED);
             }
             inner.recording.clear();
             inner.frame_open = true;
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })?;
-        if code == KAMAN_OK {
+        if code == STICKSHIFT_OK {
             *out = frame_of(&*ctx);
         }
         Ok(code)
@@ -125,21 +129,21 @@ pub unsafe extern "C" fn kaman_frame_acquire(
 /// # Safety
 /// `frame` must be NULL or an open frame; `camera` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_set_camera(
-    frame: *mut KamanFrame,
-    camera: *const KamanCamera,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_frame_set_camera(
+    frame: *mut StickShiftFrame,
+    camera: *const StickShiftCamera,
+) -> StickShiftResult {
     call(|| {
         let camera = *input(camera, "camera")?;
         with_frame(frame, |inner| {
             inner.camera = (camera.view_projection.into(), camera.position.into());
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
 
-impl From<KamanSunSky> for SunSky {
-    fn from(s: KamanSunSky) -> Self {
+impl From<StickShiftSunSky> for SunSky {
+    fn from(s: StickShiftSunSky) -> Self {
         Self {
             sun_elevation_deg: s.sun_elevation_deg,
             sun_azimuth_deg: s.sun_azimuth_deg,
@@ -152,7 +156,7 @@ impl From<KamanSunSky> for SunSky {
     }
 }
 
-impl From<SunSky> for KamanSunSky {
+impl From<SunSky> for StickShiftSunSky {
     fn from(s: SunSky) -> Self {
         Self {
             sun_elevation_deg: s.sun_elevation_deg,
@@ -171,15 +175,15 @@ impl From<SunSky> for KamanSunSky {
 /// # Safety
 /// `frame` must be NULL or an open frame; `sun` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_set_sun_sky(
-    frame: *mut KamanFrame,
-    sun: *const KamanSunSky,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_frame_set_sun_sky(
+    frame: *mut StickShiftFrame,
+    sun: *const StickShiftSunSky,
+) -> StickShiftResult {
     call(|| {
         let sun = SunSky::from(*input(sun, "sun")?);
         with_frame(frame, |inner| {
             inner.sun = sun;
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -190,13 +194,13 @@ pub unsafe extern "C" fn kaman_frame_set_sun_sky(
 /// # Safety
 /// `out` must be NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_sun_sky_default(out: *mut KamanSunSky) {
+pub unsafe extern "C" fn stickshift_sun_sky_default(out: *mut StickShiftSunSky) {
     if let Some(out) = out.as_mut() {
         *out = SunSky::default().into();
     }
 }
 
-const WHITE: KamanColor = KamanColor {
+const WHITE: StickShiftColor = StickShiftColor {
     r: 1.0,
     g: 1.0,
     b: 1.0,
@@ -209,17 +213,17 @@ const WHITE: KamanColor = KamanColor {
 /// # Safety
 /// `frame` must be NULL or an open frame; `model` and `material` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_draw_mesh(
-    frame: *mut KamanFrame,
-    mesh: KamanMesh,
-    model: *const KamanMat4,
-    material: *const KamanMaterial,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_frame_draw_mesh(
+    frame: *mut StickShiftFrame,
+    mesh: StickShiftMesh,
+    model: *const StickShiftMat4,
+    material: *const StickShiftMaterial,
+) -> StickShiftResult {
     call(|| {
         let model = Mat4::from(*input(model, "model")?);
-        let material = material.as_ref().copied().unwrap_or(KamanMaterial {
+        let material = material.as_ref().copied().unwrap_or(StickShiftMaterial {
             base_color: WHITE,
-            base_color_texture: KamanTexture { id: 0 },
+            base_color_texture: StickShiftTexture { id: 0 },
         });
         with_frame(frame, |inner| {
             let entry = inner
@@ -245,23 +249,23 @@ pub unsafe extern "C" fn kaman_frame_draw_mesh(
                 },
             });
             recording.draw_sources.push((mesh.id, texture_id));
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
 
 /// Record a draw of every part of `model` at `*world`, its base colours
-/// multiplied by `*tint` (NULL: white). `KAMAN_NOT_READY` until it loads.
+/// multiplied by `*tint` (NULL: white). `STICKSHIFT_NOT_READY` until it loads.
 ///
 /// # Safety
 /// `frame` must be NULL or an open frame; `world` and `tint` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_draw_model(
-    frame: *mut KamanFrame,
-    model: KamanModel,
-    world: *const KamanMat4,
-    tint: *const KamanColor,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_frame_draw_model(
+    frame: *mut StickShiftFrame,
+    model: StickShiftModel,
+    world: *const StickShiftMat4,
+    tint: *const StickShiftColor,
+) -> StickShiftResult {
     call(|| {
         let world = Mat4::from(*input(world, "world")?);
         let tint = tint.as_ref().copied().unwrap_or(WHITE).to_array();
@@ -272,7 +276,7 @@ pub unsafe extern "C" fn kaman_frame_draw_model(
                 .ok_or_else(|| Error::invalid_handle("model"))?;
             if entry.state != ModelState::Ready {
                 inner.counters.draws_skipped += 1;
-                return Ok(KAMAN_NOT_READY);
+                return Ok(STICKSHIFT_NOT_READY);
             }
             for &(part, transform) in &entry.instances {
                 let part = &entry.parts[part];
@@ -289,7 +293,7 @@ pub unsafe extern "C" fn kaman_frame_draw_model(
                 });
                 inner.recording.draw_sources.push((model.id, 0));
             }
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -299,35 +303,35 @@ pub unsafe extern "C" fn kaman_frame_draw_model(
 /// # Safety
 /// `frame` must be NULL or an open frame; `quad` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_draw_quad(
-    frame: *mut KamanFrame,
-    quad: *const KamanQuad,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_frame_draw_quad(
+    frame: *mut StickShiftFrame,
+    quad: *const StickShiftQuad,
+) -> StickShiftResult {
     call(|| {
         let q = *input(quad, "quad")?;
         with_frame(frame, |inner| {
             let (fill, source) = match q.fill {
-                KAMAN_FILL_SOLID => (OverlayFill::Solid, 0),
-                KAMAN_FILL_TEXTURE => (
+                STICKSHIFT_FILL_SOLID => (OverlayFill::Solid, 0),
+                STICKSHIFT_FILL_TEXTURE => (
                     OverlayFill::Textured(texture(inner, q.texture.id, "texture")?),
                     q.texture.id,
                 ),
-                KAMAN_FILL_SDF => {
+                STICKSHIFT_FILL_SDF => {
                     let entry = inner
                         .textures
                         .get(q.texture.id)
                         .ok_or_else(|| Error::invalid_handle("texture"))?;
                     if entry.color_space != ColorSpace::Linear {
                         return Err(Error::invalid_argument(
-                            "a KAMAN_FILL_SDF texture holds distances, not colour: create it \
-                             with KAMAN_COLOR_SPACE_LINEAR",
+                            "a STICKSHIFT_FILL_SDF texture holds distances, not colour: create it \
+                             with STICKSHIFT_COLOR_SPACE_LINEAR",
                         ));
                     }
                     (OverlayFill::Sdf(entry.handle), q.texture.id)
                 }
                 other => {
                     return Err(Error::invalid_argument(format!(
-                        "{other} is not a KAMAN_FILL_* value"
+                        "{other} is not a STICKSHIFT_FILL_* value"
                     )))
                 }
             };
@@ -338,27 +342,27 @@ pub unsafe extern "C" fn kaman_frame_draw_quad(
                 fill,
             });
             inner.recording.quad_sources.push(source);
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
 
 /// Record `text` in `font` with the pen starting at `(x, y)` (the left end of
-/// the first line's baseline) at `px` pixels per em. `KAMAN_NOT_READY` if the
+/// the first line's baseline) at `px` pixels per em. `STICKSHIFT_NOT_READY` if the
 /// font's atlas texture has been destroyed.
 ///
 /// # Safety
 /// `frame` must be NULL or an open frame; `text` NULL or NUL-terminated.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_draw_text(
-    frame: *mut KamanFrame,
-    font: KamanFont,
+pub unsafe extern "C" fn stickshift_frame_draw_text(
+    frame: *mut StickShiftFrame,
+    font: StickShiftFont,
     text: *const std::ffi::c_char,
     x: f32,
     y: f32,
     px: f32,
-    color: KamanColor,
-) -> KamanResult {
+    color: StickShiftColor,
+) -> StickShiftResult {
     call(|| {
         let text = utf8(text, "text")?;
         with_frame(frame, |inner| {
@@ -368,7 +372,7 @@ pub unsafe extern "C" fn kaman_frame_draw_text(
                 .ok_or_else(|| Error::invalid_handle("font"))?;
             if inner.textures.get(entry.atlas_id).is_none() {
                 inner.counters.draws_skipped += 1;
-                return Ok(KAMAN_NOT_READY);
+                return Ok(STICKSHIFT_NOT_READY);
             }
             let atlas_id = entry.atlas_id;
             let recording = &mut inner.recording;
@@ -378,7 +382,7 @@ pub unsafe extern "C" fn kaman_frame_draw_text(
                     recording.quads.push(quad);
                     recording.quad_sources.push(atlas_id);
                 });
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -391,12 +395,12 @@ pub unsafe extern "C" fn kaman_frame_draw_text(
 /// `frame` must be NULL or an open frame; `dst` valid for writes of `len`
 /// bytes until the event; `completion` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_read_pixels_async(
-    frame: *mut KamanFrame,
+pub unsafe extern "C" fn stickshift_frame_read_pixels_async(
+    frame: *mut StickShiftFrame,
     dst: *mut std::ffi::c_void,
     len: usize,
-    completion: *const KamanCompletion,
-) -> KamanResult {
+    completion: *const StickShiftCompletion,
+) -> StickShiftResult {
     call(|| {
         let completion = completion.as_ref().copied();
         if dst.is_null() {
@@ -405,7 +409,7 @@ pub unsafe extern "C" fn kaman_frame_read_pixels_async(
         with_frame(frame, |inner| {
             if !inner.backend.is_offscreen() {
                 return Err(Error::new(
-                    KAMAN_ERROR_UNSUPPORTED,
+                    STICKSHIFT_ERROR_UNSUPPORTED,
                     "read-back needs an offscreen context",
                 ));
             }
@@ -420,13 +424,13 @@ pub unsafe extern "C" fn kaman_frame_read_pixels_async(
                 return Err(Error::wrong_state("this frame already has a read-back"));
             }
             inner.recording.readback = Some((dst.cast(), need, completion));
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
 
 /// Encode, commit and present the frame, then close it. Never waits for the
-/// GPU. `KAMAN_FRAME_SKIPPED` if the layer gave no drawable. `completion`
+/// GPU. `STICKSHIFT_FRAME_SKIPPED` if the layer gave no drawable. `completion`
 /// receives the frame's `FRAME_COMPLETED`; `*out_frame_number` (optional) is
 /// the frame's number, or 0 when skipped.
 ///
@@ -434,11 +438,11 @@ pub unsafe extern "C" fn kaman_frame_read_pixels_async(
 /// `frame` must be NULL or an open frame; `completion` and `out_frame_number`
 /// NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_submit(
-    frame: *mut KamanFrame,
-    completion: *const KamanCompletion,
+pub unsafe extern "C" fn stickshift_frame_submit(
+    frame: *mut StickShiftFrame,
+    completion: *const StickShiftCompletion,
     out_frame_number: *mut u64,
-) -> KamanResult {
+) -> StickShiftResult {
     call(|| {
         let completion = completion.as_ref().copied();
         let mut number = 0;
@@ -483,7 +487,7 @@ pub unsafe extern "C" fn kaman_frame_submit(
                 if let Some((_, _, read_completion)) = readback {
                     fail_readback(inner, 0, read_completion);
                 }
-                return Ok(KAMAN_FRAME_SKIPPED);
+                return Ok(STICKSHIFT_FRAME_SKIPPED);
             };
             inner.counters.draws_submitted += drawn;
             inner
@@ -505,7 +509,7 @@ pub unsafe extern "C" fn kaman_frame_submit(
                 (None, _) => {}
             }
             number = submitted.frame;
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })?;
         if let Some(out) = out_frame_number.as_mut() {
             *out = number;
@@ -519,7 +523,7 @@ pub unsafe extern "C" fn kaman_frame_submit(
 /// # Safety
 /// `frame` must be NULL or an open frame.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_frame_discard(frame: *mut KamanFrame) -> KamanResult {
+pub unsafe extern "C" fn stickshift_frame_discard(frame: *mut StickShiftFrame) -> StickShiftResult {
     call(|| {
         with_frame(frame, |inner| {
             let readback = inner.recording.readback.take();
@@ -528,7 +532,7 @@ pub unsafe extern "C" fn kaman_frame_discard(frame: *mut KamanFrame) -> KamanRes
             if let Some((_, _, completion)) = readback {
                 fail_readback(inner, 0, completion);
             }
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }

@@ -13,7 +13,7 @@
 //! a chase camera (see [`crate::chase`]), and those controllers migrate lazily if
 //! a consumer needs them.
 
-use kaman_math::glam::{Mat4, Vec3};
+use stickshift_math::glam::{Mat4, Vec3};
 
 /// A perspective camera positioned at `position` and looking toward `target`.
 ///
@@ -25,8 +25,8 @@ use kaman_math::glam::{Mat4, Vec3};
 /// # Example
 ///
 /// ```rust
-/// use kaman_camera::Camera;
-/// use kaman_math::glam::Vec3;
+/// use stickshift_camera::Camera;
+/// use stickshift_math::glam::Vec3;
 ///
 /// let mut camera = Camera::new(16.0 / 9.0);
 /// camera.set_position(Vec3::new(0.0, 5.0, 10.0));
@@ -57,7 +57,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_camera::Camera;
+    /// use stickshift_camera::Camera;
     ///
     /// let camera = Camera::new(16.0 / 9.0);
     /// ```
@@ -109,7 +109,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use kaman_camera::Camera;
+    /// use stickshift_camera::Camera;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
     /// camera.set_clip_planes(0.3, 300.0);

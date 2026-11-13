@@ -3,7 +3,7 @@
 // This software is released under the Apache-2.0 License.
 
 //! The render pass: [`CarRunner`]'s half of the
-//! [`Game::render`](kaman_core::Game::render) hook.
+//! [`Game::render`](stickshift_core::Game::render) hook.
 //!
 //! Draws are grouped by pipeline, in this order, so each pipeline switch and
 //! texture bind happens once per group rather than once per entity:
@@ -18,14 +18,14 @@
 //!    pipeline).
 //!
 //! All meshes/textures/pipelines are created once in
-//! [`Game::init`](kaman_core::Game::init) and only referenced here by
+//! [`Game::init`](stickshift_core::Game::init) and only referenced here by
 //! handle; this module never allocates a GPU resource.
 
-use kaman_core::EngineCtx;
-use kaman_ecs::{PhysicsBodyComponent, RenderComponent, TransformComponent};
-use kaman_math::glam::{Quat, Vec3};
-use kaman_math::Transform;
-use kaman_render_api::MaterialParams;
+use stickshift_core::EngineCtx;
+use stickshift_ecs::{PhysicsBodyComponent, RenderComponent, TransformComponent};
+use stickshift_math::glam::{Quat, Vec3};
+use stickshift_math::Transform;
+use stickshift_render_api::MaterialParams;
 
 use crate::assets::{pick_model, CarPart};
 use crate::components::{BuildingVariant, GuardrailTag, PlacedModel, TrafficVariant};

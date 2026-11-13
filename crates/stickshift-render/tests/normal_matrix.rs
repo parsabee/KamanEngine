@@ -12,13 +12,13 @@
 //! pass by accident. No golden image: both sides are rendered here.
 //!
 //! Skips (prints a line, returns) when no Metal device is available, unless
-//! `KAMAN_REQUIRE_GPU` is set.
+//! `STICKSHIFT_REQUIRE_GPU` is set.
 
-use kaman_camera::Camera;
-use kaman_math::glam::{Mat3, Quat, Vec3};
-use kaman_math::Transform;
-use kaman_render::MetalRenderer;
-use kaman_render_api::{
+use stickshift_camera::Camera;
+use stickshift_math::glam::{Mat3, Quat, Vec3};
+use stickshift_math::Transform;
+use stickshift_render::MetalRenderer;
+use stickshift_render_api::{
     FrameRecorder, MaterialParams, MeshData, PipelineDescriptor, PipelineKind, RenderDevice,
 };
 

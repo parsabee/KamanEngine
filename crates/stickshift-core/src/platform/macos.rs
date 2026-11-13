@@ -7,9 +7,9 @@
 //!
 //! # How a click gets back into the engine loop
 //!
-//! 1. Every settings item targets one `KamanMenuTarget`, a tiny `NSObject`
+//! 1. Every settings item targets one `StickShiftMenuTarget`, a tiny `NSObject`
 //!    subclass declared with `objc2`, and uses one action,
-//!    `kamanGraphicsItemSelected:`. The item's integer `tag` encodes which
+//!    `stickshiftGraphicsItemSelected:`. The item's integer `tag` encodes which
 //!    [`MenuCommand`] it is (see [`MenuCommand::tag`]).
 //! 2. AppKit calls that action on the main thread, from its own run loop, never
 //!    in the middle of an engine frame. The target decodes the tag and posts an
@@ -42,27 +42,27 @@ use crate::app::EngineEvent;
 use crate::graphics::GraphicsSettings;
 use crate::settings_menu::{submenus, MenuCommand, ACTIONS, MENU_TITLE};
 
-/// Instance variables of [`KamanMenuTarget`]: where to post clicks.
+/// Instance variables of [`StickShiftMenuTarget`]: where to post clicks.
 pub(crate) struct TargetIvars {
     proxy: EventLoopProxy<EngineEvent>,
 }
 
 declare_class!(
     /// The action target shared by every Graphics menu item.
-    struct KamanMenuTarget;
+    struct StickShiftMenuTarget;
 
-    unsafe impl ClassType for KamanMenuTarget {
+    unsafe impl ClassType for StickShiftMenuTarget {
         type Super = NSObject;
         type Mutability = mutability::MainThreadOnly;
-        const NAME: &'static str = "KamanMenuTarget";
+        const NAME: &'static str = "StickShiftMenuTarget";
     }
 
-    impl DeclaredClass for KamanMenuTarget {
+    impl DeclaredClass for StickShiftMenuTarget {
         type Ivars = TargetIvars;
     }
 
-    unsafe impl KamanMenuTarget {
-        #[method(kamanGraphicsItemSelected:)]
+    unsafe impl StickShiftMenuTarget {
+        #[method(stickshiftGraphicsItemSelected:)]
         fn item_selected(&self, sender: &NSMenuItem) {
             // SAFETY: reading an `NSMenuItem`'s tag on the main thread (this
             // class is main-thread-only).
@@ -75,10 +75,10 @@ declare_class!(
         }
     }
 
-    unsafe impl NSObjectProtocol for KamanMenuTarget {}
+    unsafe impl NSObjectProtocol for StickShiftMenuTarget {}
 );
 
-impl KamanMenuTarget {
+impl StickShiftMenuTarget {
     fn new(mtm: MainThreadMarker, proxy: EventLoopProxy<EngineEvent>) -> Retained<Self> {
         let this = mtm.alloc::<Self>().set_ivars(TargetIvars { proxy });
         // SAFETY: `NSObject`'s designated initializer, called once on a fresh
@@ -90,7 +90,7 @@ impl KamanMenuTarget {
 /// The installed Graphics menu: the native items, and the target they call.
 pub(crate) struct SettingsMenu {
     /// Kept alive here: menu items reference their target weakly.
-    _target: Retained<KamanMenuTarget>,
+    _target: Retained<StickShiftMenuTarget>,
     /// Every item that stands for a [`MenuCommand`], for [`sync`](Self::sync).
     items: Vec<(Retained<NSMenuItem>, MenuCommand)>,
 }
@@ -102,8 +102,8 @@ impl SettingsMenu {
     /// `resumed`, which winit calls on the main thread).
     pub(crate) fn install(proxy: EventLoopProxy<EngineEvent>) -> Option<Self> {
         let mtm = MainThreadMarker::new()?;
-        let target = KamanMenuTarget::new(mtm, proxy);
-        let action = sel!(kamanGraphicsItemSelected:);
+        let target = StickShiftMenuTarget::new(mtm, proxy);
+        let action = sel!(stickshiftGraphicsItemSelected:);
         let target_obj: &AnyObject = &target;
 
         let make_item = |command: MenuCommand| -> Retained<NSMenuItem> {
@@ -119,7 +119,7 @@ impl SettingsMenu {
                 _ => ("", None),
             };
             // SAFETY: plain AppKit object construction and configuration on the
-            // main thread; the selector names the method `KamanMenuTarget`
+            // main thread; the selector names the method `StickShiftMenuTarget`
             // implements, and the target outlives the item's use of it (both are
             // owned by the returned `SettingsMenu`).
             unsafe {
@@ -219,10 +219,10 @@ impl SettingsMenu {
 /// `NSUserDefaults` keys for the four settings, in
 /// [`GraphicsSettings::to_codes`] order.
 const DEFAULTS_KEYS: [&str; 4] = [
-    "KamanEngine.graphics.shadows",
-    "KamanEngine.graphics.shadowDistance",
-    "KamanEngine.graphics.drawDistance",
-    "KamanEngine.graphics.renderScale",
+    "StickShiftEngine.graphics.shadows",
+    "StickShiftEngine.graphics.shadowDistance",
+    "StickShiftEngine.graphics.drawDistance",
+    "StickShiftEngine.graphics.renderScale",
 ];
 
 /// Read the settings saved by a previous launch, or `None` if none were saved.

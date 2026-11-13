@@ -7,7 +7,7 @@
 //!
 //! These are the renderer-facing half of the engine's graphics settings. The
 //! user-facing presets ("Near / Medium / Far", "Match Draw Distance", …) live in
-//! `kaman-core`, which turns them into a [`RenderSettings`] and pushes it with
+//! `stickshift-core`, which turns them into a [`RenderSettings`] and pushes it with
 //! [`RenderDevice::set_render_settings`](crate::RenderDevice::set_render_settings).
 //! Like [`SunSky`](crate::SunSky), the value is plain data with **no GPU type**, and
 //! the backend decides what each tier costs. For example, the texel count of a
@@ -27,7 +27,7 @@
 /// # Example
 ///
 /// ```rust
-/// use kaman_render_api::ShadowQuality;
+/// use stickshift_render_api::ShadowQuality;
 ///
 /// assert_eq!(ShadowQuality::default(), ShadowQuality::High);
 /// assert!(!ShadowQuality::Off.casts_shadows());
@@ -62,7 +62,7 @@ impl ShadowQuality {
 /// # Example
 ///
 /// ```rust
-/// use kaman_render_api::{RenderSettings, ShadowQuality};
+/// use stickshift_render_api::{RenderSettings, ShadowQuality};
 ///
 /// // Half the draw distance, with shadows only over the nearest quarter of it.
 /// let settings = RenderSettings {

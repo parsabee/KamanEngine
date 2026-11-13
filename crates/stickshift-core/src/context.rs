@@ -20,12 +20,12 @@
 //! [`renderer`](EngineCtx::renderer), …); those borrows end at the end of the
 //! statement, so the game cannot hold two conflicting mutable views at once.
 
-use kaman_audio::Audio;
-use kaman_camera::Camera;
-use kaman_ecs::hecs::World;
-use kaman_perf::PerfSnapshot;
-use kaman_render_api::{FrameRecorder, RenderDevice};
-use kaman_scene::Scene;
+use stickshift_audio::Audio;
+use stickshift_camera::Camera;
+use stickshift_ecs::hecs::World;
+use stickshift_perf::PerfSnapshot;
+use stickshift_render_api::{FrameRecorder, RenderDevice};
+use stickshift_scene::Scene;
 
 use crate::graphics::{GraphicsSettings, GraphicsState};
 use crate::input::InputState;
@@ -34,9 +34,9 @@ use crate::input::InputState;
 /// resource ownership) and a [`FrameRecorder`] (per-frame command recording).
 ///
 /// The engine owns one renderer implementing both halves of the
-/// `kaman-render-api` seam and exposes it to the game as a single
+/// `stickshift-render-api` seam and exposes it to the game as a single
 /// `&mut dyn Renderer`. The concrete backend is the Metal renderer or a
-/// [`NullRenderer`](kaman_render_api::NullRenderer) (headless runs and tests),
+/// [`NullRenderer`](stickshift_render_api::NullRenderer) (headless runs and tests),
 /// both behind the same trait object, so game code is unaffected.
 ///
 /// This is a pure marker: it adds no methods, only bundles the two seam traits
@@ -175,7 +175,7 @@ impl<'a> EngineCtx<'a> {
     /// A game creates resources (at load time, typically in
     /// [`init`](crate::Game::init)) and records the frame (in
     /// [`render`](crate::Game::render)) through this one handle. The concrete
-    /// backend is [`NullRenderer`](kaman_render_api::NullRenderer) headless and
+    /// backend is [`NullRenderer`](stickshift_render_api::NullRenderer) headless and
     /// the Metal backend in a window — the game code is identical either
     /// way because it only ever sees the trait object.
     #[must_use]
@@ -195,7 +195,7 @@ impl<'a> EngineCtx<'a> {
     /// Mutable access to the engine [`Camera`].
     ///
     /// Position it here — typically by driving a
-    /// [`kaman_camera::ChaseController`] toward the player each frame in
+    /// [`stickshift_camera::ChaseController`] toward the player each frame in
     /// [`render`](crate::Game::render) (or [`update`](crate::Game::update)). The
     /// engine reads `camera().view_projection_matrix()` and pushes it across the
     /// render seam **before** the game's `render` runs, so whatever pose the game

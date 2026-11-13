@@ -9,9 +9,9 @@
 //! call returns, and its `RESOURCE_READY` event is queued (or its callback runs
 //! before the call returns).
 
-use kaman_render_api::{ColorSpace, MeshHandle, PipelineKind, TextureHandle};
+use stickshift_render_api::{ColorSpace, MeshHandle, PipelineKind, TextureHandle};
 
-use crate::context::KamanContext;
+use crate::context::StickShiftContext;
 use crate::context::{with_context, Inner, OwnedEvent, MAX_DIMENSION};
 use crate::core::{call, input, output, Error};
 use crate::handles::{kind_of, Kind};
@@ -29,13 +29,13 @@ pub(crate) struct TextureEntry {
     pub(crate) color_space: ColorSpace,
 }
 
-/// The engine colour space for a `KAMAN_COLOR_SPACE_*` value.
-pub(crate) fn color_space(value: KamanColorSpace) -> Result<ColorSpace, Error> {
+/// The engine colour space for a `STICKSHIFT_COLOR_SPACE_*` value.
+pub(crate) fn color_space(value: StickShiftColorSpace) -> Result<ColorSpace, Error> {
     match value {
-        KAMAN_COLOR_SPACE_SRGB => Ok(ColorSpace::Srgb),
-        KAMAN_COLOR_SPACE_LINEAR => Ok(ColorSpace::Linear),
+        STICKSHIFT_COLOR_SPACE_SRGB => Ok(ColorSpace::Srgb),
+        STICKSHIFT_COLOR_SPACE_LINEAR => Ok(ColorSpace::Linear),
         other => Err(Error::invalid_argument(format!(
-            "{other} is not a KAMAN_COLOR_SPACE_* value"
+            "{other} is not a STICKSHIFT_COLOR_SPACE_* value"
         ))),
     }
 }
@@ -44,7 +44,7 @@ pub(crate) fn color_space(value: KamanColorSpace) -> Result<ColorSpace, Error> {
 ///
 /// # Safety
 /// `data.ptr` must be valid for `data.len` bytes (or `len` 0).
-pub(crate) unsafe fn bytes<'a>(data: &KamanData, what: &str) -> Result<&'a [u8], Error> {
+pub(crate) unsafe fn bytes<'a>(data: &StickShiftData, what: &str) -> Result<&'a [u8], Error> {
     if data.len == 0 {
         return Ok(&[]);
     }
@@ -57,13 +57,13 @@ pub(crate) unsafe fn bytes<'a>(data: &KamanData, what: &str) -> Result<&'a [u8],
     Ok(std::slice::from_raw_parts(data.ptr.cast(), data.len))
 }
 
-/// The pipeline a `KAMAN_VERTEX_LAYOUT_*` value selects.
-pub(crate) fn pipeline_kind(layout: KamanVertexLayout) -> Result<PipelineKind, Error> {
+/// The pipeline a `STICKSHIFT_VERTEX_LAYOUT_*` value selects.
+pub(crate) fn pipeline_kind(layout: StickShiftVertexLayout) -> Result<PipelineKind, Error> {
     match layout {
-        KAMAN_VERTEX_LAYOUT_POS_NORMAL_COLOR => Ok(PipelineKind::VertexColor),
-        KAMAN_VERTEX_LAYOUT_POS_NORMAL_UV => Ok(PipelineKind::Textured),
+        STICKSHIFT_VERTEX_LAYOUT_POS_NORMAL_COLOR => Ok(PipelineKind::VertexColor),
+        STICKSHIFT_VERTEX_LAYOUT_POS_NORMAL_UV => Ok(PipelineKind::Textured),
         other => Err(Error::invalid_argument(format!(
-            "{other} is not a KAMAN_VERTEX_LAYOUT_* value"
+            "{other} is not a STICKSHIFT_VERTEX_LAYOUT_* value"
         ))),
     }
 }
@@ -129,29 +129,32 @@ fn indices(bytes: &[u8]) -> Result<Vec<u32>, Error> {
 }
 
 fn limit(what: &str) -> Error {
-    Error::new(KAMAN_ERROR_LIMIT_EXCEEDED, format!("too many live {what}"))
+    Error::new(
+        STICKSHIFT_ERROR_LIMIT_EXCEEDED,
+        format!("too many live {what}"),
+    )
 }
 
 /// The state of any handle id.
-pub(crate) fn state(inner: &Inner, id: u64) -> KamanResourceState {
+pub(crate) fn state(inner: &Inner, id: u64) -> StickShiftResourceState {
     let live = match kind_of(id) {
         Some(Kind::Mesh) => inner.meshes.get(id).is_some(),
         Some(Kind::Texture) => inner.textures.get(id).is_some(),
         Some(Kind::Font) => inner.fonts.get(id).is_some(),
         Some(Kind::Model) => {
             return match inner.models.get(id).map(|m| m.state) {
-                None => KAMAN_RESOURCE_STATE_INVALID,
-                Some(ModelState::Pending) => KAMAN_RESOURCE_STATE_PENDING,
-                Some(ModelState::Ready) => KAMAN_RESOURCE_STATE_READY,
-                Some(ModelState::Failed) => KAMAN_RESOURCE_STATE_FAILED,
+                None => STICKSHIFT_RESOURCE_STATE_INVALID,
+                Some(ModelState::Pending) => STICKSHIFT_RESOURCE_STATE_PENDING,
+                Some(ModelState::Ready) => STICKSHIFT_RESOURCE_STATE_READY,
+                Some(ModelState::Failed) => STICKSHIFT_RESOURCE_STATE_FAILED,
             }
         }
         None => false,
     };
     if live {
-        KAMAN_RESOURCE_STATE_READY
+        STICKSHIFT_RESOURCE_STATE_READY
     } else {
-        KAMAN_RESOURCE_STATE_INVALID
+        STICKSHIFT_RESOURCE_STATE_INVALID
     }
 }
 
@@ -159,14 +162,14 @@ pub(crate) fn state(inner: &Inner, id: u64) -> KamanResourceState {
 ///
 /// # Safety
 /// `ctx` must be NULL or a live context; `desc`, `completion` and `out` NULL or
-/// valid; the `KamanData` in `desc` valid as documented.
+/// valid; the `StickShiftData` in `desc` valid as documented.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_mesh_create(
-    ctx: *mut KamanContext,
-    desc: *const KamanMeshDesc,
-    completion: *const KamanCompletion,
-    out: *mut KamanMesh,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_mesh_create(
+    ctx: *mut StickShiftContext,
+    desc: *const StickShiftMeshDesc,
+    completion: *const StickShiftCompletion,
+    out: *mut StickShiftMesh,
+) -> StickShiftResult {
     call(|| {
         let desc = input(desc, "desc")?;
         let out = output(out, "out")?;
@@ -187,13 +190,13 @@ pub unsafe extern "C" fn kaman_mesh_create(
             inner.release(desc.vertices);
             inner.release(desc.indices);
             inner.emit(
-                OwnedEvent::new(KAMAN_EVENT_RESOURCE_READY, id, 0),
+                OwnedEvent::new(STICKSHIFT_EVENT_RESOURCE_READY, id, 0),
                 completion,
             );
             Ok(id)
         })?;
-        *out = KamanMesh { id };
-        Ok(KAMAN_OK)
+        *out = StickShiftMesh { id };
+        Ok(STICKSHIFT_OK)
     })
 }
 
@@ -202,10 +205,10 @@ pub unsafe extern "C" fn kaman_mesh_create(
 /// # Safety
 /// `ctx` must be NULL or a live context.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_mesh_destroy(
-    ctx: *mut KamanContext,
-    mesh: KamanMesh,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_mesh_destroy(
+    ctx: *mut StickShiftContext,
+    mesh: StickShiftMesh,
+) -> StickShiftResult {
     call(|| {
         with_context(ctx, |inner| {
             let entry = inner
@@ -213,7 +216,7 @@ pub unsafe extern "C" fn kaman_mesh_destroy(
                 .remove(mesh.id)
                 .ok_or_else(|| Error::invalid_handle("mesh"))?;
             inner.backend.destroy_mesh(entry.handle);
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }
@@ -224,12 +227,12 @@ pub unsafe extern "C" fn kaman_mesh_destroy(
 /// `ctx` must be NULL or a live context; `desc`, `completion` and `out` NULL or
 /// valid; `desc->rgba8` valid as documented.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_texture_create(
-    ctx: *mut KamanContext,
-    desc: *const KamanTextureDesc,
-    completion: *const KamanCompletion,
-    out: *mut KamanTexture,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_texture_create(
+    ctx: *mut StickShiftContext,
+    desc: *const StickShiftTextureDesc,
+    completion: *const StickShiftCompletion,
+    out: *mut StickShiftTexture,
+) -> StickShiftResult {
     call(|| {
         let desc = input(desc, "desc")?;
         let out = output(out, "out")?;
@@ -256,13 +259,13 @@ pub unsafe extern "C" fn kaman_texture_create(
             };
             inner.release(desc.rgba8);
             inner.emit(
-                OwnedEvent::new(KAMAN_EVENT_RESOURCE_READY, id, 0),
+                OwnedEvent::new(STICKSHIFT_EVENT_RESOURCE_READY, id, 0),
                 completion,
             );
             Ok(id)
         })?;
-        *out = KamanTexture { id };
-        Ok(KAMAN_OK)
+        *out = StickShiftTexture { id };
+        Ok(STICKSHIFT_OK)
     })
 }
 
@@ -272,10 +275,10 @@ pub unsafe extern "C" fn kaman_texture_create(
 /// # Safety
 /// `ctx` must be NULL or a live context.
 #[no_mangle]
-pub unsafe extern "C" fn kaman_texture_destroy(
-    ctx: *mut KamanContext,
-    texture: KamanTexture,
-) -> KamanResult {
+pub unsafe extern "C" fn stickshift_texture_destroy(
+    ctx: *mut StickShiftContext,
+    texture: StickShiftTexture,
+) -> StickShiftResult {
     call(|| {
         with_context(ctx, |inner| {
             let entry = inner
@@ -283,7 +286,7 @@ pub unsafe extern "C" fn kaman_texture_destroy(
                 .remove(texture.id)
                 .ok_or_else(|| Error::invalid_handle("texture"))?;
             inner.backend.destroy_texture(entry.handle);
-            Ok(KAMAN_OK)
+            Ok(STICKSHIFT_OK)
         })
     })
 }

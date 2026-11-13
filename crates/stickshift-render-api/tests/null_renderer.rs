@@ -8,9 +8,9 @@
 //! then record a frame (`begin_frame` → `set_pipeline` → `bind_texture` → `draw_mesh`×N →
 //! `submit`) and assert the recorded counts, handles, and bound state — all with no GPU.
 
-use kaman_math::glam::{Mat4, Vec3};
-use kaman_math::Transform;
-use kaman_render_api::{
+use stickshift_math::glam::{Mat4, Vec3};
+use stickshift_math::Transform;
+use stickshift_render_api::{
     ColorSpace, FrameRecorder, MaterialParams, MeshData, MeshHandle, NullRenderer, OverlayQuad,
     PipelineDescriptor, PipelineHandle, PipelineKind, ProtocolViolation, RenderDevice, TextureData,
     TextureHandle, VertexLayout,
@@ -36,7 +36,7 @@ fn make_pipeline(r: &mut NullRenderer) -> PipelineHandle {
     r.create_pipeline(&PipelineDescriptor::new(PipelineKind::VertexColor))
 }
 
-fn make_texture(r: &mut NullRenderer) -> kaman_render_api::TextureHandle {
+fn make_texture(r: &mut NullRenderer) -> stickshift_render_api::TextureHandle {
     r.create_texture(&TextureData {
         width: 1,
         height: 1,
@@ -329,7 +329,7 @@ fn frame_protocol_mistakes_are_no_ops() {
 
 #[test]
 fn set_view_projection_is_recorded_and_readable() {
-    use kaman_camera::Camera;
+    use stickshift_camera::Camera;
 
     let mut r = NullRenderer::new();
 
@@ -351,7 +351,7 @@ fn set_view_projection_is_recorded_and_readable() {
 
 #[test]
 fn view_projection_is_sticky_across_frames() {
-    use kaman_math::glam::Mat4;
+    use stickshift_math::glam::Mat4;
 
     let mut r = NullRenderer::new();
 
@@ -397,7 +397,7 @@ fn camera_position_is_recorded_and_sticky() {
 
 #[test]
 fn sun_sky_is_recorded_sticky_and_assertable() {
-    use kaman_render_api::SunSky;
+    use stickshift_render_api::SunSky;
 
     let mut r = NullRenderer::new();
 

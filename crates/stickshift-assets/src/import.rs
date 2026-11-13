@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use kaman_math::glam::{Mat4, Vec3};
+use stickshift_math::glam::{Mat4, Vec3};
 
 use crate::error::ImportError;
 use crate::scene::{
@@ -478,7 +478,7 @@ fn triangle_list(mode: gltf::mesh::Mode, indices: Vec<u32>) -> Result<Vec<u32>, 
 /// The `gltf` crate already decodes embedded/external images into
 /// [`gltf::image::Data`] (raw pixels + a [`gltf::image::Format`]); this converts
 /// whatever channel layout that is into tightly-packed RGBA8, the shape the
-/// render seam's [`TextureData`](kaman_render_api::TextureData) accepts. Returns
+/// render seam's [`TextureData`](stickshift_render_api::TextureData) accepts. Returns
 /// `None` if the image index is out of range or the pixel data is malformed.
 fn decode_texture(
     texture: &gltf::Texture,

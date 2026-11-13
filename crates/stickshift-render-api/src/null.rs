@@ -6,8 +6,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use kaman_math::glam::{Mat4, Vec3};
-use kaman_math::Transform;
+use stickshift_math::glam::{Mat4, Vec3};
+use stickshift_math::Transform;
 
 use crate::descriptor::{MaterialParams, PipelineKind};
 use crate::device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
@@ -19,7 +19,7 @@ use crate::sun::SunSky;
 
 /// A single recorded draw, captured by [`NullRenderer`] for later assertion.
 ///
-/// Not `PartialEq`: [`kaman_math::Transform`] does not implement `PartialEq`, so tests
+/// Not `PartialEq`: [`stickshift_math::Transform`] does not implement `PartialEq`, so tests
 /// assert on individual fields (`mesh`, `pipeline`, `texture`, `material`,
 /// `transform.position`, …) rather than comparing whole draws.
 #[derive(Debug, Clone)]

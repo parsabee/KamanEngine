@@ -5,7 +5,7 @@
 //! The raw-Metal backend: [`MetalRenderer`], implementing the render seam.
 //!
 //! This is the migrated rasterization renderer from the prototype, restructured
-//! to satisfy the `kaman-render-api` traits ([`RenderDevice`] +
+//! to satisfy the `stickshift-render-api` traits ([`RenderDevice`] +
 //! [`FrameRecorder`]) so that code above the seam never sees a Metal type. The
 //! draw path is a faithful port of the prototype's
 //! `render_with_transforms_and_colors`: it clears to a fixed color, binds a
@@ -179,9 +179,9 @@ use objc::runtime::YES;
 use objc::{msg_send, sel, sel_impl};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use kaman_math::glam::{Mat4, Vec3};
-use kaman_math::Transform;
-use kaman_render_api::{
+use stickshift_math::glam::{Mat4, Vec3};
+use stickshift_math::Transform;
+use stickshift_render_api::{
     ColorSpace, FrameRecorder, MaterialParams, MeshData, MeshHandle, OverlayFill, OverlayQuad,
     PipelineDescriptor, PipelineHandle, PipelineKind, RenderDevice, RenderSettings, SunSky,
     TextureData, TextureHandle, VertexFormat, VertexLayout,
@@ -318,7 +318,7 @@ fn msaa_storage_mode() -> metal::MTLStorageMode {
 /// The canonical `[position_xyz, normal_xyz, color_rgb]` vertex layout the
 /// built-in Phong pipeline binds against (36-byte stride, attributes at
 /// 0/12/24). Meshes packed onto this layout (the ECS boxes, and imported glTF
-/// geometry via `kaman-assets`) all feed the single shared pipeline.
+/// geometry via `stickshift-assets`) all feed the single shared pipeline.
 ///
 /// The vertex descriptor is now built *from* a [`VertexLayout`] rather
 /// than a hardcoded 0/12/24 triple; for this layout the mapping is byte-identical
@@ -330,7 +330,7 @@ fn phong_vertex_layout() -> VertexLayout {
 
 /// The interleaved `[position_xyz, normal_xyz, uv]` layout the **textured**
 /// pipeline binds against: two `Float3`s at 0/12 and a `Float2` at 24,
-/// 32-byte stride. Meshes carrying a base-color texture (`kaman-assets`
+/// 32-byte stride. Meshes carrying a base-color texture (`stickshift-assets`
 /// `textured_vertex_layout`) are packed onto this and drawn by the textured
 /// pipeline, which samples the bound base-color texture at the UV. This is a
 /// distinct pipeline from the untextured Phong path, so the box pixel-hash is
@@ -362,7 +362,7 @@ fn metal_vertex_format(format: VertexFormat) -> metal::MTLVertexFormat {
 
 /// Build a `metal::VertexDescriptor` from a seam [`VertexLayout`].
 ///
-/// Each [`VertexAttribute`](kaman_render_api::VertexAttribute) becomes one Metal
+/// Each [`VertexAttribute`](stickshift_render_api::VertexAttribute) becomes one Metal
 /// attribute at its `location`, `offset`, and mapped format; the single
 /// interleaved buffer (index 0) gets `layout.stride` as its per-vertex stride.
 /// For the `[pos,normal,color]` layout this reproduces the old hardcoded
@@ -541,7 +541,7 @@ enum RenderTarget {
 ///
 /// Implements both [`RenderDevice`] (resource create/destroy) and
 /// [`FrameRecorder`] (per-frame recording), and therefore satisfies
-/// `kaman-core`'s `Renderer` marker via its blanket impl. Construct it for a
+/// `stickshift-core`'s `Renderer` marker via its blanket impl. Construct it for a
 /// window with [`MetalRenderer::new`], for a `CAMetalLayer` the host owns with
 /// [`MetalRenderer::try_from_layer`], or for headless/offscreen rendering with
 /// [`MetalRenderer::new_offscreen`]. Each infallible constructor has a `try_*`
@@ -637,7 +637,7 @@ pub struct MetalRenderer {
 
     // The world → clip view-projection, pushed through the seam via
     // `set_view_projection`. The backend owns no camera; the
-    // game/engine computes this from a `kaman_camera::Camera` and hands it across
+    // game/engine computes this from a `stickshift_camera::Camera` and hands it across
     // the seam. Combined with each draw's model transform to form the MVP. It is
     // **sticky** — retained across frames until replaced (the engine pushes it
     // once per frame before the game records) — and defaults to identity.
@@ -1042,8 +1042,8 @@ impl MetalRenderer {
         };
         #[cfg(feature = "precompiled-shaders")]
         let library = {
-            // KAMAN_RASTER_METALLIB is set by build.rs to the compiled library path.
-            let metallib: &[u8] = include_bytes!(env!("KAMAN_RASTER_METALLIB"));
+            // STICKSHIFT_RASTER_METALLIB is set by build.rs to the compiled library path.
+            let metallib: &[u8] = include_bytes!(env!("STICKSHIFT_RASTER_METALLIB"));
             device
                 .new_library_with_data(metallib)
                 .map_err(RenderError::ShaderCompile)?
@@ -1968,8 +1968,8 @@ impl MetalRenderer {
     }
 
     /// The shadow map's current edge length in texels: 4096 for
-    /// [`ShadowQuality::High`](kaman_render_api::ShadowQuality::High), 2048 for
-    /// [`ShadowQuality::Low`](kaman_render_api::ShadowQuality::Low). Off keeps the last
+    /// [`ShadowQuality::High`](stickshift_render_api::ShadowQuality::High), 2048 for
+    /// [`ShadowQuality::Low`](stickshift_render_api::ShadowQuality::Low). Off keeps the last
     /// map (the pass is skipped, so it costs no fill). Test/diagnostic aid.
     #[must_use]
     pub fn shadow_map_size(&self) -> u32 {

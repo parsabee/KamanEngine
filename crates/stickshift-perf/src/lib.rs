@@ -2,7 +2,7 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! CPU-side performance monitoring and frame timing for KamanEngine.
+//! CPU-side performance monitoring and frame timing for Stick Shift Engine.
 //!
 //! The core type is [`PerfTracker`]: call [`begin_frame`](PerfTracker::begin_frame)
 //! and [`end_frame`](PerfTracker::end_frame) around each frame, bracket

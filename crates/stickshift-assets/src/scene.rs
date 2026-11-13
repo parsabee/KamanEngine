@@ -6,12 +6,12 @@
 //!
 //! These are plain-data structures produced by the [importer](crate::import) and
 //! consumed either directly (packed bytes ready for the render seam's
-//! [`MeshData`](kaman_render_api::MeshData)) or via the [`spawn`](crate::spawn)
+//! [`MeshData`](stickshift_render_api::MeshData)) or via the [`spawn`](crate::spawn)
 //! helper. There are no GPU types here and no game concepts — this is
 //! engine-generic geometry plus a baked transform hierarchy.
 
-use kaman_math::glam::Mat4;
-use kaman_render_api::{PipelineKind, VertexLayout};
+use stickshift_math::glam::Mat4;
+use stickshift_render_api::{PipelineKind, VertexLayout};
 
 /// Number of `f32`s in one packed render vertex: `[pos_xyz, normal_xyz, color_rgb]`.
 pub const RENDER_VERTEX_FLOATS: usize = 9;
@@ -54,7 +54,7 @@ pub fn textured_vertex_layout() -> VertexLayout {
 ///
 /// Pixels are 8-bit **RGBA**, row-major, top-left origin (`4 * width * height`
 /// bytes) — exactly the shape the render seam's
-/// [`TextureData`](kaman_render_api::TextureData) accepts. This is engine-generic
+/// [`TextureData`](stickshift_render_api::TextureData) accepts. This is engine-generic
 /// CPU-side data: there is no GPU type here. The importer decodes glTF images
 /// (PNG/JPEG) into this form; the backend uploads it as RGBA8 with mipmaps
 /// (ASTC compression is not implemented yet).
@@ -74,7 +74,7 @@ pub struct BaseColorTexture {
 /// The [`vertices`](Self::vertices) bytes are tightly interleaved on
 /// [`layout`](Self::layout) (`[pos,normal,color]`, 36-byte stride) and, together
 /// with [`indices`](Self::indices), are ready to hand to
-/// [`MeshData`](kaman_render_api::MeshData). The per-vertex
+/// [`MeshData`](stickshift_render_api::MeshData). The per-vertex
 /// [`uvs`](Self::uvs) are retained (not in the packed bytes) so the
 /// textured pipeline can build a UV-carrying vertex buffer without re-parsing the
 /// source file.
@@ -104,7 +104,7 @@ pub struct MeshAsset {
     /// `[pos,normal,uv]` [`textured_vertex_layout`] and should be drawn with the
     /// textured pipeline; `None` ⇒ the default-color `[pos,normal,color]` path.
     /// glTF base-colour images are sRGB-encoded: upload them with
-    /// [`ColorSpace::Srgb`](kaman_render_api::ColorSpace::Srgb).
+    /// [`ColorSpace::Srgb`](stickshift_render_api::ColorSpace::Srgb).
     pub base_color: Option<BaseColorTexture>,
     /// The material's base-color factor (linear RGBA), multiplied with the
     /// sampled base-color texture (or used alone when there is no texture).
@@ -151,7 +151,7 @@ impl MeshAsset {
 ///
 /// The world matrix is kept whole rather than as position/rotation/scale: a
 /// rotated child under a non-uniformly scaled parent is sheared, which a
-/// [`Transform`](kaman_math::Transform) cannot represent.
+/// [`Transform`](stickshift_math::Transform) cannot represent.
 #[derive(Debug, Clone)]
 pub struct Node {
     /// The node's baked model-to-world matrix: every ancestor's local matrix

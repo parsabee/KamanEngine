@@ -8,8 +8,8 @@
 //! ([`FrameData`]), so a backend only has to replay it. Inputs reaching a
 //! backend are already validated by the C layer.
 
-use kaman_math::glam::{Mat4, Vec3};
-use kaman_render_api::{
+use stickshift_math::glam::{Mat4, Vec3};
+use stickshift_render_api::{
     ColorSpace, MeshHandle, OverlayQuad, PipelineKind, RenderSettings, SunSky, TextureHandle,
 };
 
@@ -126,7 +126,7 @@ impl PendingReadback for ZeroReadback {
 
 impl Backend for NullBackend {
     fn device_name(&self) -> String {
-        "KamanEngine null backend".into()
+        "Stick Shift Engine null backend".into()
     }
 
     fn is_offscreen(&self) -> bool {
