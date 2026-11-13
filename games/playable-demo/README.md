@@ -132,7 +132,7 @@ font's full licence text is committed alongside it as `assets/font-OFL.txt`.
 `cube.gltf` is no longer imported by the demo — it was the placeholder player mesh
 before the real car models landed. Do not delete it: it is still a live
 test fixture. `kaman-assets`' `committed_game_asset_imports_from_path`
-([import.rs:503](../../crates/kaman-assets/tests/import.rs#L503)) imports it from
+([import.rs:558](../../crates/kaman-assets/tests/import.rs#L558)) imports it from
 this directory to prove the glTF path works against a real committed file, and
 [`gen_cube.rs`](../../crates/kaman-assets/examples/gen_cube.rs) regenerates it.
 

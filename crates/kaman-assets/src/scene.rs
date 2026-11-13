@@ -89,8 +89,9 @@ pub struct MeshAsset {
     pub layout: VertexLayout,
     /// Per-vertex model-space positions, one per packed vertex (parsed source).
     pub positions: Vec<[f32; 3]>,
-    /// Per-vertex normals, one per packed vertex (parsed source; defaulted to
-    /// `+Y` when the source mesh has none).
+    /// Per-vertex normals, one per packed vertex. When the source primitive has
+    /// none they are flat face normals, as glTF requires: each triangle then has
+    /// its own three vertices.
     pub normals: Vec<[f32; 3]>,
     /// Per-vertex texture coordinates, one per packed vertex. When this mesh has
     /// a [`base_color`](Self::base_color) texture these UVs are packed **into**

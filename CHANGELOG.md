@@ -110,6 +110,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ### Fixed
 
+- **glTF meshes without normals were lit as if they faced up.** A primitive with no `NORMAL`
+  attribute got `+Y` on every vertex, so walls and other non-horizontal faces were shaded like
+  floors. The importer now computes flat face normals, as the glTF spec requires, giving each
+  triangle of such a primitive its own vertices. Meshes that carry normals (every model the demo
+  ships) are unchanged.
 - **Colour textures were washed out.** Base-colour textures are sRGB-encoded, but they were
   sampled as linear and then sRGB-encoded again on output, so every texture rendered too light
   and desaturated. They are now decoded to linear before lighting. **Textured surfaces look

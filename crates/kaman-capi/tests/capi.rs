@@ -673,6 +673,47 @@ fn a_textured_model_loads_its_data_uri_texture_from_memory() {
 }
 
 #[test]
+fn a_model_without_normals_loads_flat_shaded() {
+    // glTF requires flat normals when a primitive has none; the importer
+    // de-indexes such a primitive, and the C path must upload the result.
+    let doc = br#"{
+        "asset": {"version": "2.0"},
+        "buffers": [{"byteLength": 36,
+            "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA"}],
+        "bufferViews": [{"buffer": 0, "byteLength": 36}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3",
+            "min": [0, 0, 0], "max": [1, 1, 0]}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+        "nodes": [{"mesh": 0}],
+        "scenes": [{"nodes": [0]}],
+        "scene": 0
+    }"#;
+    let ctx = Ctx::null(8, 8);
+    ctx.poll();
+    let mut model = KamanModel::default();
+    // SAFETY: copied data, valid out-pointers.
+    unsafe {
+        assert_eq!(
+            kaman_model_load_memory(ctx.0, copied(doc), null(), &mut model),
+            KAMAN_OK
+        );
+        ctx.flush();
+        assert_eq!(
+            ctx.state(model.id),
+            KAMAN_RESOURCE_STATE_READY,
+            "{:?}",
+            ctx.poll()
+        );
+        let (mut min, mut max) = (KamanVec3::default(), KamanVec3::default());
+        assert_eq!(
+            kaman_model_get_bounds(ctx.0, model, &mut min, &mut max),
+            KAMAN_OK
+        );
+        assert_eq!((min.x, min.y, max.x, max.y), (0.0, 0.0, 1.0, 1.0));
+    }
+}
+
+#[test]
 fn memory_loads_still_reject_external_file_references() {
     // There is no directory to resolve a relative URI against, so a document
     // that points at an external file fails, and says why.

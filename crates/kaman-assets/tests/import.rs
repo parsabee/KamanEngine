@@ -144,6 +144,27 @@ fn u32_indices(indices: &[u32]) -> Vec<u8> {
     le_bytes(indices, u32::to_le_bytes)
 }
 
+/// The mesh's triangle corners, in index order, as positions. These primitives
+/// carry no normals, so the importer flat-shades them and may duplicate
+/// vertices; comparing corners checks the topology either way.
+fn corners(mesh: &MeshAsset) -> Vec<[f32; 3]> {
+    mesh.indices
+        .iter()
+        .map(|&i| mesh.positions[i as usize])
+        .collect()
+}
+
+/// The corners `indices` name in a flat `positions` array.
+fn corners_of(positions: &[f32], indices: &[u32]) -> Vec<[f32; 3]> {
+    indices
+        .iter()
+        .map(|&i| {
+            let i = i as usize * 3;
+            [positions[i], positions[i + 1], positions[i + 2]]
+        })
+        .collect()
+}
+
 /// glTF primitive modes.
 const LINES: u32 = 1;
 const TRIANGLES: u32 = 4;
@@ -376,7 +397,7 @@ fn triangle_strips_expand_to_a_triangle_list() {
     );
     let mesh = &import_slice(&doc).unwrap().meshes[0];
     // Two triangles, the second wound (1, 3, 2) as the spec defines.
-    assert_eq!(mesh.indices, vec![0, 1, 2, 1, 3, 2]);
+    assert_eq!(corners(mesh), corners_of(&QUAD, &[0, 1, 2, 1, 3, 2]));
     assert_eq!(mesh.triangle_count(), 2);
 }
 
@@ -384,7 +405,7 @@ fn triangle_strips_expand_to_a_triangle_list() {
 fn a_non_indexed_strip_expands_over_its_vertices_in_order() {
     let doc = primitive_glb(TRIANGLE_STRIP, &QUAD, None);
     let mesh = &import_slice(&doc).unwrap().meshes[0];
-    assert_eq!(mesh.indices, vec![0, 1, 2, 1, 3, 2]);
+    assert_eq!(corners(mesh), corners_of(&QUAD, &[0, 1, 2, 1, 3, 2]));
 }
 
 #[test]
@@ -400,7 +421,7 @@ fn strip_stitching_triangles_are_dropped() {
         Some((&u32_indices(&[0, 1, 2, 2, 3, 4]), U32, 6)),
     );
     let mesh = &import_slice(&doc).unwrap().meshes[0];
-    assert_eq!(mesh.indices, vec![0, 1, 2, 2, 4, 3]);
+    assert_eq!(corners(mesh), corners_of(&positions, &[0, 1, 2, 2, 4, 3]));
 }
 
 #[test]
@@ -411,15 +432,15 @@ fn triangle_fans_expand_around_the_first_vertex() {
         Some((&u32_indices(&[0, 1, 3, 2]), U32, 4)),
     );
     let mesh = &import_slice(&doc).unwrap().meshes[0];
-    assert_eq!(mesh.indices, vec![1, 3, 0, 3, 2, 0]);
+    assert_eq!(corners(mesh), corners_of(&QUAD, &[1, 3, 0, 3, 2, 0]));
 }
 
 #[test]
 fn small_index_types_import() {
     let u8_doc = primitive_glb(TRIANGLES, &QUAD, Some((&[0, 1, 2], U8, 3)));
     assert_eq!(
-        import_slice(&u8_doc).unwrap().meshes[0].indices,
-        vec![0, 1, 2]
+        corners(&import_slice(&u8_doc).unwrap().meshes[0]),
+        corners_of(&QUAD, &[0, 1, 2])
     );
     let u16_doc = primitive_glb(
         TRIANGLES,
@@ -427,9 +448,43 @@ fn small_index_types_import() {
         Some((&le_bytes(&[3u16, 2, 1], u16::to_le_bytes), U16, 3)),
     );
     assert_eq!(
-        import_slice(&u16_doc).unwrap().meshes[0].indices,
-        vec![3, 2, 1]
+        corners(&import_slice(&u16_doc).unwrap().meshes[0]),
+        corners_of(&QUAD, &[3, 2, 1])
     );
+}
+
+#[test]
+fn missing_normals_are_flat() {
+    // glTF: a primitive without NORMAL must be flat-shaded. An XY quad faces
+    // +Z when wound counter-clockwise and -Z when wound the other way; it must
+    // never get the old constant +Y.
+    let doc = primitive_glb(
+        TRIANGLES,
+        &QUAD,
+        Some((&u32_indices(&[0, 1, 3, 0, 3, 2, 0, 2, 3]), U32, 9)),
+    );
+    let mesh = &import_slice(&doc).unwrap().meshes[0];
+    assert_eq!(mesh.normals.len(), mesh.positions.len());
+    let face = |t: usize| mesh.normals[mesh.indices[t * 3] as usize];
+    for t in 0..2 {
+        assert_eq!(face(t), [0.0, 0.0, 1.0], "triangle {t}");
+    }
+    assert_eq!(face(2), [0.0, 0.0, -1.0], "the reversed triangle faces -Z");
+    // Every corner of a triangle carries that triangle's normal.
+    for (t, tri) in mesh.indices.chunks_exact(3).enumerate() {
+        for &i in tri {
+            assert_eq!(mesh.normals[i as usize], face(t));
+        }
+    }
+    // The packed vertices carry the same normals (offset 12 in either layout).
+    let stride = mesh.layout.stride as usize;
+    for (i, normal) in mesh.normals.iter().enumerate() {
+        let at = |k: usize| {
+            let o = i * stride + 12 + k * 4;
+            f32::from_le_bytes(mesh.vertices[o..o + 4].try_into().unwrap())
+        };
+        assert_eq!([at(0), at(1), at(2)], *normal, "packed normal {i}");
+    }
 }
 
 #[test]
