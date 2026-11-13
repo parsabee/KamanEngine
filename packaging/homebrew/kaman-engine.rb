@@ -12,8 +12,8 @@
 class KamanEngine < Formula
   desc "Metal graphics engine for Apple Silicon: a C library, Rust crates and a demo"
   homepage "https://github.com/parsabee/KamanEngine"
-  url "https://github.com/parsabee/KamanEngine/releases/download/v0.1.0-alpha.2/kaman-engine-0.1.0-alpha.2-aarch64-apple-darwin.tar.gz"
-  sha256 "4ce9564ad61bbd1e8ad8711d3cc49600de0a6e85b1a3e49a6e4eeb27b3597a42"
+  url "https://github.com/parsabee/KamanEngine/releases/download/v0.1.0-beta.1/kaman-engine-0.1.0-beta.1-aarch64-apple-darwin.tar.gz"
+  sha256 "ecec5320082b79964c6d64bae9f108e5624215ba8917ec5d20453cebf1399694"
   license "Apache-2.0"
 
   # Prebuilt for Apple Silicon only. On an Intel Mac (or Linux) brew refuses to install with
