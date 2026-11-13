@@ -1,15 +1,15 @@
-# kaman-math
+# stickshift-math
 
-Shared math layer for KamanEngine.
+Shared math layer for Stick Shift Engine.
 
 ## Responsibility
 
-`kaman-math` is the zero-coupling leaf crate that the rest of the engine
-(`kaman-ecs`, `kaman-physics`, `kaman-camera`, `kaman-scene`, …) depends on for
+`stickshift-math` is the zero-coupling leaf crate that the rest of the engine
+(`stickshift-ecs`, `stickshift-physics`, `stickshift-camera`, `stickshift-scene`, …) depends on for
 spatial math. It does two things:
 
 1. **Re-exports [`glam`]** so the whole workspace shares a single, version-pinned
-   copy — downstream crates reach glam types through `kaman_math::glam::…`
+   copy — downstream crates reach glam types through `stickshift_math::glam::…`
    instead of adding their own `glam` dependency.
 2. **Provides the engine [`Transform`] type** — a TRS
    (Translation-Rotation-Scale) convenience wrapper over glam's `Vec3`, `Quat`,
@@ -23,8 +23,8 @@ only when a consumer needs them — they are intentionally out of scope until th
 The core type is `Transform` (position + rotation + scale):
 
 ```rust
-use kaman_math::Transform;
-use kaman_math::glam::{Vec3, Quat};
+use stickshift_math::Transform;
+use stickshift_math::glam::{Vec3, Quat};
 use std::f32::consts::PI;
 
 // Construct: identity, from a position, or a position + rotation.
@@ -60,4 +60,4 @@ Operations:
 
 [`glam`]: https://docs.rs/glam
 
-Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
+Part of the [Stick Shift Engine](../../README.md) workspace. Apache-2.0.

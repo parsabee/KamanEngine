@@ -1,15 +1,15 @@
-# kaman-render-api
+# stickshift-render-api
 
-The **render seam** for KamanEngine — a backend-agnostic contract that a concrete
+The **render seam** for Stick Shift Engine — a backend-agnostic contract that a concrete
 renderer implements, so no crate above it ever touches a GPU type.
 
 ## The seam (blast-radius firewall)
 
 `docs/ARCHITECTURE.md` §2 makes the render backend a swappable implementation
-detail. KamanEngine renders with **raw Metal**, but ECS, scene, physics, and
+detail. Stick Shift Engine renders with **raw Metal**, but ECS, scene, physics, and
 game code must not depend on that choice. This crate is the single insertion
 point between them: it defines *only* a contract, and the Metal renderer
-(`kaman-render`) implements the contract rather than exporting Metal
+(`stickshift-render`) implements the contract rather than exporting Metal
 types.
 
 Because everything above the seam binds to these traits and handles — never to
@@ -18,11 +18,11 @@ portability) is **provably contained** to the implementing crate.
 
 ## The "no Metal above this line" rule
 
-- `kaman-render-api` depends on `std` and [`kaman-math`] (for `Transform`) and
+- `stickshift-render-api` depends on `std` and [`stickshift-math`] (for `Transform`) and
   **nothing else**. It must never list `metal` in its `Cargo.toml`.
 - CI enforces this: after the build, a step asserts `metal` is absent from this
   crate's dependency tree
-  (`! cargo tree -p kaman-render-api -e normal | grep -qi metal`).
+  (`! cargo tree -p stickshift-render-api -e normal | grep -qi metal`).
 - Handles are **opaque** newtypes over a `u32`. The wrapped value is the
   backend's private identity (typically a slot in a resource table); code above
   the seam stores and passes handles without ever learning what they point at on
@@ -62,7 +62,7 @@ It also owns the surface and the quality settings:
 `begin_frame` → `set_pipeline` (≥1, before the first draw) → any mix of
 `bind_texture` / `draw_mesh(handle, transform, material)` → `submit`. Per-frame
 state (bound pipeline/texture) does not carry across a `begin_frame`/`submit`
-boundary. `draw_mesh` takes a [`kaman-math`] `Transform` and a plain-data
+boundary. `draw_mesh` takes a [`stickshift-math`] `Transform` and a plain-data
 `MaterialParams`; `draw_mesh_matrix` takes a full model matrix instead, for
 callers that hold one (a baked glTF node may be sheared, which a `Transform`
 cannot express).
@@ -92,6 +92,6 @@ It never panics on protocol violations — it records the observed behaviour so 
 test can assert it. This is the mechanism by which the whole engine above the
 seam is testable with no Metal device.
 
-[`kaman-math`]: ../kaman-math
+[`stickshift-math`]: ../stickshift-math
 
-Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
+Part of the [Stick Shift Engine](../../README.md) workspace. Apache-2.0.

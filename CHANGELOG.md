@@ -1,6 +1,7 @@
 # Changelog
 
-All notable changes to KamanEngine are documented in this file.
+All notable changes to Stick Shift Engine (formerly KamanEngine) are documented in this file.
+Entries before the rename keep the names they shipped with.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the version is below
@@ -8,6 +9,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 API**.
 
 ## [Unreleased]
+
+### Changed
+
+- **The project is renamed from KamanEngine to Stick Shift Engine (breaking).** Every public name
+  moves; nothing else changes:
+  - **Crates:** `kaman-*` → `stickshift-*` (directories `crates/stickshift-*`; Rust paths
+    `stickshift_core`, `stickshift_render`, …). Types such as `KamanMenuTarget` follow.
+  - **C API:** `kaman_*` functions → `stickshift_*`, `Kaman*` types → `StickShift*`, `KAMAN_*`
+    constants → `STICKSHIFT_*`. The library is `libstickshift` (`@rpath/libstickshift.dylib`), the
+    header `stickshift.h`, the Swift module `StickShift` and the pkg-config file `stickshift.pc`.
+    `STICKSHIFT_API_VERSION` is **3**, so a context refuses a header from before the rename.
+  - **Environment variables:** `KAMAN_*` → `STICKSHIFT_*` (for example `STICKSHIFT_DEMO_ASSETS`,
+    `STICKSHIFT_REQUIRE_GPU`).
+  - **macOS settings:** the Graphics menu stores its choices under `StickShiftEngine.graphics.*`
+    in `NSUserDefaults`, so saved Graphics settings reset once.
+  - **Homebrew:** the formula `kaman-engine` → `stickshift-engine`, the tap
+    `parsabee/homebrew-kaman` → `parsabee/homebrew-stickshift`, the demo command `kaman-demo` →
+    `stickshift-demo`, and the release tarball `stickshift-engine-<version>-aarch64-apple-darwin.tar.gz`.
+    The tap records the rename in `formula_renames.json`, so `brew upgrade` moves existing installs.
+  - **Repository and docs:** `github.com/parsabee/StickShiftEngine`, API docs at
+    `parsabee.github.io/StickShiftEngine`.
+  - **CI:** a new check (`scripts/check-renamed.sh`) fails if the old name returns outside this
+    changelog and the documented migration notes.
 
 ## [0.1.0-beta.1] - 2026-11-13
 
@@ -324,7 +348,7 @@ workspace version and are not published to crates.io.
   crash WAVs were generated for this project and dedicated CC0 1.0. The HUD font is OFL. See
   `games/playable-demo/README.md`.
 
-[Unreleased]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-beta.1...HEAD
-[0.1.0-beta.1]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-alpha.2...v0.1.0-beta.1
-[0.1.0-alpha.2]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
-[0.1.0-alpha.1]: https://github.com/parsabee/KamanEngine/releases/tag/v0.1.0-alpha.1
+[Unreleased]: https://github.com/parsabee/StickShiftEngine/compare/v0.1.0-beta.1...HEAD
+[0.1.0-beta.1]: https://github.com/parsabee/StickShiftEngine/compare/v0.1.0-alpha.2...v0.1.0-beta.1
+[0.1.0-alpha.2]: https://github.com/parsabee/StickShiftEngine/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
+[0.1.0-alpha.1]: https://github.com/parsabee/StickShiftEngine/releases/tag/v0.1.0-alpha.1

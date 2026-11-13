@@ -1,23 +1,23 @@
-# kaman-core
+# stickshift-core
 
-The application lifecycle and the **engine/game boundary** for KamanEngine — the
+The application lifecycle and the **engine/game boundary** for Stick Shift Engine — the
 crate that owns the loop and defines the seam every game plugs into.
 
-Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
+Part of the [Stick Shift Engine](../../README.md) workspace. Apache-2.0.
 
 ## Responsibility
 
-`kaman-core` sits at the top of the engine stack. It owns the event loop and
+`stickshift-core` sits at the top of the engine stack. It owns the event loop and
 frame cadence and drives a game through a narrow, backend-agnostic seam. It
-depends on `kaman-ecs`, `kaman-render-api`, `kaman-perf`, `kaman-math`, and
+depends on `stickshift-ecs`, `stickshift-render-api`, `stickshift-perf`, `stickshift-math`, and
 `winit` — but **never** on `metal` or the concrete renderer. All rendering goes
-through the `kaman-render-api` traits (ARCHITECTURE §2), so the engine loop is
+through the `stickshift-render-api` traits (ARCHITECTURE §2), so the engine loop is
 provably insulated from the Metal backend.
 
 Game concepts (car, road, score, obstacle, lane) never enter this crate. A unit
 test (`boundary_tests::no_game_specific_symbols`) scans every source file for
 those words and fails the build if one leaks in, mirroring the guard in
-`kaman-ecs`.
+`stickshift-ecs`.
 
 ## The boundary (ARCHITECTURE §3)
 
@@ -61,13 +61,13 @@ once. Consequences:
 
 - `world()` / `world_mut()` — the ECS `hecs::World`.
 - `renderer()` — a `&mut dyn Renderer` (`RenderDevice` + `FrameRecorder`), the
-  `kaman-render-api` seam: the Metal backend in a window, `NullRenderer` when
+  `stickshift-render-api` seam: the Metal backend in a window, `NullRenderer` when
   headless. No Metal type is ever visible.
 - `input()` — a read-only `InputState` snapshot (pressed keys, mouse buttons,
   cursor position). Backend-agnostic `Key`/`MouseButton` enums, not `winit`
   types, with just-pressed/just-released edges. Remapping, gamepad and touch
   input are out of scope.
-- `perf()` — a `PerfSnapshot` (frame timing) from `kaman-perf`.
+- `perf()` — a `PerfSnapshot` (frame timing) from `stickshift-perf`.
 - `alpha()` — the fixed-timestep interpolation factor in `0.0..=1.0`, meaningful
   on the render path (`0.0` in `init`/`update`).
 - `graphics_settings()` / `set_graphics_settings()` — the engine's
@@ -97,7 +97,7 @@ step per frame); the windowed driver measures a real monotonic `Instant` delta
   driving the identical hook sequence. `run` wires the GPU-free `NullRenderer`;
   `run_with_backend` takes a **backend factory**
   (`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`) that the game binary uses to
-  inject the Metal backend, so `kaman-core` never depends on `metal`.
+  inject the Metal backend, so `stickshift-core` never depends on `metal`.
   The factory runs once in `resumed`, after the window exists.
   **`run_with_config`** takes a `RunConfig` as well. By default the
   windowed runner installs a native **Graphics** menu in the macOS menu bar (the
@@ -111,9 +111,9 @@ step per frame); the windowed driver measures a real monotonic `Instant` delta
 
 ## The render backend
 
-The real Metal renderer lives below the seam in `kaman-render` and is injected
-through the backend factory above; `kaman-core` stays metal-free (a firewall CI
-check enforces `cargo tree -p kaman-core | grep metal` is empty). The headless
+The real Metal renderer lives below the seam in `stickshift-render` and is injected
+through the backend factory above; `stickshift-core` stays metal-free (a firewall CI
+check enforces `cargo tree -p stickshift-core | grep metal` is empty). The headless
 driver and the plain `run` entry keep the `NullRenderer`.
 
 ## Provenance

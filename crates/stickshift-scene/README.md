@@ -1,11 +1,11 @@
-# kaman-scene
+# stickshift-scene
 
-Owns the world: a hecs `World` plus a `kaman-physics` `PhysicsWorld`, with **streaming**
+Owns the world: a hecs `World` plus a `stickshift-physics` `PhysicsWorld`, with **streaming**
 (spawn-ahead / despawn-behind) and **floating-origin rebase** for an endless world. This crate
 is **engine-generic** — it holds no game types (no car/road/lane/obstacle/score); the game
 supplies the focus point and decides *what* to spawn, while the scene owns the bookkeeping.
 
-Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
+Part of the [Stick Shift Engine](../../README.md) workspace. Apache-2.0.
 
 ## Responsibility
 
@@ -28,7 +28,7 @@ Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
 
 - **Atomic despawn:** `despawn` removes the entity's physics body (`PhysicsWorld::remove_body`)
   *before* despawning the ECS entity, so no live `PhysicsBodyComponent` ever holds a freed handle
-  (see [`kaman-physics`](../kaman-physics/README.md) and [`kaman-ecs`](../kaman-ecs/README.md)).
+  (see [`stickshift-physics`](../stickshift-physics/README.md) and [`stickshift-ecs`](../stickshift-ecs/README.md)).
 - **Rebase ordering:** rebase runs **between** physics steps, never mid-solve — the documented
   cadence is `stream → step_physics → maybe_rebase`, so the solver never sees a discontinuous
   position within a step. Because every position shifts by the same vector, relative positions are
@@ -38,5 +38,5 @@ Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
 
 ## Dependency direction
 
-`kaman-scene → { kaman-ecs, kaman-physics, kaman-math }` — acyclic; it does **not** depend on
-`kaman-core`. `kaman-core` owns a `Scene` inside its loop and exposes it via `EngineCtx`.
+`stickshift-scene → { stickshift-ecs, stickshift-physics, stickshift-math }` — acyclic; it does **not** depend on
+`stickshift-core`. `stickshift-core` owns a `Scene` inside its loop and exposes it via `EngineCtx`.

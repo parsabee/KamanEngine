@@ -1,4 +1,4 @@
-# KamanEngine Architecture
+# Stick Shift Engine Architecture
 
 Status: authoritative. Decisions here are intentional constraints, not defaults.
 
@@ -7,19 +7,19 @@ Status: authoritative. Decisions here are intentional constraints, not defaults.
 
 ## 1. Targets and the rendering choice
 
-KamanEngine targets **macOS and iPhone only** (macOS today; iOS is planned for v0.2). On both, Metal is the single native GPU
+Stick Shift Engine targets **macOS and iPhone only** (macOS today; iOS is planned for v0.2). On both, Metal is the single native GPU
 API, so the engine uses **raw Metal** (`metal` crate) directly — this is *one* rendering
 code path across both targets, not two, and it gives direct access to TBDR features
 (memoryless attachments, tile memory) that portable abstractions expose late or not at all.
 
 We deliberately give up portability to Windows/Linux/Android/Web. For an App Store product
-this is the correct trade. If portability is ever required, the `kaman-render-api` trait
+this is the correct trade. If portability is ever required, the `stickshift-render-api` trait
 seam (below) is the single insertion point for an additional backend (e.g. wgpu) without
 touching ECS, physics, scene, or game code.
 
 ## 2. The render seam (blast-radius firewall)
 
-`kaman-render-api` defines only:
+`stickshift-render-api` defines only:
 - Opaque resource handles (`MeshHandle`, `TextureHandle`, `PipelineHandle`).
 - `RenderDevice` — resource create/destroy, called at load time.
 - `FrameRecorder` — per-frame `set_view_projection` / `set_pipeline` / `bind` / `draw` / `submit`.
@@ -28,26 +28,26 @@ No crate above the seam may import `metal` types. This is enforced by crate boun
 full renderer rewrite is provably contained.
 
 **Camera crosses the seam as a matrix.** `FrameRecorder::set_view_projection(Mat4)`
-carries the view — a plain `kaman_math::glam::Mat4`, **no GPU type**. The engine owns a
-`kaman_camera::Camera`; the driver pushes its `view_projection_matrix()` through the seam once per
+carries the view — a plain `stickshift_math::glam::Mat4`, **no GPU type**. The engine owns a
+`stickshift_camera::Camera`; the driver pushes its `view_projection_matrix()` through the seam once per
 frame before `Game::render`, and the backend forms `mvp = view_proj * model` per draw. The value is
 sticky (retained until replaced) so the engine's push survives the game's `begin_frame`. This
-**replaced and deleted** the minimal camera that was temporarily inlined into `kaman-render`
-(`kaman-render/src/camera.rs`); the real camera now lives in `kaman-camera`, which also provides the
-`ChaseController` follow camera the `playable-demo` uses. `kaman-core → kaman-camera → kaman-math` keeps
-the dependency direction acyclic and `kaman-core` metal-free.
+**replaced and deleted** the minimal camera that was temporarily inlined into `stickshift-render`
+(`stickshift-render/src/camera.rs`); the real camera now lives in `stickshift-camera`, which also provides the
+`ChaseController` follow camera the `playable-demo` uses. `stickshift-core → stickshift-camera → stickshift-math` keeps
+the dependency direction acyclic and `stickshift-core` metal-free.
 
-The concrete backend lives **below** this seam: `kaman-render` provides
+The concrete backend lives **below** this seam: `stickshift-render` provides
 `MetalRenderer`, a raw-Metal type implementing both `RenderDevice` and `FrameRecorder` (and
-therefore `kaman-core`'s `Renderer` marker). `kaman-render` is the *only* crate that depends on
-`metal`. Crucially, `kaman-core` does **not** depend on `kaman-render`: the windowed entry
-`kaman-core::run_with_backend` takes a backend **factory**
+therefore `stickshift-core`'s `Renderer` marker). `stickshift-render` is the *only* crate that depends on
+`metal`. Crucially, `stickshift-core` does **not** depend on `stickshift-render`: the windowed entry
+`stickshift-core::run_with_backend` takes a backend **factory**
 (`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`), and the game binary (`playable-demo`, which does
-depend on `kaman-render`) constructs the Metal backend and injects it. So `metal` reaches the
-process only through `kaman-render` and the game binary — never through `kaman-core` — and the CI
-`cargo tree -p kaman-core` shows no `metal` (CI enforces the stricter rule on `kaman-render-api`
+depend on `stickshift-render`) constructs the Metal backend and injects it. So `metal` reaches the
+process only through `stickshift-render` and the game binary — never through `stickshift-core` — and the CI
+`cargo tree -p stickshift-core` shows no `metal` (CI enforces the stricter rule on `stickshift-render-api`
 itself). The migrated renderer is
-guarded by an offscreen render pixel-hash (`kaman-render/tests/pixel_hash.rs`).
+guarded by an offscreen render pixel-hash (`stickshift-render/tests/pixel_hash.rs`).
 
 **Flexible vertex layout through the seam.** The backend now builds its Metal vertex
 descriptor **from the `VertexLayout` in `MeshData`** — mapping each `VertexAttribute`'s
@@ -57,21 +57,21 @@ likewise deindexes at the layout's byte stride. For the `[pos,normal,color]` lay
 descriptor and bytes are identical to the prior hardcoded path, so the pixel hash was unchanged by
 that refactor. This lets arbitrary imported layouts flow through the one seam.
 
-**Static glTF import (`kaman-assets`).** The new **engine-generic, metal-free**
-`kaman-assets` crate imports static glTF (`.gltf`/`.glb`) into a `SceneAsset` (meshes + a baked node
+**Static glTF import (`stickshift-assets`).** The new **engine-generic, metal-free**
+`stickshift-assets` crate imports static glTF (`.gltf`/`.glb`) into a `SceneAsset` (meshes + a baked node
 tree) packed onto the render seam's `MeshData`/`VertexLayout`, with a load-once/dedup `AssetCache`
 ("upload once, reference by handle", one level up from the renderer's mesh registry) and a `spawn_scene` ECS helper. It
-depends only on `gltf`, `kaman-math`, `kaman-render-api`, and (for `spawn_scene`, behind the default
-`ecs` feature) `kaman-ecs` — the `kaman-assets → kaman-ecs` edge stays acyclic (`kaman-ecs` never
-depends on `kaman-assets`) and no `metal` enters the tree. The C API uses the crate without the
-`ecs` feature, so no ECS or physics crate reaches `libkaman`. Imported geometry packs onto `[pos,normal,color]` with a default vertex color so it renders
+depends only on `gltf`, `stickshift-math`, `stickshift-render-api`, and (for `spawn_scene`, behind the default
+`ecs` feature) `stickshift-ecs` — the `stickshift-assets → stickshift-ecs` edge stays acyclic (`stickshift-ecs` never
+depends on `stickshift-assets`) and no `metal` enters the tree. The C API uses the crate without the
+`ecs` feature, so no ECS or physics crate reaches `libstickshift`. Imported geometry packs onto `[pos,normal,color]` with a default vertex color so it renders
 through the existing pipeline immediately; parsed UVs are retained on `MeshAsset::uvs` for the
 textured pipeline. `playable-demo` loads every mesh it draws this way: the player and
 traffic are real committed CC0 car models (`assets/*.glb`), and the road, skyline, and scenery come
 from committed glTF too — see the [demo guide](PLAYABLE_DEMO.md). The earlier placeholder,
-`assets/cube.gltf`, is retained only as a `kaman-assets` import fixture.
+`assets/cube.gltf`, is retained only as a `stickshift-assets` import fixture.
 
-**Modern-look rendering stack.** Below the seam, `kaman-render` applies a small,
+**Modern-look rendering stack.** Below the seam, `stickshift-render` applies a small,
 mobile/TBDR-safe look stack — nothing above the seam learns about it. In pass order per frame:
 (1) **sRGB + tonemap** — lighting is computed in linear space and presented through an explicit
 ACES filmic tonemap + sRGB encode in the fragment shaders (`present_color`), so colors are correct
@@ -95,7 +95,7 @@ the sun. The seam now carries an engine-generic `SunSky` — sun **elevation and
 colour, intensity, an ambient **sky-fill** level, and the sky gradient's zenith/horizon colours —
 pushed with `FrameRecorder::set_sun_sky` and uploaded **per frame** (into a ring with one slot per
 in-flight frame, so the per-frame path stays allocation-free). Azimuth is a compass bearing with
-`-Z` as north and `+X` as east; the convention is documented and unit-tested in `kaman-render-api`
+`-Z` as north and `+X` as east; the convention is documented and unit-tested in `stickshift-render-api`
 rather than left implicit. The light *direction* is derived once from the angles and is the single
 source of truth for both the shading and the new **sun disc + glow** in the sky pass, so turning the
 sun moves them together. The camera's **world position** crosses the seam too
@@ -118,7 +118,7 @@ seam-driven sun's — one source of truth for shading, sun disc and shadows. On 
 one depth attachment that must be **stored** (the MSAA scene targets are resolved in-tile and
 discarded), which the backend asserts. Receivers are biased by their own triangle's plane plus a
 constant 2 cm, and filtered with 4×4 tent PCF. The fitting and bias math is GPU-free and unit-tested
-in `kaman-render/src/shadow.rs`; a new shadow pixel-hash proves occlusion by re-rendering with the
+in `stickshift-render/src/shadow.rs`; a new shadow pixel-hash proves occlusion by re-rendering with the
 casters disabled. A GPU-less runner never constructs the Metal backend, so it never reaches the pass.
 
 **Graphics settings.** Quality settings cross the seam as plain data, like `SunSky`:
@@ -129,28 +129,28 @@ casters disabled. A GPU-less runner never constructs the Metal backend, so it ne
 - `RenderDevice::resize_surface` / `surface_scale` size the drawable for a render scale and report
   the HUD's UI scale.
 
-The user-facing `GraphicsSettings` presets live in `kaman-core`, which applies them to the seam and
+The user-facing `GraphicsSettings` presets live in `stickshift-core`, which applies them to the seam and
 to `Scene` streaming. Its windowed runner installs a native macOS **Graphics** menu by default,
-opt-out via `RunConfig`. That menu is built with `objc2` in `kaman-core::platform`, so AppKit stays
-out of every crate but `kaman-core`, and `metal` stays out of `kaman-core`.
+opt-out via `RunConfig`. That menu is built with `objc2` in `stickshift-core::platform`, so AppKit stays
+out of every crate but `stickshift-core`, and `metal` stays out of `stickshift-core`.
 
 ## 3. Workspace layout
 
 ```
-kaman-engine/
+stickshift-engine/
 ├── crates/
-│   ├── kaman-math          # glam re-export + Transform              (reuse)
-│   ├── kaman-perf          # profiling / frame timing                (reuse)
-│   ├── kaman-ecs           # hecs wrapper + components               (reuse)
-│   ├── kaman-physics       # rapier3d wrapper (+ removal API)        (refactor)
-│   ├── kaman-camera        # camera + controller math                (refactor)
-│   ├── kaman-scene         # hecs World + PhysicsWorld + streaming   (refactor)
-│   ├── kaman-render-api    # RenderDevice/FrameRecorder traits       (new seam)
-│   ├── kaman-render        # raw-Metal impl of kaman-render-api      (refactor)
-│   ├── kaman-core          # app/lifecycle + platform (#[cfg])       (refactor)
-│   ├── kaman-assets        # glTF + textures                         (new)
-│   ├── kaman-audio         # kira wrapper: sounds/one-shots/loops    (new)
-│   └── kaman-capi          # the C API: libkaman + kaman.h           (new)
+│   ├── stickshift-math          # glam re-export + Transform              (reuse)
+│   ├── stickshift-perf          # profiling / frame timing                (reuse)
+│   ├── stickshift-ecs           # hecs wrapper + components               (reuse)
+│   ├── stickshift-physics       # rapier3d wrapper (+ removal API)        (refactor)
+│   ├── stickshift-camera        # camera + controller math                (refactor)
+│   ├── stickshift-scene         # hecs World + PhysicsWorld + streaming   (refactor)
+│   ├── stickshift-render-api    # RenderDevice/FrameRecorder traits       (new seam)
+│   ├── stickshift-render        # raw-Metal impl of stickshift-render-api      (refactor)
+│   ├── stickshift-core          # app/lifecycle + platform (#[cfg])       (refactor)
+│   ├── stickshift-assets        # glTF + textures                         (new)
+│   ├── stickshift-audio         # kira wrapper: sounds/one-shots/loops    (new)
+│   └── stickshift-capi          # the C API: libstickshift + stickshift.h           (new)
 ├── games/
 │   └── playable-demo       # reference title; only uses engine public API
 ├── docs/                   # architecture, design, guides, roadmap
@@ -158,12 +158,12 @@ kaman-engine/
 └── packaging/homebrew/     # the Homebrew formula
 ```
 
-The Metal shader source lives in `crates/kaman-render/shaders/`.
+The Metal shader source lives in `crates/stickshift-render/shaders/`.
 
-Dependency direction is acyclic: `kaman-math` is a leaf; `kaman-core` and `games/*` sit at
+Dependency direction is acyclic: `stickshift-math` is a leaf; `stickshift-core` and `games/*` sit at
 the top. Game concepts (car, road, score) never enter engine crates — the boundary is a
-`Game` trait + `EngineCtx` seam, and self-scanning guard tests in `kaman-core`,
-`kaman-scene`, `kaman-assets`, `kaman-audio` and `kaman-ecs` fail if a game-named symbol appears in
+`Game` trait + `EngineCtx` seam, and self-scanning guard tests in `stickshift-core`,
+`stickshift-scene`, `stickshift-assets`, `stickshift-audio` and `stickshift-ecs` fail if a game-named symbol appears in
 them.
 
 For how `games/playable-demo` sits on that boundary in practice — the only consumer of the public
@@ -174,19 +174,19 @@ API today — see [PLAYABLE_DEMO.md](PLAYABLE_DEMO.md); for standing up a new ga
 
 | Concern | Choice | Notes |
 |---|---|---|
-| Rendering | raw Metal (`metal`) | Apple-only; behind `kaman-render-api` |
+| Rendering | raw Metal (`metal`) | Apple-only; behind `stickshift-render-api` |
 | Windowing | `winit` (macOS, in the Rust runner) | iOS (v0.2): the host app owns the view and the display link |
 | Math | `glam` | leaf crate |
 | ECS | `hecs` | already integrated in the prototype |
-| Physics | `rapier3d` | behind `kaman-physics`, with a body/collider removal API |
-| Audio | `kira` | behind `kaman-audio`; see §4b |
+| Physics | `rapier3d` | behind `stickshift-physics`, with a body/collider removal API |
+| Audio | `kira` | behind `stickshift-audio`; see §4b |
 | Assets | `gltf` + `image` | static meshes only for v1 |
 
 ### 4a. Fixed-timestep loop
 
-`kaman-core` drives simulation on a **fixed timestep decoupled from the display
-rate**. `FIXED_DT = 1/60 s` is the single source of truth (`kaman-core`'s
-`timestep.rs`); physics (`kaman-physics`) steps at the same rate so its behavior
+`stickshift-core` drives simulation on a **fixed timestep decoupled from the display
+rate**. `FIXED_DT = 1/60 s` is the single source of truth (`stickshift-core`'s
+`timestep.rs`); physics (`stickshift-physics`) steps at the same rate so its behavior
 is deterministic. Each display frame:
 
 1. banks the real elapsed time in an `Accumulator`,
@@ -205,10 +205,10 @@ monotonic clock, variable steps) share **one** loop implementation
 
 ### 4b. Audio
 
-`kaman-audio` wraps `kira` in five operations — `load` a file into an opaque `SoundHandle`,
+`stickshift-audio` wraps `kira` in five operations — `load` a file into an opaque `SoundHandle`,
 `play_once`, `play_looping`, `stop_looping`, `set_master_volume` — with levels in decibels
 (`Volume`). It is a **leaf**: its only dependency is `kira`, so `cpal`/CoreAudio reach the process
-through this crate and its single engine-side consumer, `kaman-core`. Nothing below the render seam,
+through this crate and its single engine-side consumer, `stickshift-core`. Nothing below the render seam,
 and no other engine crate, gains an audio dependency. `kira`'s feature set is trimmed the same way
 `gltf`/`image` are (`default-features = false`, only `cpal`, `cpal-realtime`, `wav`, `pcm` — the
 demo's assets are 16-bit PCM WAV and this engine is Apple-only, so mp3/ogg/vorbis/flac/aac and
@@ -236,28 +236,28 @@ policy: the engine takes a handle and a level.
 rapier3d is retained for v1 because it was already integrated and got the runner
 playable fastest. v1 adds the missing **body/collider removal API** (required to despawn
 obstacles in an infinite runner). The car's lateral/lane motion is **kinematic and
-game-owned**, not solver-driven. The `kaman-physics` wrapper hides rapier, so replacing it
+game-owned**, not solver-driven. The `stickshift-physics` wrapper hides rapier, so replacing it
 later would not ripple through the engine; no replacement is planned.
 
-**Status:** the wrapper has migrated into `crates/kaman-physics` and the removal
+**Status:** the wrapper has migrated into `crates/stickshift-physics` and the removal
 API has landed — `PhysicsWorld::remove_body` (removes the body and its attached colliders)
 and `remove_collider`. Both uphold a **stale-handle-safety** invariant: after removal every
 query on the freed handle returns `None` / is a no-op and never derefs freed storage
 (rapier's generational handles + tests enforce this). The companion **handle-ownership**
 invariant — a handle in a `PhysicsBodyComponent` is removed from physics atomically with
 clearing the component — is documented here and in the crate; the despawn orchestration that
-upholds it lives in `kaman-scene` (below). `PhysicsWorld::step` advances at the crate-local `FIXED_DT`, which
-mirrors `kaman-core`'s `FIXED_DT` (`kaman-physics` does **not** depend on `kaman-core`, to
+upholds it lives in `stickshift-scene` (below). `PhysicsWorld::step` advances at the crate-local `FIXED_DT`, which
+mirrors `stickshift-core`'s `FIXED_DT` (`stickshift-physics` does **not** depend on `stickshift-core`, to
 avoid a dependency cycle; a test pins the value).
 
-**Status:** `crates/kaman-scene` now owns the hecs `World` + `PhysicsWorld` and adds
+**Status:** `crates/stickshift-scene` now owns the hecs `World` + `PhysicsWorld` and adds
 engine-generic **streaming** (spawn-ahead / despawn-behind by focus distance) and **floating-origin
 rebase**. Despawn is **atomic** — the physics body is removed before the ECS entity, upholding the
 handle-ownership invariant above. Rebase shifts ECS transforms and physics bodies together, only
 **between** physics steps (`stream → step_physics → maybe_rebase`), so relative positions are
-preserved and the solver never sees a mid-step discontinuity. `kaman-core` owns a `Scene` in its
+preserved and the solver never sees a mid-step discontinuity. `stickshift-core` owns a `Scene` in its
 loop and exposes it via `EngineCtx`; the dependency direction stays acyclic
-(`kaman-core → kaman-scene → {kaman-ecs, kaman-physics, kaman-math}`).
+(`stickshift-core → stickshift-scene → {stickshift-ecs, stickshift-physics, stickshift-math}`).
 
 ## 6. Provenance
 

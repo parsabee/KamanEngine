@@ -1,6 +1,6 @@
 # playable-demo
 
-KamanEngine's first title — a playable **endless runner** — and the host for the
+Stick Shift Engine's first title — a playable **endless runner** — and the host for the
 headless **smoke oracle**.
 
 You drive a car forward down a three-lane elevated freeway through a city. Traffic
@@ -34,12 +34,12 @@ The demo loads its models, textures, sounds and font from an `assets/` directory
 **once, at startup** ([`asset_root.rs`](src/asset_root.rs)). The first of these that holds the
 assets (has a `road.gltf`) wins:
 
-1. `$KAMAN_DEMO_ASSETS`, if set (point it at any directory holding the files below). When it is
+1. `$STICKSHIFT_DEMO_ASSETS`, if set (point it at any directory holding the files below). When it is
    set it is the only candidate: if it holds no assets the binary says so and exits 1, rather
    than quietly using another directory;
-2. `<exe dir>/../share/kaman-engine/assets`: the Homebrew / release-tarball layout, where
-   `bin/kaman-demo` sits beside `share/`. Symlinks to the binary are resolved first, so
-   Homebrew's `$(brew --prefix)/bin/kaman-demo` finds the keg's own `share/`;
+2. `<exe dir>/../share/stickshift-engine/assets`: the Homebrew / release-tarball layout, where
+   `bin/stickshift-demo` sits beside `share/`. Symlinks to the binary are resolved first, so
+   Homebrew's `$(brew --prefix)/bin/stickshift-demo` finds the keg's own `share/`;
 3. `<exe dir>/assets`: a flat layout, assets beside the binary;
 4. this crate's [`assets/`](assets) at build time, which is what `cargo run` and `cargo test`
    use.
@@ -48,8 +48,8 @@ If none exists the binary prints every path it tried and exits 1. To see which o
 
 ```sh
 cargo run -p playable-demo -- --print-assets-dir
-kaman-demo --print-assets-dir                        # the Homebrew install
-KAMAN_DEMO_ASSETS=/path/to/assets kaman-demo --smoke
+stickshift-demo --print-assets-dir                        # the Homebrew install
+STICKSHIFT_DEMO_ASSETS=/path/to/assets stickshift-demo --smoke
 ```
 
 Only the files the demo loads ship in an installed `assets/` (the models, `road.gltf`,
@@ -85,13 +85,13 @@ One line per module in [`src/`](src), and what it owns:
 | Module | Owns |
 | --- | --- |
 | [`main.rs`](src/main.rs) | The binary: CLI parsing, the windowed entry (builds the Metal backend and injects it via a factory), and the `--smoke` oracle. |
-| [`asset_root.rs`](src/asset_root.rs) | Finds the `assets/` directory once at startup (`$KAMAN_DEMO_ASSETS`, an installed `share/kaman-engine/assets`, or the checkout) and joins asset names onto it. |
+| [`asset_root.rs`](src/asset_root.rs) | Finds the `assets/` directory once at startup (`$STICKSHIFT_DEMO_ASSETS`, an installed `share/stickshift-engine/assets`, or the checkout) and joins asset names onto it. |
 | [`config.rs`](src/config.rs) | Every tuning constant, grouped by area — lanes/speed/camera, car fit, asset file names, buildings, guardrail, terrain, backdrop, HUD, sun/sky, audio mix. No logic. |
 | [`rng.rs`](src/rng.rs) | Deterministic randomness: the seeded SplitMix64 lane PRNG, and the independent per-slot hash that picks cosmetic variants without perturbing it. |
-| [`assets.rs`](src/assets.rs) | glTF import through `kaman-assets` (load once, share by handle), the fit transforms that place a model on the road, and the vertex-layout helpers. |
+| [`assets.rs`](src/assets.rs) | glTF import through `stickshift-assets` (load once, share by handle), the fit transforms that place a model on the road, and the vertex-layout helpers. |
 | [`scenery.rs`](src/scenery.rs) | Procedural geometry built once in `init`: the guardrail segment and the hill-terrain sheet, packed as raw `[pos,normal,color]` vertex bytes. |
-| [`components.rs`](src/components.rs) | The game-side ECS components (`TrafficVariant`, `BuildingVariant`, `GuardrailTag`) and the `PlacedModel` enum. These name game concepts, which is why they live here and not in `kaman-ecs`. |
-| [`game.rs`](src/game.rs) | `CarRunner`, the `kaman_core::Game` implementation: lane input, the state machine, the difficulty ramp, scoring, streaming, the rebase bookkeeping, collision, and the two sound triggers (music on the start transition, impact on the end of a run). |
+| [`components.rs`](src/components.rs) | The game-side ECS components (`TrafficVariant`, `BuildingVariant`, `GuardrailTag`) and the `PlacedModel` enum. These name game concepts, which is why they live here and not in `stickshift-ecs`. |
+| [`game.rs`](src/game.rs) | `CarRunner`, the `stickshift_core::Game` implementation: lane input, the state machine, the difficulty ramp, scoring, streaming, the rebase bookkeeping, collision, and the two sound triggers (music on the start transition, impact on the end of a run). |
 | [`render.rs`](src/render.rs) | The render pass: gathers this frame's transforms from the ECS world and records the draws grouped by pipeline and texture. Allocates no GPU resources. |
 | [`hud.rs`](src/hud.rs) | The on-screen HUD: loads the SDF font atlas, and draws the score, the title/game-over banners and the screen washes through the engine's 2D overlay seam. Allocation-free text via `StackStr` + `FontAtlas::layout`. |
 
@@ -131,10 +131,10 @@ font's full licence text is committed alongside it as `assets/font-OFL.txt`.
 
 `cube.gltf` is no longer imported by the demo — it was the placeholder player mesh
 before the real car models landed. Do not delete it: it is still a live
-test fixture. `kaman-assets`' `committed_game_asset_imports_from_path`
-([import.rs:558](../../crates/kaman-assets/tests/import.rs#L558)) imports it from
+test fixture. `stickshift-assets`' `committed_game_asset_imports_from_path`
+([import.rs:558](../../crates/stickshift-assets/tests/import.rs#L558)) imports it from
 this directory to prove the glTF path works against a real committed file, and
-[`gen_cube.rs`](../../crates/kaman-assets/examples/gen_cube.rs) regenerates it.
+[`gen_cube.rs`](../../crates/stickshift-assets/examples/gen_cube.rs) regenerates it.
 
 The credits above are given as courtesy; the CC0 assets impose no attribution
 requirement. Only the OFL font ships with a licence file, because only the OFL
@@ -148,4 +148,4 @@ copyright exists in them, it is waived.
 
 ---
 
-Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
+Part of the [Stick Shift Engine](../../README.md) workspace. Apache-2.0.

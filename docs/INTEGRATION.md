@@ -1,12 +1,12 @@
 # Integration & Testing Discipline
 
-How changes land in KamanEngine without breaking anything, fully tested and documented. The
+How changes land in Stick Shift Engine without breaking anything, fully tested and documented. The
 engine was built by migrating an earlier prototype module by module under these rules, and new
 work follows the same ones.
 
 ## 1. Governing principle: macOS CI is a continuous oracle
 
-Every change must keep KamanEngine building, testing and running on macOS. Breakage is caught the
+Every change must keep Stick Shift Engine building, testing and running on macOS. Breakage is caught the
 moment CI goes red, not weeks later. CI runs on every push to `main` and every pull request, and
 a red run blocks merging.
 
@@ -18,7 +18,7 @@ a red run blocks merging.
 - `scripts/preflight.sh` (the default toolchain tier)
 - `cargo build --workspace` and `cargo test --workspace` (unit, integration and doc tests,
   including the golden pixel-hash tests on the runner's Metal device)
-- the render-seam firewall: `kaman-render-api` must not depend on `metal`
+- the render-seam firewall: `stickshift-render-api` must not depend on `metal`
 - the de-brand guard: no prototype identifiers in `crates/` or `games/`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - rustdoc with broken and private intra-doc links denied
@@ -34,11 +34,11 @@ Run the same commands locally before pushing; the [README](../README.md#contribu
 Code that resists unit testing is pinned by goldens captured while its behavior is known-good:
 
 - **Renderer:** deterministic offscreen renders of fixed scenes, with the pixel buffer hashed
-  (`crates/kaman-render/tests/pixel_hash.rs`, `textured_pixel_hash.rs`). A hash only changes with
+  (`crates/stickshift-render/tests/pixel_hash.rs`, `textured_pixel_hash.rs`). A hash only changes with
   a written justification next to the new value, and is re-blessed through the documented
   `BLESS=1` path. The tests skip when no Metal device is present.
 - **Physics:** there is no golden trajectory test yet. Determinism is covered by the fixed
-  timestep and by the deterministic world-streaming tests in `kaman-scene`.
+  timestep and by the deterministic world-streaming tests in `stickshift-scene`.
 
 ### 3.2 Move and change separately
 
@@ -74,7 +74,7 @@ These are targets, not CI-enforced: there is no coverage tooling in CI yet.
   changes.
 - **Feature-gate or `#[cfg]` risky parallel work** so the main path never breaks: e.g. iOS code
   behind `#[cfg(target_os = "ios")]`.
-- The `kaman-render-api` seam makes a renderer rewrite unable to leak into other crates.
+- The `stickshift-render-api` seam makes a renderer rewrite unable to leak into other crates.
 
 ### 3.6 Documentation standard
 

@@ -1,6 +1,6 @@
-# kaman-camera
+# stickshift-camera
 
-Camera state and controller math for KamanEngine.
+Camera state and controller math for Stick Shift Engine.
 
 Owns the engine's camera model:
 
@@ -19,5 +19,5 @@ The view-projection matrix flows game → engine → render seam
 (`FrameRecorder::set_view_projection`) → backend, so the game owns the camera and
 the render backend stays camera-free.
 
-Depends only on `kaman-math`. Part of the
-[KamanEngine](../../README.md) workspace. Apache-2.0.
+Depends only on `stickshift-math`. Part of the
+[Stick Shift Engine](../../README.md) workspace. Apache-2.0.

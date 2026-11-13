@@ -1,10 +1,10 @@
-# kaman-perf
+# stickshift-perf
 
-CPU-side profiling and frame timing for KamanEngine.
+CPU-side profiling and frame timing for Stick Shift Engine.
 
 ## Responsibility
 
-`kaman-perf` measures per-frame CPU work and maintains rolling averages over the
+`stickshift-perf` measures per-frame CPU work and maintains rolling averages over the
 last `WINDOW_SIZE` (60) frames: frame time, per-subsystem breakdown
 (physics / spatial-query / render), FPS, and buffer allocation/upload/free
 accounting. It has no dependencies on the renderer or GPU — GPU-side timing
@@ -17,7 +17,7 @@ The core type is [`PerfTracker`]. It reads elapsed time through an injectable
 [`Clock`], defaulting to the real [`SystemClock`].
 
 ```rust
-use kaman_perf::PerfTracker;
+use stickshift_perf::PerfTracker;
 
 let mut perf = PerfTracker::new();
 
@@ -63,7 +63,7 @@ timing/rolling-average math is exact and reproducible — no wall-clock sleeps:
 
 ```rust
 use std::time::Duration;
-use kaman_perf::{PerfTracker, MockClock};
+use stickshift_perf::{PerfTracker, MockClock};
 
 let clock = MockClock::new();
 let mut perf = PerfTracker::with_clock(clock.clone());
@@ -87,10 +87,10 @@ human-readable stdout output is gated:
   dropped.
 
 ```sh
-cargo build -p kaman-perf                    # tracking only, no output
-cargo build -p kaman-perf --features perf-hud # + stdout HUD / drop summary
+cargo build -p stickshift-perf                    # tracking only, no output
+cargo build -p stickshift-perf --features perf-hud # + stdout HUD / drop summary
 ```
 
-[`PerfTracker`]: https://docs.rs/kaman-perf
-[`Clock`]: https://docs.rs/kaman-perf
-[`SystemClock`]: https://docs.rs/kaman-perf
+[`PerfTracker`]: https://docs.rs/stickshift-perf
+[`Clock`]: https://docs.rs/stickshift-perf
+[`SystemClock`]: https://docs.rs/stickshift-perf

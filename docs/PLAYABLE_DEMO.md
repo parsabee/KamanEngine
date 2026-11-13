@@ -1,6 +1,6 @@
 # The Playable Demo — a guided walkthrough
 
-`games/playable-demo` is KamanEngine's first title (an endless runner) and the **reference
+`games/playable-demo` is Stick Shift Engine's first title (an endless runner) and the **reference
 example** for building a game on this engine. It is a plain workspace member that depends only
 on the engine's published crates: it implements one trait, receives one context type, and
 reaches every engine service through that context. Nothing in it reaches past the public API.
@@ -20,7 +20,7 @@ To **start your own** game rather than read this one, see
 ## 1. The `Game` / `EngineCtx` boundary
 
 The engine owns the loop. A game is any type implementing
-[`kaman_core::Game`](../crates/kaman-core/src/game.rs#L96) — three hooks, no more:
+[`stickshift_core::Game`](../crates/stickshift-core/src/game.rs#L96) — three hooks, no more:
 
 | Hook | Called | The demo's implementation |
 |---|---|---|
@@ -28,12 +28,12 @@ The engine owns the loop. A game is any type implementing
 | `update(&mut EngineCtx, dt)` | 0..N times per frame, `dt` always `FIXED_DT` | [game.rs:622](../games/playable-demo/src/game.rs#L622) |
 | `render(&mut EngineCtx)` | exactly once per frame, after that frame's updates | [game.rs:743](../games/playable-demo/src/game.rs#L743) → [render.rs:38](../games/playable-demo/src/render.rs#L38) |
 
-[`EngineCtx`](../crates/kaman-core/src/context.rs#L86) is the only channel into the engine. It
+[`EngineCtx`](../crates/stickshift-core/src/context.rs#L86) is the only channel into the engine. It
 is built fresh by the driver for each hook call and dropped immediately after, so a game cannot
-stash it across frames. Its whole surface is: the [`Scene`](../crates/kaman-scene/src/lib.rs#L143)
+stash it across frames. Its whole surface is: the [`Scene`](../crates/stickshift-scene/src/lib.rs#L143)
 (`scene`/`scene_mut`), the ECS world (`world`/`world_mut`, delegating to the scene), the render
-seam (`renderer`), the [`Camera`](../crates/kaman-camera/src/camera.rs) (`camera`/`camera_mut`),
-the read-only `InputState` (`input`), the [`Audio`](../crates/kaman-audio/src/mixer.rs) layer
+seam (`renderer`), the [`Camera`](../crates/stickshift-camera/src/camera.rs) (`camera`/`camera_mut`),
+the read-only `InputState` (`input`), the [`Audio`](../crates/stickshift-audio/src/mixer.rs) layer
 (`audio`), a `PerfSnapshot` (`perf`), and the fixed-timestep interpolation factor (`alpha`). There
 is no accessor for a window, a platform handle, a Metal device, or game state — by design.
 
@@ -48,13 +48,13 @@ the collision test, the difficulty ramp, and the game-side ECS components
 ([components.rs](../games/playable-demo/src/components.rs)) all live in the game crate. See
 [§7](#7-the-boundary-and-what-enforces-it) for why they cannot live anywhere else.
 
-**Backend injection.** `kaman-core` must not depend on `metal`, so it does not construct the
+**Backend injection.** `stickshift-core` must not depend on `metal`, so it does not construct the
 renderer. The *game binary* does: `main.rs` calls
-[`run_with_backend`](../crates/kaman-core/src/app.rs#L154) with a factory closure that builds a
-`kaman_render::MetalRenderer` and boxes it as `dyn Renderer`
+[`run_with_backend`](../crates/stickshift-core/src/app.rs#L154) with a factory closure that builds a
+`stickshift_render::MetalRenderer` and boxes it as `dyn Renderer`
 ([main.rs:112](../games/playable-demo/src/main.rs#L112)). `metal` therefore reaches the process
-through `kaman-render` and the game binary only, never through `kaman-core` (ARCHITECTURE §2).
-The `kaman-render` dependency is even `cfg`-gated to macOS in
+through `stickshift-render` and the game binary only, never through `stickshift-core` (ARCHITECTURE §2).
+The `stickshift-render` dependency is even `cfg`-gated to macOS in
 [Cargo.toml](../games/playable-demo/Cargo.toml#L35).
 
 ---
@@ -62,15 +62,15 @@ The `kaman-render` dependency is even `cfg`-gated to macOS in
 ## 2. The fixed-timestep loop
 
 `FIXED_DT` is `1.0 / 60.0` and lives in exactly one place:
-[timestep.rs:50](../crates/kaman-core/src/timestep.rs#L50). `Game::update` is *always* called
+[timestep.rs:50](../crates/stickshift-core/src/timestep.rs#L50). `Game::update` is *always* called
 with that constant — never a measured wall-clock delta.
 
 Each display frame, the driver banks the real elapsed time in the
-[`Accumulator`](../crates/kaman-core/src/timestep.rs#L72), which returns the whole number of
+[`Accumulator`](../crates/stickshift-core/src/timestep.rs#L72), which returns the whole number of
 fixed steps to run and keeps the sub-step remainder. Both drivers then run the same
-[`drive_frame`](../crates/kaman-core/src/driver.rs#L218): `update × k`, then `render` once.
+[`drive_frame`](../crates/stickshift-core/src/driver.rs#L218): `update × k`, then `render` once.
 `k` may be 0 (a display faster than the sim rate) or several (a slow frame catching up), capped
-at [`MAX_STEPS_PER_FRAME = 5`](../crates/kaman-core/src/timestep.rs#L63) so a stall slows the
+at [`MAX_STEPS_PER_FRAME = 5`](../crates/stickshift-core/src/timestep.rs#L63) so a stall slows the
 simulation instead of wedging the loop.
 
 **Why `update` and `render` are separate hooks.** Because they run at different rates. `update`
@@ -84,7 +84,7 @@ nothing. (`EngineCtx::alpha`, the interpolation factor for lerping between fixed
 display there is nothing visible to gain, and ignoring it keeps the render pass a pure read.)
 
 **Two clocks, one loop.** The headless driver
-([headless.rs](../crates/kaman-core/src/headless.rs)) advances a **synthetic** clock by exactly
+([headless.rs](../crates/stickshift-core/src/headless.rs)) advances a **synthetic** clock by exactly
 one `FIXED_DT` per frame, so every frame runs exactly one `update` and one `render` — it never
 reads wall time. The windowed entry reads a real monotonic clock. Only the clock source differs;
 the accumulator and `drive_frame` are shared.
@@ -92,7 +92,7 @@ the accumulator and `drive_frame` are shared.
 **Why runs are deterministic.** Under the headless driver, nothing that affects simulation is
 allowed to vary: the timestep is constant, the clock is synthetic, streaming decisions are a pure
 function of the focus position and the `StreamingConfig`
-([kaman-scene](../crates/kaman-scene/src/lib.rs#L37)), and every random choice the demo makes
+([stickshift-scene](../crates/stickshift-scene/src/lib.rs#L37)), and every random choice the demo makes
 comes from a seeded PRNG ([§6](#6-determinism-and-testing)). Same seed and same inputs ⇒ the
 same frames, on any machine, with or without a GPU.
 
@@ -101,7 +101,7 @@ same frames, on any machine, with or without a GPU.
 ## 3. Scene streaming and the floating-origin rebase
 
 The world is endless, so the demo never builds it — it streams it. The engine half is
-[`Scene::stream`](../crates/kaman-scene/src/lib.rs#L410): the *game* supplies a **focus point**
+[`Scene::stream`](../crates/stickshift-scene/src/lib.rs#L410): the *game* supplies a **focus point**
 and a **spawn callback**; the scene owns the bookkeeping (which slots ahead are filled, which
 streamed entities have fallen behind).
 
@@ -110,13 +110,13 @@ The demo's focus is the player's position
 [`spawn_slot`](../games/playable-demo/src/game.rs#L372), called from `update` at
 [game.rs:738](../games/playable-demo/src/game.rs#L738). Per slot it spawns a road tile, an
 obstacle on a cadence, two roadside buildings and two guardrail segments — reporting each via
-[`SpawnCtx::spawned`](../crates/kaman-scene/src/lib.rs#L571) so the scene despawns it once it
+[`SpawnCtx::spawned`](../crates/stickshift-scene/src/lib.rs#L571) so the scene despawns it once it
 falls behind. Despawn is **atomic**: the physics rigid body is removed with the ECS entity, so no
 live `PhysicsBodyComponent` ever holds a freed handle
-([`Scene::despawn`](../crates/kaman-scene/src/lib.rs#L356)).
+([`Scene::despawn`](../crates/stickshift-scene/src/lib.rs#L356)).
 
 The loop creates the scene with the **engine-default** `StreamingConfig`
-([kaman-scene:109](../crates/kaman-scene/src/lib.rs#L109)) — axis `-Z`, `spawn_interval` 6,
+([stickshift-scene:109](../crates/stickshift-scene/src/lib.rs#L109)) — axis `-Z`, `spawn_interval` 6,
 `spawn_ahead` 60, `despawn_behind` 12, `rebase_threshold` 1000 — and the default axis is already
 the demo's travel direction. The demo keeps the axis, spacing and rebase threshold and, in `init`,
 sets only its reach with `Scene::set_config`: `spawn_ahead` **180** (`config::SPAWN_AHEAD`, three
@@ -136,7 +136,7 @@ the interval is.
 
 ### The rebase, and what the game must carry through it
 
-[`Scene::maybe_rebase`](../crates/kaman-scene/src/lib.rs#L495) keeps world coordinates out of
+[`Scene::maybe_rebase`](../crates/stickshift-scene/src/lib.rs#L495) keeps world coordinates out of
 float-precision trouble: once the focus is more than `rebase_threshold` from the origin, **every**
 position — every `TransformComponent` and every physics body translation — is shifted by one
 offset back toward the origin, and the offset actually applied is returned. Relative positions are
@@ -182,7 +182,7 @@ bookkeeping above is dropped.
 ## 4. Asset loading
 
 Every model the demo draws is a committed glTF file imported exactly once through
-`kaman-assets` and thereafter referenced by handle. The two load paths are in
+`stickshift-assets` and thereafter referenced by handle. The two load paths are in
 [assets.rs](../games/playable-demo/src/assets.rs):
 
 - [`load_model`](../games/playable-demo/src/assets.rs#L42) — a multi-part model. Returns one
@@ -193,7 +193,7 @@ Every model the demo draws is a committed glTF file imported exactly once throug
 - [`load_textured_mesh`](../games/playable-demo/src/assets.rs#L153) — a single always-textured
   mesh (the road tile, the skyline billboard).
 
-Both go through [`AssetCache::load`](../crates/kaman-assets/src/lib.rs), which dedups by path so
+Both go through [`AssetCache::load`](../crates/stickshift-assets/src/lib.rs), which dedups by path so
 one file is parsed and uploaded once (the engine's "upload once, reference by handle" rule). The *fit*
 functions turn a model's authored bounds into a placement transform:
 [`fit_transform`](../games/playable-demo/src/assets.rs#L114) scales a car so its longer horizontal
@@ -207,7 +207,7 @@ they are robust to whatever scale and orientation a model was authored at.
 All of these live in [`games/playable-demo/assets/`](../games/playable-demo/assets) and are
 committed, so a clean checkout runs with no asset build step. `config.rs` names them relative to
 an asset root that [`asset_root.rs`](../games/playable-demo/src/asset_root.rs) resolves once at
-startup (`$KAMAN_DEMO_ASSETS`, an installed `share/kaman-engine/assets` beside the binary, or this
+startup (`$STICKSHIFT_DEMO_ASSETS`, an installed `share/stickshift-engine/assets` beside the binary, or this
 directory for `cargo run`), so the paths hold regardless of the process working directory or where
 the binary is installed.
 
@@ -237,7 +237,7 @@ The deliverable is the committed output, not the tool: a normal build never runs
 the point of shipping them as examples — `image` and `fontdue` stay **dev-dependencies**
 ([Cargo.toml:18](../games/playable-demo/Cargo.toml#L18)), so the shipped binary gains neither an
 image codec nor a font parser. At runtime the embedded road/skyline PNGs are decoded by
-`kaman-assets`, and `font.bin` is a self-contained `KFNT` blob of metrics plus a single-channel
+`stickshift-assets`, and `font.bin` is a self-contained `KFNT` blob of metrics plus a single-channel
 distance field that [`load_font`](../games/playable-demo/src/hud.rs#L101) parses by hand.
 
 ---
@@ -246,14 +246,14 @@ distance field that [`load_font`](../games/playable-demo/src/hud.rs#L101) parses
 
 ### Recording a frame
 
-The seam is two traits in `kaman-render-api`, bundled for the game as one
-`&mut dyn Renderer` ([context.rs:45](../crates/kaman-core/src/context.rs#L45)):
+The seam is two traits in `stickshift-render-api`, bundled for the game as one
+`&mut dyn Renderer` ([context.rs:45](../crates/stickshift-core/src/context.rs#L45)):
 
-- [`RenderDevice`](../crates/kaman-render-api/src/device.rs#L98) — load-time resource ownership:
+- [`RenderDevice`](../crates/stickshift-render-api/src/device.rs#L98) — load-time resource ownership:
   `create_mesh` / `create_texture` / `create_pipeline` (and their `destroy_*`), plus
   `surface_size` and `safe_area_insets`. Every call returns an **opaque handle** — a newtype over
   an id. No GPU type crosses the seam in either direction.
-- [`FrameRecorder`](../crates/kaman-render-api/src/recorder.rs#L63) — per-frame recording:
+- [`FrameRecorder`](../crates/stickshift-render-api/src/recorder.rs#L63) — per-frame recording:
   `begin_frame` → `set_pipeline` / `bind_texture` / `draw_mesh` / `draw_overlay_quad` → `submit`.
   (`set_view_projection` is also on this trait, but the *driver* calls it, pushing the engine
   camera's matrix across the seam before `Game::render` runs — the game never does.)
@@ -280,7 +280,7 @@ any entity with a `PhysicsBodyComponent`, a building carries `BuildingVariant`, 
 ### The sun (a demo decision)
 
 The engine has no idea what time of day it is. It accepts a
-[`SunSky`](../crates/kaman-render-api/src/sun.rs) — sun **elevation and azimuth in degrees**,
+[`SunSky`](../crates/stickshift-render-api/src/sun.rs) — sun **elevation and azimuth in degrees**,
 colour, intensity, an ambient sky-fill level, and the sky gradient's zenith/horizon colours — and
 derives the light direction from the angles. Choosing *which* sun is the game's job, so the demo's
 answer lives in its own config as named constants (`SUN_*` / `SKY_*` in
@@ -321,8 +321,8 @@ through the engine. It owns no game logic — it reads `CarRunner`'s state and t
 overlay quads.
 
 The seam is the **2D overlay**
-([overlay.rs](../crates/kaman-render-api/src/overlay.rs)): a game records
-[`OverlayQuad`](../crates/kaman-render-api/src/overlay.rs#L71)s during its frame with
+([overlay.rs](../crates/stickshift-render-api/src/overlay.rs)): a game records
+[`OverlayQuad`](../crates/stickshift-render-api/src/overlay.rs#L71)s during its frame with
 `draw_overlay_quad`, and the backend batches them and flushes them at `submit` in its own
 orthographic, depth-disabled, alpha-blended pass **after** every 3D draw. So the HUD composites
 on top regardless of record order — which is why
@@ -330,11 +330,11 @@ on top regardless of record order — which is why
 `render_frame` records. Coordinates are pixels with the origin top-left. A quad's fill is
 `Solid`, `Textured`, or `Sdf`.
 
-**Text is `Sdf` against the font atlas.** [`FontAtlas`](../crates/kaman-render-api/src/overlay.rs#L126)
+**Text is `Sdf` against the font atlas.** [`FontAtlas`](../crates/stickshift-render-api/src/overlay.rs#L126)
 is plain data — glyph metrics in em units plus the uploaded atlas texture handle; the backend
-never parses a font. [`FontAtlas::layout`](../crates/kaman-render-api/src/overlay.rs#L180) walks a
+never parses a font. [`FontAtlas::layout`](../crates/stickshift-render-api/src/overlay.rs#L180) walks a
 `&str` and hands one `OverlayQuad` per visible glyph to a callback, and
-[`measure`](../crates/kaman-render-api/src/overlay.rs#L158) returns a string's pixel width for
+[`measure`](../crates/stickshift-render-api/src/overlay.rs#L158) returns a string's pixel width for
 centering. Because the metrics are in em units, one atlas serves any pixel size — the demo draws
 the score at 30 px and the banner headline at 64 px from the same texture.
 
@@ -344,7 +344,7 @@ stack (overflow is dropped rather than panicking — HUD text is short and cosme
 per-frame HUD path is heap-free.
 
 **Safe area.** Positions are derived from `surface_size` shrunk by
-[`safe_area_insets`](../crates/kaman-render-api/src/device.rs#L169) (`[top, right, bottom, left]`
+[`safe_area_insets`](../crates/stickshift-render-api/src/device.rs#L169) (`[top, right, bottom, left]`
 in pixels), so the HUD stays clear of notches, rounded corners and home indicators. A desktop
 window reports zeros; an iOS host (planned for v0.2) would report real insets. The score sits at
 `inset + HUD_MARGIN`, and the game-over banner is centered in the *safe* rectangle, not the raw
@@ -356,7 +356,7 @@ once a run starts, and a partial dim behind the `GAME OVER` banner.
 
 ### Sound
 
-The engine's audio layer ([kaman-audio](../crates/kaman-audio/src/mixer.rs), reached as
+The engine's audio layer ([stickshift-audio](../crates/stickshift-audio/src/mixer.rs), reached as
 `ctx.audio()`) is five operations over an opaque handle: `load`, `play_once`, `play_looping`,
 `stop_looping`, `set_master_volume`. As with the sun, the engine has no idea *which* sound is which
 — that is entirely the demo's policy, and it is worth copying in three respects.
@@ -419,9 +419,9 @@ without that it would replay 120 frames of a motionless title screen and assert 
 releases it, so the car runs straight down the middle lane on empty input. It is the workspace's
 continuous oracle: CI runs it on every push with Metal API Validation enabled
 (`.github/workflows/ci.yml`), and two unit tests pin both the run and the exact stdout contract
-line ([main.rs:159](../games/playable-demo/src/main.rs#L159)).
+line ([main.rs:160](../games/playable-demo/src/main.rs#L160)).
 
-**The headless harness.** [`Headless`](../crates/kaman-core/src/headless.rs#L93) is what makes
+**The headless harness.** [`Headless`](../crates/stickshift-core/src/headless.rs#L93) is what makes
 gameplay testable at all. It owns the engine state a `Game` runs against — scene, input, perf,
 accumulator, a `NullRenderer`, and a **silent** `Audio` layer — runs `init` once, and steps frames on
 the synthetic clock. A test can seed input before a run (`input_mut`), step in chunks, and afterwards
@@ -457,11 +457,11 @@ Five crates carry a self-scanning **guard test** that embeds the crate's own sou
 
 | Guard test | Crate |
 |---|---|
-| `boundary_tests::no_game_specific_symbols` ([lib.rs:104](../crates/kaman-core/src/lib.rs#L104)) | `kaman-core` |
-| `tests::no_game_specific_symbols` ([lib.rs:997](../crates/kaman-scene/src/lib.rs#L997)) | `kaman-scene` |
-| `guard_tests::no_game_specific_symbols` ([lib.rs:72](../crates/kaman-assets/src/lib.rs#L72)) | `kaman-assets` |
-| `guard_tests::no_game_specific_symbols` ([lib.rs](../crates/kaman-audio/src/lib.rs)) | `kaman-audio` |
-| `tests::test_no_game_specific_symbols` ([lib.rs:723](../crates/kaman-ecs/src/lib.rs#L723)) | `kaman-ecs` |
+| `boundary_tests::no_game_specific_symbols` ([lib.rs:104](../crates/stickshift-core/src/lib.rs#L104)) | `stickshift-core` |
+| `tests::no_game_specific_symbols` ([lib.rs:997](../crates/stickshift-scene/src/lib.rs#L997)) | `stickshift-scene` |
+| `guard_tests::no_game_specific_symbols` ([lib.rs:72](../crates/stickshift-assets/src/lib.rs#L72)) | `stickshift-assets` |
+| `guard_tests::no_game_specific_symbols` ([lib.rs](../crates/stickshift-audio/src/lib.rs)) | `stickshift-audio` |
+| `tests::test_no_game_specific_symbols` ([lib.rs:723](../crates/stickshift-ecs/src/lib.rs#L723)) | `stickshift-ecs` |
 
 The forbidden words are assembled from ASCII byte codes rather than written as literals, so each
 test's own body contains no occurrence of them and can scan every file in its crate — itself
@@ -473,14 +473,14 @@ crate.** The demo's per-entity variant tags are the clearest illustration —
 [components.rs](../games/playable-demo/src/components.rs) defines `TrafficVariant`,
 `BuildingVariant` and `GuardrailTag` as ordinary hecs components that ride on the *same* entities
 as the engine-generic `TransformComponent` / `RenderComponent` / `PhysicsBodyComponent`. They
-compose freely; they just cannot be *defined* in `kaman-ecs`, because the guard would reject them
+compose freely; they just cannot be *defined* in `stickshift-ecs`, because the guard would reject them
 there.
 
 Two more CI guards bear on the demo (`.github/workflows/ci.yml`):
 
-- **Render-seam firewall** — `cargo tree -p kaman-render-api -e normal` must not mention `metal`.
+- **Render-seam firewall** — `cargo tree -p stickshift-render-api -e normal` must not mention `metal`.
   Combined with the factory injection in [§1](#1-the-game--enginectx-boundary), `metal` reaches
-  the process only through `kaman-render` and the game binary.
+  the process only through `stickshift-render` and the game binary.
 - **De-brand guard** — `grep -rniI projectrigor crates games` must find nothing; prototype
   provenance lives in [ARCHITECTURE.md](ARCHITECTURE.md) §6 only.
 

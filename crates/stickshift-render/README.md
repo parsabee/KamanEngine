@@ -1,16 +1,16 @@
-# kaman-render
+# stickshift-render
 
-The raw-**Metal** backend for KamanEngine: the concrete implementation that
+The raw-**Metal** backend for Stick Shift Engine: the concrete implementation that
 lives *below* the render seam (`docs/ARCHITECTURE.md` §2). This is the **only**
 engine crate that depends on `metal`; everything above the seam talks to the
-`kaman-render-api` traits and never imports a Metal type.
+`stickshift-render-api` traits and never imports a Metal type.
 
 Migrated from the prototype's rasterization renderer. It is rasterization-only.
 
 ## How it implements the seam
 
-`MetalRenderer` implements **both** halves of the `kaman-render-api` contract, so
-it automatically satisfies `kaman-core`'s `Renderer` marker via that crate's
+`MetalRenderer` implements **both** halves of the `stickshift-render-api` contract, so
+it automatically satisfies `stickshift-core`'s `Renderer` marker via that crate's
 blanket `impl<T: RenderDevice + FrameRecorder> Renderer for T`:
 
 - **`RenderDevice`** (load-time): `create_mesh` uploads (deindexes) geometry into
@@ -83,7 +83,7 @@ draws — so turning the sun moves the lighting and the disc together. The sky i
 still one fullscreen pass: it unprojects its own NDC through the camera's inverse
 view-projection to get a per-pixel view ray, and the sun is one dot product plus two
 `smoothstep`s. Azimuth is a compass bearing with `-Z` as north and `+X` as east; the
-convention is documented and unit-tested in `kaman-render-api`'s `sun` module.
+convention is documented and unit-tested in `stickshift-render-api`'s `sun` module.
 
 Originally the light was written into a Metal buffer once at construction and
 never updated, so nothing above the seam could set the sun at all. It is now written
@@ -174,20 +174,20 @@ explicitly for the render-scale setting; CoreAnimation scales it to the window. 
 depth targets follow the drawable's size lazily. `surface_scale()` reports `pixels_per_point`,
 which is the HUD's UI scale. Tested in `tests/render_settings.rs`.
 
-## Wiring: metal stays out of `kaman-core`
+## Wiring: metal stays out of `stickshift-core`
 
-`kaman-core` does **not** depend on this crate. Instead, `kaman-core::run_with_backend`
+`stickshift-core` does **not** depend on this crate. Instead, `stickshift-core::run_with_backend`
 takes a **backend factory** (`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`). The
-game binary (which *does* depend on `kaman-render`) constructs a `MetalRenderer` in
+game binary (which *does* depend on `stickshift-render`) constructs a `MetalRenderer` in
 the factory and hands it to the engine; the factory runs once in `resumed`, after
 the window is created. The headless driver keeps the GPU-free `NullRenderer`. This
-keeps `metal` out of `kaman-core`'s dependency tree (CI-enforced).
+keeps `metal` out of `stickshift-core`'s dependency tree (CI-enforced).
 
 ## The camera is not here
 
 The backend has no camera of its own: it receives the world→clip matrix and the eye
 position through the seam each frame. The camera type and the chase controller live in
-`kaman-camera`.
+`stickshift-camera`.
 
 ## Runtime shader compilation
 
@@ -239,7 +239,7 @@ perfectly stably and, once blessed, pass forever while guarding nothing.
 - **Re-bless (intended visual change only):**
 
   ```text
-  BLESS=1 cargo test -p kaman-render --test pixel_hash -- --nocapture
+  BLESS=1 cargo test -p stickshift-render --test pixel_hash -- --nocapture
   ```
 
   This prints each new hash **named by its constant** and passes without
@@ -253,4 +253,4 @@ perfectly stably and, once blessed, pass forever while guarding nothing.
   break a GPU-less build. GitHub's macOS runners do expose a (paravirtual) Metal
   device, so in CI the tests run and assert, as they do on a real Mac.
 
-Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
+Part of the [Stick Shift Engine](../../README.md) workspace. Apache-2.0.

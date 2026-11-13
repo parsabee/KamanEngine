@@ -1,16 +1,16 @@
-# kaman-ecs
+# stickshift-ecs
 
-The ECS component vocabulary for KamanEngine — the stable surface that the
+The ECS component vocabulary for Stick Shift Engine — the stable surface that the
 `Game` trait and any other engine consumer bind against.
 
 ## Responsibility
 
-`kaman-ecs` layers a small set of **engine-generic** components on top of the
+`stickshift-ecs` layers a small set of **engine-generic** components on top of the
 [`hecs`] entity-component-system. Storage, entity IDs, spawning and querying all
-come from `hecs` (re-exported as `kaman_ecs::hecs`); this crate only defines the
+come from `hecs` (re-exported as `stickshift_ecs::hecs`); this crate only defines the
 component *types* the rest of the engine and its games agree on.
 
-It builds on [`kaman-math`] for spatial types (`Transform`, `glam`) and holds a
+It builds on [`stickshift-math`] for spatial types (`Transform`, `glam`) and holds a
 non-owning [`rapier3d`] rigid-body handle for the physics link.
 
 ## The component model (binding surface)
@@ -22,7 +22,7 @@ these primitives in the game crate, never by adding types here.
 
 | Component | Kind | Purpose |
 |---|---|---|
-| `TransformComponent` | data | Wraps a `kaman_math::Transform` (position / rotation / scale). Read by rendering, written by physics. |
+| `TransformComponent` | data | Wraps a `stickshift_math::Transform` (position / rotation / scale). Read by rendering, written by physics. |
 | `PhysicsBodyComponent` | data | Non-owning `RigidBodyHandle` into the physics world. |
 | `RenderComponent` | data | Visual appearance: an RGB `color` plus a `RenderShape`. |
 | `RenderShape` | enum (`#[non_exhaustive]`) | Geometry as a triangle `Mesh { vertices, indices }`. Mesh generators for cube and UV-sphere. |
@@ -42,7 +42,7 @@ the convenience constructors most callers use.
   `RigidBodyHandle`. The rigid body itself is owned by the physics world; the
   component is only a reference. Keeping the handle valid (not dereferencing a
   handle whose body was removed) is the caller's responsibility. Safe removal lives in
-  `kaman-physics` (stale-handle-safe removal) and `kaman-scene` (atomic despawn).
+  `stickshift-physics` (stale-handle-safe removal) and `stickshift-scene` (atomic despawn).
 - **Static vs dynamic.** `StaticTag` and `DynamicTag` are mutually-exclusive
   intent markers: a static entity's transform is authored once and never touched
   by physics; a dynamic entity's transform is overwritten from the simulation
@@ -54,9 +54,9 @@ the convenience constructors most callers use.
 ## Example
 
 ```rust
-use kaman_ecs::{TransformComponent, RenderComponent, PhysicsBodyComponent, DynamicTag};
-use kaman_ecs::hecs::World;
-use kaman_math::glam::Vec3;
+use stickshift_ecs::{TransformComponent, RenderComponent, PhysicsBodyComponent, DynamicTag};
+use stickshift_ecs::hecs::World;
+use stickshift_math::glam::Vec3;
 
 let mut world = World::new();
 let entity = world.spawn((
@@ -78,7 +78,7 @@ A unit test (`test_no_game_specific_symbols`) greps this crate's own source via
 surface stays engine-generic by construction.
 
 [`hecs`]: https://docs.rs/hecs
-[`kaman-math`]: ../kaman-math
+[`stickshift-math`]: ../stickshift-math
 [`rapier3d`]: https://docs.rs/rapier3d
 
-Part of the [KamanEngine](../../README.md) workspace. Apache-2.0.
+Part of the [Stick Shift Engine](../../README.md) workspace. Apache-2.0.

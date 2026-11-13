@@ -1,14 +1,14 @@
-# kaman-assets
+# stickshift-assets
 
-Engine-generic **static-mesh asset import** for KamanEngine. Imports static
+Engine-generic **static-mesh asset import** for Stick Shift Engine. Imports static
 **glTF** (`.gltf` / `.glb`) files into engine-neutral geometry ready for the
 render seam, with a load-once/dedup cache and an ECS spawn helper.
 
 This crate is **metal-free** and **engine-generic**: it depends only on `gltf`,
-`kaman-math`, `kaman-render-api`, and `kaman-ecs` — never on `metal`, and never on
-any game crate. The ECS spawn helper (and so `kaman-ecs`) is behind the default
+`stickshift-math`, `stickshift-render-api`, and `stickshift-ecs` — never on `metal`, and never on
+any game crate. The ECS spawn helper (and so `stickshift-ecs`) is behind the default
 `ecs` feature; graphics-only users such as the C API turn it off. A unit test scans the source for game-specific concept words to
-keep the boundary honest (mirroring `kaman-ecs`).
+keep the boundary honest (mirroring `stickshift-ecs`).
 
 ## Import → seam mapping
 
@@ -41,13 +41,13 @@ The UVs are deliberately kept out of the packed render bytes; the textured
 pipeline builds a UV-carrying vertex buffer from them without re-parsing the file.
 
 ```rust
-use kaman_assets::import_gltf;
-use kaman_render_api::MeshData;
+use stickshift_assets::import_gltf;
+use stickshift_render_api::MeshData;
 
 let scene = import_gltf("assets/cube.gltf")?;
 let mesh = &scene.meshes[0];
 let data = MeshData { vertices: &mesh.vertices, indices: &mesh.indices, layout: mesh.layout.clone() };
-# Ok::<(), kaman_assets::ImportError>(())
+# Ok::<(), stickshift_assets::ImportError>(())
 ```
 
 ## Load once, reference by handle
@@ -66,12 +66,12 @@ shares it across N instances — the "upload once, reference by handle" discipli
 `spawn_scene(world, &scene)` spawns one entity per mesh-bearing node
 (`TransformComponent` + `RenderComponent` + `StaticTag`) from the baked node
 graph. It lives in this crate (not a game) so any title reuses it; the
-`kaman-assets → kaman-ecs` edge is acyclic (`kaman-ecs` never depends on
-`kaman-assets`).
+`stickshift-assets → stickshift-ecs` edge is acyclic (`stickshift-ecs` never depends on
+`stickshift-assets`).
 
 ## The vertex-layout-through-the-seam fix
 
-The glTF import work also made the `kaman-render` backend build its Metal vertex descriptor
+The glTF import work also made the `stickshift-render` backend build its Metal vertex descriptor
 **from** the `VertexLayout` in `MeshData` (mapping each attribute's
 `location`/`offset`/`format`, including `Float32x2` for UVs, and taking the stride
 from the layout) instead of a hardcoded 0/12/24 `Float3` triple. For the
@@ -84,5 +84,5 @@ The committed cube fixture (`games/playable-demo/assets/cube.gltf`, and the test
 `tests/fixtures/cube.gltf`) is produced by:
 
 ```sh
-cargo run -p kaman-assets --example gen_cube -- games/playable-demo/assets/cube.gltf
+cargo run -p stickshift-assets --example gen_cube -- games/playable-demo/assets/cube.gltf
 ```
