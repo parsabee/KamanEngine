@@ -9,7 +9,7 @@
 //! call returns, and its `RESOURCE_READY` event is queued (or its callback runs
 //! before the call returns).
 
-use kaman_render_api::{MeshHandle, PipelineKind, TextureHandle};
+use kaman_render_api::{ColorSpace, MeshHandle, PipelineKind, TextureHandle};
 
 use crate::context::KamanContext;
 use crate::context::{with_context, Inner, OwnedEvent, MAX_DIMENSION};
@@ -25,6 +25,19 @@ pub(crate) struct MeshEntry {
 
 pub(crate) struct TextureEntry {
     pub(crate) handle: TextureHandle,
+    /// How the texture was uploaded; font atlases and SDF quads need `Linear`.
+    pub(crate) color_space: ColorSpace,
+}
+
+/// The engine colour space for a `KAMAN_COLOR_SPACE_*` value.
+pub(crate) fn color_space(value: KamanColorSpace) -> Result<ColorSpace, Error> {
+    match value {
+        KAMAN_COLOR_SPACE_SRGB => Ok(ColorSpace::Srgb),
+        KAMAN_COLOR_SPACE_LINEAR => Ok(ColorSpace::Linear),
+        other => Err(Error::invalid_argument(format!(
+            "{other} is not a KAMAN_COLOR_SPACE_* value"
+        ))),
+    }
 }
 
 /// Borrow the bytes of `data` for the duration of the call.
@@ -224,13 +237,17 @@ pub unsafe extern "C" fn kaman_texture_create(
         if desc.flags != 0 {
             return Err(Error::invalid_argument("flags is reserved and must be 0"));
         }
+        let space = color_space(desc.color_space)?;
         let pixels = bytes(&desc.rgba8, "rgba8")?;
         validate_texture(desc.width, desc.height, pixels)?;
         let id = with_context(ctx, |inner| {
             let handle = inner
                 .backend
-                .create_texture(desc.width, desc.height, pixels)?;
-            let id = match inner.textures.insert(TextureEntry { handle }) {
+                .create_texture(desc.width, desc.height, pixels, space)?;
+            let id = match inner.textures.insert(TextureEntry {
+                handle,
+                color_space: space,
+            }) {
                 Ok(id) => id,
                 Err(_) => {
                     inner.backend.destroy_texture(handle);

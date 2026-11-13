@@ -6,7 +6,7 @@
 //! submit. Acquiring a frame never waits.
 
 use kaman_math::glam::Mat4;
-use kaman_render_api::{OverlayFill, OverlayQuad, PipelineKind, SunSky};
+use kaman_render_api::{ColorSpace, OverlayFill, OverlayQuad, PipelineKind, SunSky};
 
 use crate::backend::{DrawCall, FrameData};
 use crate::context::{frame_of, with_context, with_frame, Inner, OwnedEvent, PendingRead};
@@ -312,10 +312,19 @@ pub unsafe extern "C" fn kaman_frame_draw_quad(
                     OverlayFill::Textured(texture(inner, q.texture.id, "texture")?),
                     q.texture.id,
                 ),
-                KAMAN_FILL_SDF => (
-                    OverlayFill::Sdf(texture(inner, q.texture.id, "texture")?),
-                    q.texture.id,
-                ),
+                KAMAN_FILL_SDF => {
+                    let entry = inner
+                        .textures
+                        .get(q.texture.id)
+                        .ok_or_else(|| Error::invalid_handle("texture"))?;
+                    if entry.color_space != ColorSpace::Linear {
+                        return Err(Error::invalid_argument(
+                            "a KAMAN_FILL_SDF texture holds distances, not colour: create it \
+                             with KAMAN_COLOR_SPACE_LINEAR",
+                        ));
+                    }
+                    (OverlayFill::Sdf(entry.handle), q.texture.id)
+                }
                 other => {
                     return Err(Error::invalid_argument(format!(
                         "{other} is not a KAMAN_FILL_* value"

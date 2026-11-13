@@ -516,6 +516,7 @@ fragment float4 textured_fragment_main(TexturedVertexOut in [[stage_in]],
 //   0 = solid   (ignore the texture, use the vertex color)
 //   1 = textured(sample RGBA, multiply by the vertex color)
 //   2 = SDF     (distance in .r -> crisp coverage, tinted by the vertex color)
+//   3 = textured from an sRGB texture (re-encoded, so it matches mode 1's bytes)
 
 /// Per-vertex overlay data: pixel position, atlas UV, RGBA tint, fill mode.
 struct OverlayVertexIn {
@@ -566,6 +567,12 @@ fragment float4 overlay_fragment_main(OverlayVertexOut in [[stage_in]],
     if (in.mode < 1.5) {
         // Straight textured.
         return sampled * in.color;
+    }
+
+    if (in.mode > 2.5) {
+        // Textured from an sRGB texture: the sampler decoded it to linear, but
+        // the overlay is display-referred, so re-encode to the stored colours.
+        return float4(linear_to_srgb(sampled.rgb), sampled.a) * in.color;
     }
 
     // SDF text: the atlas stores signed distance in .r, 0.5 being the edge.

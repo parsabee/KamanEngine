@@ -202,6 +202,12 @@ if (kaman_frame_acquire(ctx, &frame) == KAMAN_OK) {
 - **Materials.** Meshes with the `POS_NORMAL_UV` layout sample `base_color_texture` (white if
   none) and multiply it by `base_color`. Meshes with the `POS_NORMAL_COLOR` layout take their
   colour from the vertices; `base_color` and the texture are ignored for them in the beta.
+- **Colour spaces.** Lighting is linear. Create colour images (photos, painted albedo) with
+  `KAMAN_COLOR_SPACE_SRGB`: the sampler decodes them to linear before shading. Create data
+  (an SDF font atlas, masks) with `KAMAN_COLOR_SPACE_LINEAR`: it is sampled as stored. Model
+  textures are sRGB automatically. `KAMAN_FILL_TEXTURE` quads show the colours a texture stores
+  in either colour space; font atlases and `KAMAN_FILL_SDF` textures must be linear, and an sRGB
+  one is refused with `KAMAN_ERROR_INVALID_ARGUMENT`.
 
 Frame numbers start at 1 and increase by one per submitted frame. `KAMAN_EVENT_FRAME_COMPLETED`
 reports them in order.
@@ -367,7 +373,7 @@ Types: `KamanEvent`, `KamanEventType` (`uint32_t`), `KamanCompletion { KamanComp
 |---|---|
 | `KamanResult kaman_mesh_create(KamanContext *ctx, const KamanMeshDesc *desc, const KamanCompletion *completion, KamanMesh *out)` | |
 | `KamanResult kaman_mesh_destroy(KamanContext *ctx, KamanMesh mesh)` | |
-| `KamanResult kaman_texture_create(KamanContext *ctx, const KamanTextureDesc *desc, const KamanCompletion *completion, KamanTexture *out)` | RGBA8, mipmapped. |
+| `KamanResult kaman_texture_create(KamanContext *ctx, const KamanTextureDesc *desc, const KamanCompletion *completion, KamanTexture *out)` | RGBA8, mipmapped, in the given colour space. |
 | `KamanResult kaman_texture_destroy(KamanContext *ctx, KamanTexture texture)` | |
 | `KamanResourceState kaman_resource_state(KamanContext *ctx, uint64_t handle_id)` | Any handle kind. `INVALID` for a NULL or busy context too. |
 
@@ -382,10 +388,15 @@ typedef struct KamanMeshDesc {
     KamanData         indices;   // uint32 triangle list: a multiple of 3 indices, each < vertex count
 } KamanMeshDesc;
 
+typedef uint32_t KamanColorSpace;
+// KAMAN_COLOR_SPACE_SRGB (0):   colour images; decoded to linear when sampled
+// KAMAN_COLOR_SPACE_LINEAR (1): data (SDF atlases, masks); sampled as stored
+
 typedef struct KamanTextureDesc {
-    uint32_t  width, height;   // 1..16384
-    KamanData rgba8;           // width * height * 4 bytes, rows top to bottom
-    uint32_t  flags;           // reserved, must be 0
+    uint32_t        width, height;   // 1..16384
+    KamanData       rgba8;           // width * height * 4 bytes, rows top to bottom
+    KamanColorSpace color_space;
+    uint32_t        flags;           // reserved, must be 0
 } KamanTextureDesc;
 ```
 
@@ -418,7 +429,7 @@ typedef struct KamanGlyph {
 } KamanGlyph;
 
 typedef struct KamanFontDesc {
-    KamanTexture      atlas;            // SDF atlas: distance in the red channel
+    KamanTexture      atlas;            // SDF atlas: distance in red; KAMAN_COLOR_SPACE_LINEAR
     uint32_t          first_codepoint;  // glyphs[0] is this code point
     const KamanGlyph *glyphs;
     uint32_t          glyph_count;

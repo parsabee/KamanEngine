@@ -190,15 +190,15 @@ Every model the demo draws is a committed glTF file imported exactly once throug
   material carries a base-color image get a texture and draw on the textured pipeline; parts
   without one draw on the Phong pipeline with the material color the importer packed as vertex
   color.
-- [`load_textured_mesh`](../games/playable-demo/src/assets.rs#L151) — a single always-textured
+- [`load_textured_mesh`](../games/playable-demo/src/assets.rs#L152) — a single always-textured
   mesh (the road tile, the skyline billboard).
 
 Both go through [`AssetCache::load`](../crates/kaman-assets/src/lib.rs), which dedups by path so
 one file is parsed and uploaded once (the engine's "upload once, reference by handle" rule). The *fit*
 functions turn a model's authored bounds into a placement transform:
-[`fit_transform`](../games/playable-demo/src/assets.rs#L112) scales a car so its longer horizontal
+[`fit_transform`](../games/playable-demo/src/assets.rs#L113) scales a car so its longer horizontal
 extent is `CAR_LEN`, yaws it to face `-Z`, and lifts its underside to the road;
-[`building_fit`](../games/playable-demo/src/assets.rs#L82) scales a prefab to a common footprint
+[`building_fit`](../games/playable-demo/src/assets.rs#L83) scales a prefab to a common footprint
 (heights preserved) with its base at the model origin. Both work from baked world-space bounds, so
 they are robust to whatever scale and orientation a model was authored at.
 
@@ -249,7 +249,7 @@ distance field that [`load_font`](../games/playable-demo/src/hud.rs#L101) parses
 The seam is two traits in `kaman-render-api`, bundled for the game as one
 `&mut dyn Renderer` ([context.rs:45](../crates/kaman-core/src/context.rs#L45)):
 
-- [`RenderDevice`](../crates/kaman-render-api/src/device.rs#L82) — load-time resource ownership:
+- [`RenderDevice`](../crates/kaman-render-api/src/device.rs#L98) — load-time resource ownership:
   `create_mesh` / `create_texture` / `create_pipeline` (and their `destroy_*`), plus
   `surface_size` and `safe_area_insets`. Every call returns an **opaque handle** — a newtype over
   an id. No GPU type crosses the seam in either direction.
@@ -326,7 +326,7 @@ The seam is the **2D overlay**
 `draw_overlay_quad`, and the backend batches them and flushes them at `submit` in its own
 orthographic, depth-disabled, alpha-blended pass **after** every 3D draw. So the HUD composites
 on top regardless of record order — which is why
-[`draw_hud`](../games/playable-demo/src/hud.rs#L172) can simply be the last thing
+[`draw_hud`](../games/playable-demo/src/hud.rs#L174) can simply be the last thing
 `render_frame` records. Coordinates are pixels with the origin top-left. A quad's fill is
 `Solid`, `Textured`, or `Sdf`.
 
@@ -344,11 +344,11 @@ stack (overflow is dropped rather than panicking — HUD text is short and cosme
 per-frame HUD path is heap-free.
 
 **Safe area.** Positions are derived from `surface_size` shrunk by
-[`safe_area_insets`](../crates/kaman-render-api/src/device.rs#L153) (`[top, right, bottom, left]`
+[`safe_area_insets`](../crates/kaman-render-api/src/device.rs#L169) (`[top, right, bottom, left]`
 in pixels), so the HUD stays clear of notches, rounded corners and home indicators. A desktop
 window reports zeros; an iOS host (planned for v0.2) would report real insets. The score sits at
 `inset + HUD_MARGIN`, and the game-over banner is centered in the *safe* rectangle, not the raw
-drawable ([hud.rs:254](../games/playable-demo/src/hud.rs#L254)).
+drawable ([hud.rs:256](../games/playable-demo/src/hud.rs#L256)).
 
 The HUD also carries the demo's full-screen washes, recorded first so everything composites over
 them: opaque black on `Ready` (the title screen), that black retiring over `HUD_FADE_SECONDS`

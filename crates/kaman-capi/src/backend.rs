@@ -10,7 +10,7 @@
 
 use kaman_math::glam::{Mat4, Vec3};
 use kaman_render_api::{
-    MeshHandle, OverlayQuad, PipelineKind, RenderSettings, SunSky, TextureHandle,
+    ColorSpace, MeshHandle, OverlayQuad, PipelineKind, RenderSettings, SunSky, TextureHandle,
 };
 
 use crate::core::Error;
@@ -72,6 +72,7 @@ pub(crate) trait Backend {
         width: u32,
         height: u32,
         rgba8: &[u8],
+        color_space: ColorSpace,
     ) -> Result<TextureHandle, Error>;
     fn destroy_texture(&mut self, texture: TextureHandle);
     fn surface_size(&self) -> (u32, u32);
@@ -139,7 +140,13 @@ impl Backend for NullBackend {
 
     fn destroy_mesh(&mut self, _: MeshHandle) {}
 
-    fn create_texture(&mut self, _: u32, _: u32, _: &[u8]) -> Result<TextureHandle, Error> {
+    fn create_texture(
+        &mut self,
+        _: u32,
+        _: u32,
+        _: &[u8],
+        _: ColorSpace,
+    ) -> Result<TextureHandle, Error> {
         self.next_texture += 1;
         Ok(TextureHandle(self.next_texture))
     }

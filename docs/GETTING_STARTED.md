@@ -183,7 +183,7 @@ fit transforms that place a model on the ground) and
 ## 4. Record a draw
 
 The render seam is two traits, handed to you as one `&mut dyn Renderer` from `ctx.renderer()`:
-[`RenderDevice`](../crates/kaman-render-api/src/device.rs#L82) for resources (and
+[`RenderDevice`](../crates/kaman-render-api/src/device.rs#L98) for resources (and
 `surface_size` / `safe_area_insets`) and
 [`FrameRecorder`](../crates/kaman-render-api/src/recorder.rs#L63) for the frame. The frame
 protocol is `begin_frame` → `set_pipeline` / `bind_texture` / `draw_mesh` /

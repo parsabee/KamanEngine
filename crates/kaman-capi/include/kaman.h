@@ -19,7 +19,7 @@
  * The API version this header describes. It increases with every incompatible
  * change; set [`KamanContextDesc::api_version`] to it.
  */
-#define KAMAN_API_VERSION 1
+#define KAMAN_API_VERSION 2
 
 /**
  * An opaque rendering context. See `docs/C_API.md`.
@@ -560,6 +560,11 @@ typedef struct KamanMeshDesc {
 } KamanMeshDesc;
 
 /**
+ * How a texture's colour channels are encoded.
+ */
+typedef uint32_t KamanColorSpace;
+
+/**
  * How to create a texture.
  */
 typedef struct KamanTextureDesc {
@@ -575,6 +580,11 @@ typedef struct KamanTextureDesc {
    * `width * height * 4` bytes of RGBA8, rows top to bottom.
    */
   struct KamanData rgba8;
+  /**
+   * How the colour channels are encoded: `KAMAN_COLOR_SPACE_SRGB` for colour
+   * images, `KAMAN_COLOR_SPACE_LINEAR` for data such as a font atlas.
+   */
+  KamanColorSpace color_space;
   /**
    * Reserved; must be 0.
    */
@@ -735,6 +745,18 @@ typedef struct KamanTextureDesc {
 #define KAMAN_SHADOW_QUALITY_HIGH 2
 
 /**
+ * sRGB-encoded colour (photos, painted albedo, glTF base-colour images): the
+ * sampler decodes it to linear before lighting. The default (0).
+ */
+#define KAMAN_COLOR_SPACE_SRGB 0
+
+/**
+ * Data sampled as stored: SDF font atlases, masks. Required for font atlases
+ * and `KAMAN_FILL_SDF` quads.
+ */
+#define KAMAN_COLOR_SPACE_LINEAR 1
+
+/**
  * The quad's colour, untextured.
  */
 #define KAMAN_FILL_SOLID 0
@@ -746,7 +768,8 @@ typedef struct KamanTextureDesc {
 
 /**
  * `texture` sampled as a signed-distance field (distance in red), tinted by
- * the colour. How text is drawn.
+ * the colour. How text is drawn. The texture must be
+ * `KAMAN_COLOR_SPACE_LINEAR`.
  */
 #define KAMAN_FILL_SDF 2
 

@@ -75,7 +75,9 @@ from committed glTF too — see the [demo guide](PLAYABLE_DEMO.md). The earlier 
 mobile/TBDR-safe look stack — nothing above the seam learns about it. In pass order per frame:
 (1) **sRGB + tonemap** — lighting is computed in linear space and presented through an explicit
 ACES filmic tonemap + sRGB encode in the fragment shaders (`present_color`), so colors are correct
-and not washed out even though both render targets are `*Unorm`; (2) a **gradient sky** fullscreen
+and not washed out even though both render targets are `*Unorm`. Colour textures are uploaded as
+`RGBA8Unorm_sRGB` (`ColorSpace::Srgb`), so sampling decodes them to linear before lighting;
+data textures such as the SDF font atlas stay `RGBA8Unorm` (`ColorSpace::Linear`); (2) a **gradient sky** fullscreen
 triangle replaces the flat clear, drawn depth-test/write-disabled; (3) **distance fog** blends far
 geometry into the sky horizon color, hiding the streaming spawn edge (pairs with world streaming);
 (4) **real sun shadows** (which replaced an earlier fake blob shadow) — see below. **MSAA**

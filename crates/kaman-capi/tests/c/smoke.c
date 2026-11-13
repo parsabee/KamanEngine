@@ -107,7 +107,8 @@ int main(int argc, char **argv) {
     /* A 2x2 texture whose pixels are lent, not copied. */
     static const uint8_t white[16] = {255, 255, 255, 255, 255, 255, 255, 255,
                                       255, 255, 255, 255, 255, 255, 255, 255};
-    KamanTextureDesc texture_desc = {2, 2, {white, sizeof white, count_release, NULL}, 0};
+    KamanTextureDesc texture_desc = {2, 2, {white, sizeof white, count_release, NULL},
+                                     KAMAN_COLOR_SPACE_SRGB, 0};
     KamanTexture texture = {0};
     CHECK(kaman_texture_create(ctx, &texture_desc, NULL, &texture), KAMAN_OK);
     REQUIRE(releases == 1);

@@ -5,7 +5,7 @@
 //! Textured-quad pixel-hash guard.
 //!
 //! Renders a fixed quad on the **textured** pipeline into an offscreen texture,
-//! binding a small non-uniform (checkerboard) base-color texture, then:
+//! binding a small non-uniform (checkerboard) sRGB base-color texture, then:
 //!
 //! 1. asserts the rendered image is **non-uniform** — proving the shader actually
 //!    sampled the bound texture at the mesh UV rather than emitting a flat color;
@@ -33,8 +33,9 @@ use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render::MetalRenderer;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, PipelineDescriptor, PipelineKind, RenderDevice,
-    TextureData, VertexAttribute, VertexFormat, VertexLayout,
+    ColorSpace, FrameRecorder, MaterialParams, MeshData, OverlayFill, OverlayQuad,
+    PipelineDescriptor, PipelineKind, RenderDevice, TextureData, VertexAttribute, VertexFormat,
+    VertexLayout,
 };
 
 mod common;
@@ -85,7 +86,16 @@ const HEIGHT: u32 = 64;
 // shadow itself (no acne — an earlier bilinear-tap filter did leave 21 pixels 1 LSB
 // darker here, which is why the filter compares per texel centre) and the whole
 // change is the blob removal. Mesh, texture, camera and transform are unchanged.
-const REFERENCE_HASH: u64 = 0x95a7782d5aea44e4;
+//
+// re-bless REQUIRED (intended look change): 0x95a7782d5aea44e4 -> 0x9cc073f21160d04e
+// (rendered by CI's paravirtualized Apple GPU, which has matched real Apple GPUs
+// for this scene every time so far).
+// The checkerboard is now uploaded as sRGB, as base-colour textures are, so the
+// sampler decodes it to linear before lighting instead of the shader lighting
+// the encoded bytes and encoding them a second time. The quad is darker and more
+// saturated; `srgb_texture_samples_as_its_linear_decode` checks the decode itself.
+// Mesh, texture bytes, camera and transform are unchanged.
+const REFERENCE_HASH: u64 = 0x9cc073f21160d04e;
 
 /// FNV-1a 64-bit over a byte buffer (self-contained, no external crate).
 fn fnv1a_64(bytes: &[u8]) -> u64 {
@@ -158,9 +168,15 @@ fn checkerboard() -> (u32, u32, Vec<u8>) {
     (N, N, px)
 }
 
-/// Render the textured quad offscreen; return its pixel bytes, or `None` when no
-/// Metal device is available.
+/// Render the textured quad offscreen with the checkerboard; return its pixel
+/// bytes, or `None` when no Metal device is available.
 fn render_textured() -> Option<Vec<u8>> {
+    let (_, _, pixels) = checkerboard();
+    render_textured_with(&pixels, ColorSpace::Srgb)
+}
+
+/// Render the textured quad with an 8x8 texture of `texels` in `color_space`.
+fn render_textured_with(texels: &[u8], color_space: ColorSpace) -> Option<Vec<u8>> {
     let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
 
     let mut camera = Camera::new(WIDTH as f32 / HEIGHT as f32);
@@ -175,11 +191,12 @@ fn render_textured() -> Option<Vec<u8>> {
     });
     let pipeline = renderer.create_pipeline(&PipelineDescriptor::new(PipelineKind::Textured));
 
-    let (tw, th, pixels) = checkerboard();
+    let (tw, th, _) = checkerboard();
     let texture = renderer.create_texture(&TextureData {
         width: tw,
         height: th,
-        rgba8: &pixels,
+        rgba8: texels,
+        color_space,
     });
 
     // Camera pushed before the frame opens, matching the engine loop: the sky pass
@@ -232,5 +249,114 @@ fn textured_quad_is_non_uniform_and_matches_committed_hash() {
         "textured-quad pixel hash changed ({hash:#018x} != {REFERENCE_HASH:#018x}). \
          Re-bless with `BLESS=1 cargo test -p kaman-render --test textured_pixel_hash` \
          and update REFERENCE_HASH with a justification note."
+    );
+}
+
+/// The sRGB transfer function, decoding one 8-bit channel to linear `0..=1`.
+fn srgb_to_linear(byte: u8) -> f32 {
+    let c = f32::from(byte) / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The largest per-channel difference between two equally sized frames.
+fn max_channel_delta(a: &[u8], b: &[u8]) -> u8 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| x.abs_diff(*y))
+        .max()
+        .unwrap_or(0)
+}
+
+#[test]
+fn srgb_texture_samples_as_its_linear_decode() {
+    // An sRGB texture must shade exactly like a linear texture holding its
+    // decoded values: that is what "the sampler decodes to linear" means. The
+    // linear copy is quantised to 8 bits, which loses a little precision in the
+    // darkest channels, hence the small tolerance.
+    let (_, _, srgb) = checkerboard();
+    let decoded: Vec<u8> = srgb
+        .chunks_exact(4)
+        .flat_map(|p| {
+            let d = |c: u8| (srgb_to_linear(c) * 255.0).round() as u8;
+            [d(p[0]), d(p[1]), d(p[2]), p[3]]
+        })
+        .collect();
+    let (Some(as_srgb), Some(as_decoded), Some(as_raw)) = (
+        render_textured_with(&srgb, ColorSpace::Srgb),
+        render_textured_with(&decoded, ColorSpace::Linear),
+        render_textured_with(&srgb, ColorSpace::Linear),
+    ) else {
+        common::no_gpu();
+        return;
+    };
+    let decode_delta = max_channel_delta(&as_srgb, &as_decoded);
+    assert!(
+        decode_delta <= 6,
+        "an sRGB texture shades {decode_delta}/255 away from its linear decode"
+    );
+    // And the decode really happens: the same bytes read as linear data are a
+    // visibly different (lighter) frame.
+    let raw_delta = max_channel_delta(&as_srgb, &as_raw);
+    assert!(
+        raw_delta >= 20,
+        "sRGB and linear uploads of the same bytes differ by only {raw_delta}/255"
+    );
+}
+
+/// Draw `texels` (8x8) as an 8x8-pixel overlay quad in the frame's corner and
+/// return the frame, or `None` without a Metal device.
+///
+/// The quad is drawn 1:1 so every pixel samples exactly one texel centre. Stretched,
+/// the linear sampler would blend neighbouring texels, and the GPU blends an sRGB
+/// texture in linear light (after decoding) but a linear one in stored values, so
+/// the two uploads would legitimately differ wherever texels mix.
+fn render_overlay_with(texels: &[u8], color_space: ColorSpace) -> Option<Vec<u8>> {
+    let mut renderer = MetalRenderer::new_offscreen(WIDTH, HEIGHT)?;
+    let texture = renderer.create_texture(&TextureData {
+        width: 8,
+        height: 8,
+        rgba8: texels,
+        color_space,
+    });
+    renderer.begin_frame();
+    renderer.draw_overlay_quad(&OverlayQuad {
+        rect: [0.0, 0.0, 8.0, 8.0],
+        uv: [0.0, 0.0, 1.0, 1.0],
+        color: [1.0, 1.0, 1.0, 1.0],
+        fill: OverlayFill::Textured(texture),
+    });
+    renderer.submit();
+    renderer.read_pixels()
+}
+
+#[test]
+fn srgb_overlay_texture_shows_its_stored_colours() {
+    // The overlay is display-referred: an sRGB image drawn in the HUD must show
+    // the colours it stores, the same frame as those bytes uploaded as linear.
+    let (_, _, texels) = checkerboard();
+    let (Some(srgb), Some(linear)) = (
+        render_overlay_with(&texels, ColorSpace::Srgb),
+        render_overlay_with(&texels, ColorSpace::Linear),
+    ) else {
+        common::no_gpu();
+        return;
+    };
+    // The quad really is on screen: the top-left pixel is the first texel, drawn
+    // straight from the linear upload (BGRA in the frame, RGBA in the texture).
+    let [b, g, r] = [linear[0], linear[1], linear[2]];
+    let [tr, tg, tb] = [texels[0], texels[1], texels[2]];
+    assert!(
+        r.abs_diff(tr) <= 1 && g.abs_diff(tg) <= 1 && b.abs_diff(tb) <= 1,
+        "the overlay quad is not where the test drew it: top-left pixel is \
+         rgb({r}, {g}, {b}), expected rgb({tr}, {tg}, {tb})"
+    );
+    let delta = max_channel_delta(&srgb, &linear);
+    assert!(
+        delta <= 1,
+        "an sRGB overlay texture drew {delta}/255 away from its stored colours"
     );
 }

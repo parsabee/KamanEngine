@@ -102,6 +102,8 @@ pub struct MeshAsset {
     /// material, if it has one. `Some` ⇒ this mesh is packed on the
     /// `[pos,normal,uv]` [`textured_vertex_layout`] and should be drawn with the
     /// textured pipeline; `None` ⇒ the default-color `[pos,normal,color]` path.
+    /// glTF base-colour images are sRGB-encoded: upload them with
+    /// [`ColorSpace::Srgb`](kaman_render_api::ColorSpace::Srgb).
     pub base_color: Option<BaseColorTexture>,
     /// The material's base-color factor (linear RGBA), multiplied with the
     /// sampled base-color texture (or used alone when there is no texture).

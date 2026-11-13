@@ -17,7 +17,7 @@ use std::ffi::{c_char, c_void};
 
 /// The API version this header describes. It increases with every incompatible
 /// change; set [`KamanContextDesc::api_version`] to it.
-pub const KAMAN_API_VERSION: u32 = 1;
+pub const KAMAN_API_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Results
@@ -110,6 +110,15 @@ pub const KAMAN_SHADOW_QUALITY_LOW: KamanShadowQuality = 1;
 /// A 4096² shadow map (the default).
 pub const KAMAN_SHADOW_QUALITY_HIGH: KamanShadowQuality = 2;
 
+/// How a texture's colour channels are encoded.
+pub type KamanColorSpace = u32;
+/// sRGB-encoded colour (photos, painted albedo, glTF base-colour images): the
+/// sampler decodes it to linear before lighting. The default (0).
+pub const KAMAN_COLOR_SPACE_SRGB: KamanColorSpace = 0;
+/// Data sampled as stored: SDF font atlases, masks. Required for font atlases
+/// and `KAMAN_FILL_SDF` quads.
+pub const KAMAN_COLOR_SPACE_LINEAR: KamanColorSpace = 1;
+
 /// How a 2D quad is filled.
 pub type KamanFill = u32;
 /// The quad's colour, untextured.
@@ -117,7 +126,8 @@ pub const KAMAN_FILL_SOLID: KamanFill = 0;
 /// `texture` sampled as RGBA, times the colour.
 pub const KAMAN_FILL_TEXTURE: KamanFill = 1;
 /// `texture` sampled as a signed-distance field (distance in red), tinted by
-/// the colour. How text is drawn.
+/// the colour. How text is drawn. The texture must be
+/// `KAMAN_COLOR_SPACE_LINEAR`.
 pub const KAMAN_FILL_SDF: KamanFill = 2;
 
 // ---------------------------------------------------------------------------
@@ -357,6 +367,9 @@ pub struct KamanTextureDesc {
     pub height: u32,
     /// `width * height * 4` bytes of RGBA8, rows top to bottom.
     pub rgba8: KamanData,
+    /// How the colour channels are encoded: `KAMAN_COLOR_SPACE_SRGB` for colour
+    /// images, `KAMAN_COLOR_SPACE_LINEAR` for data such as a font atlas.
+    pub color_space: KamanColorSpace,
     /// Reserved; must be 0.
     pub flags: u32,
 }

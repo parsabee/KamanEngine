@@ -182,7 +182,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use kaman_math::glam::{Mat4, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, MeshHandle, OverlayFill, OverlayQuad,
+    ColorSpace, FrameRecorder, MaterialParams, MeshData, MeshHandle, OverlayFill, OverlayQuad,
     PipelineDescriptor, PipelineHandle, PipelineKind, RenderDevice, RenderSettings, SunSky,
     TextureData, TextureHandle, VertexFormat, VertexLayout,
 };
@@ -383,7 +383,11 @@ fn build_vertex_descriptor(layout: &VertexLayout) -> &'static metal::VertexDescr
     descriptor
 }
 
-/// The pixel format base-color textures are uploaded as.
+/// The pixel format a texture is uploaded as.
+///
+/// [`ColorSpace::Srgb`] textures use an `_sRGB` format, so the sampler decodes
+/// them to linear before shading (the scene shaders light in linear and encode
+/// once at the end); [`ColorSpace::Linear`] data is sampled as stored.
 ///
 /// **RGBA8 is the accepted fallback**: we build on the Command Line
 /// Tools with no ASTC transcoder, so uncompressed RGBA8 is what `create_texture`
@@ -392,17 +396,31 @@ fn build_vertex_descriptor(layout: &VertexLayout) -> &'static metal::VertexDescr
 /// blocks and skip runtime mip generation. Kept behind cfg so the desktop build
 /// is unaffected and the device path has a single, obvious hook.
 #[cfg(feature = "astc-textures")]
-fn texture_pixel_format() -> MTLPixelFormat {
-    // Device/mobile path: ASTC 4x4 LDR. Enabled by the `astc-textures` feature,
+fn texture_pixel_format(color_space: ColorSpace) -> MTLPixelFormat {
+    // Device/mobile path: ASTC 4x4. Enabled by the `astc-textures` feature,
     // which a device build turns on once a transcoder feeds pre-compressed blocks
     // (out of scope on CLT). Left here so the on-device format is a one-line flip.
-    MTLPixelFormat::ASTC_4x4_LDR
+    match color_space {
+        ColorSpace::Srgb => MTLPixelFormat::ASTC_4x4_sRGB,
+        ColorSpace::Linear => MTLPixelFormat::ASTC_4x4_LDR,
+    }
 }
 
-/// The pixel format base-color textures are uploaded as (RGBA8 fallback).
+/// The pixel format a texture is uploaded as (RGBA8 fallback).
 #[cfg(not(feature = "astc-textures"))]
-fn texture_pixel_format() -> MTLPixelFormat {
-    MTLPixelFormat::RGBA8Unorm
+fn texture_pixel_format(color_space: ColorSpace) -> MTLPixelFormat {
+    match color_space {
+        ColorSpace::Srgb => MTLPixelFormat::RGBA8Unorm_sRGB,
+        ColorSpace::Linear => MTLPixelFormat::RGBA8Unorm,
+    }
+}
+
+/// Whether `texture` was uploaded as sRGB, so sampling it decodes to linear.
+fn is_srgb(texture: &metal::TextureRef) -> bool {
+    matches!(
+        texture.pixel_format(),
+        MTLPixelFormat::RGBA8Unorm_sRGB | MTLPixelFormat::ASTC_4x4_sRGB
+    )
 }
 
 /// Check that `data.rgba8` is empty (allocate without contents) or holds at
@@ -490,6 +508,10 @@ const OVERLAY_VERTEX_STRIDE: u64 = std::mem::size_of::<OverlayVertex>() as u64;
 const OVERLAY_MODE_SOLID: f32 = 0.0;
 const OVERLAY_MODE_TEXTURED: f32 = 1.0;
 const OVERLAY_MODE_SDF: f32 = 2.0;
+/// A textured fill whose texture is sRGB. The overlay is display-referred, so
+/// the shader re-encodes the sampler's linear decode: an sRGB image shows the
+/// colours it stores, exactly like the same bytes uploaded as linear.
+const OVERLAY_MODE_TEXTURED_SRGB: f32 = 3.0;
 
 /// A render target the backend presents into.
 ///
@@ -1632,7 +1654,7 @@ impl MetalRenderer {
         let mip_levels = (64 - (width.max(height)).leading_zeros()).max(1) as u64;
 
         let desc = metal::TextureDescriptor::new();
-        desc.set_pixel_format(texture_pixel_format());
+        desc.set_pixel_format(texture_pixel_format(data.color_space));
         desc.set_width(width);
         desc.set_height(height);
         desc.set_mipmap_level_count(mip_levels);
@@ -2463,7 +2485,10 @@ impl MetalRenderer {
         // allocation-free in steady state.
         let mode = match quad.fill {
             OverlayFill::Solid => OVERLAY_MODE_SOLID,
-            OverlayFill::Textured(_) => OVERLAY_MODE_TEXTURED,
+            OverlayFill::Textured(t) => match self.textures.get(t.0 as usize) {
+                Some(Some(tex)) if is_srgb(tex) => OVERLAY_MODE_TEXTURED_SRGB,
+                _ => OVERLAY_MODE_TEXTURED,
+            },
             OverlayFill::Sdf(_) => OVERLAY_MODE_SDF,
         };
         let [x, y, w, h] = quad.rect;
@@ -2524,6 +2549,7 @@ impl RenderDevice for MetalRenderer {
             width: data.width.max(1),
             height: data.height.max(1),
             rgba8: data.rgba8,
+            color_space: data.color_space,
         };
         if let Err(e) = check_size(clamped.width, clamped.height).and(validate_rgba8(&clamped)) {
             panic!("create_texture: {e}");
@@ -2780,11 +2806,23 @@ mod shadow_pass_tests {
     }
 
     #[test]
+    fn colour_textures_use_an_srgb_format_and_data_textures_do_not() {
+        let srgb = texture_pixel_format(ColorSpace::Srgb);
+        let linear = texture_pixel_format(ColorSpace::Linear);
+        assert_ne!(srgb, linear);
+        assert!(matches!(
+            srgb,
+            MTLPixelFormat::RGBA8Unorm_sRGB | MTLPixelFormat::ASTC_4x4_sRGB
+        ));
+    }
+
+    #[test]
     fn rgba8_validation_rejects_short_pixel_data_but_allows_empty() {
         let data = |width, height, rgba8: &'static [u8]| TextureData {
             width,
             height,
             rgba8,
+            color_space: ColorSpace::Srgb,
         };
         assert!(
             validate_rgba8(&data(2, 2, &[])).is_ok(),

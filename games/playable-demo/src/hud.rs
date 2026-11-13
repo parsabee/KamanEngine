@@ -38,7 +38,7 @@
 use std::fmt::Write as _;
 
 use kaman_core::Renderer;
-use kaman_render_api::{FontAtlas, Glyph, OverlayQuad, TextureData};
+use kaman_render_api::{ColorSpace, FontAtlas, Glyph, OverlayQuad, TextureData};
 
 use crate::config::{
     HUD_BANNER_PX, HUD_BLACK_COLOR, HUD_DIM_COLOR, HUD_MARGIN, HUD_SCORE_PX, HUD_TEXT_COLOR,
@@ -141,10 +141,12 @@ pub(crate) fn load_font(renderer: &mut dyn Renderer, path: &str) -> FontAtlas {
     for &d in field {
         rgba.extend_from_slice(&[d, d, d, 255]);
     }
+    // Distance data, not colour: it must be sampled as stored.
     let texture = renderer.create_texture(&TextureData {
         width,
         height,
         rgba8: &rgba,
+        color_space: ColorSpace::Linear,
     });
 
     FontAtlas {

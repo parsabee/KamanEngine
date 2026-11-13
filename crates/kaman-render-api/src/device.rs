@@ -24,6 +24,20 @@ pub struct MeshData<'a> {
     pub layout: VertexLayout,
 }
 
+/// How a texture's 8-bit colour channels are encoded.
+///
+/// Lighting happens in linear light, so a backend must know which textures hold
+/// gamma-encoded colour and which hold raw data. Alpha is always linear.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ColorSpace {
+    /// sRGB-encoded colour: photos, painted albedo, glTF base-colour textures.
+    /// Sampling decodes it to linear before shading.
+    Srgb,
+    /// Values used as stored: signed-distance-field atlases, masks and other
+    /// data. Sampling returns the bytes divided by 255.
+    Linear,
+}
+
 /// Plain-data description of a 2D RGBA texture to upload.
 ///
 /// Pixels are 8-bit RGBA (`4 * width * height` bytes, row-major, top-left origin).
@@ -35,6 +49,8 @@ pub struct TextureData<'a> {
     pub height: u32,
     /// Row-major 8-bit RGBA pixel bytes (`4 * width * height` bytes).
     pub rgba8: &'a [u8],
+    /// How the colour channels of `rgba8` are encoded.
+    pub color_space: ColorSpace,
 }
 
 /// Plain-data description of a render pipeline: which built-in pipeline the

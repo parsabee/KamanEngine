@@ -20,7 +20,7 @@ use kaman_assets::AssetCache;
 use kaman_core::Renderer;
 use kaman_math::glam::{Quat, Vec3};
 use kaman_math::Transform;
-use kaman_render_api::{MeshHandle, TextureData, TextureHandle, VertexLayout};
+use kaman_render_api::{ColorSpace, MeshHandle, TextureData, TextureHandle, VertexLayout};
 
 use crate::config::{BUILDING_FOOTPRINT, CAR_BOTTOM, CAR_LEN, CAR_YAW};
 
@@ -67,6 +67,7 @@ pub(crate) fn load_model(
                     width: tex.width,
                     height: tex.height,
                     rgba8: &tex.rgba8,
+                    color_space: ColorSpace::Srgb,
                 })
             });
             (local, handle, texture)
@@ -170,6 +171,7 @@ pub(crate) fn load_textured_mesh(
         width: base_color.width,
         height: base_color.height,
         rgba8: &base_color.rgba8,
+        color_space: ColorSpace::Srgb,
     });
     (mesh, texture)
 }

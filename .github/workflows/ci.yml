@@ -5,12 +5,13 @@ name: CI
 #
 # Also runs on release tags (`v*`, e.g. `v0.1.0-alpha.1`) so every tagged release has its own
 # green run, and on demand from the Actions tab / `gh workflow run ci.yml --ref main`.
+# Pull requests are checked whatever their base, so a PR stacked on another PR's branch gets
+# its own run instead of waiting until it is retargeted to main.
 on:
   push:
     branches: [main]
     tags: ["v*"]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:

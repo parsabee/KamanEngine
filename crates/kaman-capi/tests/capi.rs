@@ -181,13 +181,14 @@ fn make_mesh(ctx: &Ctx) -> KamanMesh {
     mesh
 }
 
-fn make_texture(ctx: &Ctx, width: u32, height: u32) -> KamanTexture {
+fn make_texture(ctx: &Ctx, width: u32, height: u32, color_space: KamanColorSpace) -> KamanTexture {
     let pixels = vec![255u8; (width * height * 4) as usize];
     let mut texture = KamanTexture::default();
     let desc = KamanTextureDesc {
         width,
         height,
         rgba8: copied(&pixels),
+        color_space,
         flags: 0,
     };
     // SAFETY: valid pointers; data copied.
@@ -381,6 +382,7 @@ fn malformed_meshes_and_textures_are_rejected() {
         width: 64,
         height: 64,
         rgba8: copied(&[0; 4]),
+        color_space: KAMAN_COLOR_SPACE_SRGB,
         flags: 0,
     };
     // SAFETY: valid pointers.
@@ -393,10 +395,22 @@ fn malformed_meshes_and_textures_are_rejected() {
             width: 1,
             height: 1,
             rgba8: copied(&[0; 4]),
+            color_space: KAMAN_COLOR_SPACE_SRGB,
             flags: 1,
         };
         assert_eq!(
             kaman_texture_create(ctx.0, &flagged, null(), &mut texture),
+            KAMAN_ERROR_INVALID_ARGUMENT
+        );
+        let unknown_space = KamanTextureDesc {
+            width: 1,
+            height: 1,
+            rgba8: copied(&[0; 4]),
+            color_space: 7,
+            flags: 0,
+        };
+        assert_eq!(
+            kaman_texture_create(ctx.0, &unknown_space, null(), &mut texture),
             KAMAN_ERROR_INVALID_ARGUMENT
         );
     }
@@ -799,7 +813,7 @@ fn readbacks_complete_or_fail_with_their_frame() {
 #[test]
 fn fonts_measure_and_draw_until_their_atlas_goes() {
     let ctx = Ctx::null(64, 64);
-    let atlas = make_texture(&ctx, 2, 2);
+    let atlas = make_texture(&ctx, 2, 2, KAMAN_COLOR_SPACE_LINEAR);
     let glyph = KamanGlyph {
         u1: 1.0,
         v1: 1.0,
@@ -1042,5 +1056,62 @@ fn the_c_api_renders_what_the_rust_api_renders() {
                 m: self.to_cols_array(),
             }
         }
+    }
+}
+
+#[test]
+fn distance_fields_must_be_linear_textures() {
+    // An SDF atlas stores distances; decoding them as sRGB colour would move the
+    // glyph edges. Fonts and SDF quads refuse an sRGB texture outright.
+    let ctx = Ctx::null(64, 64);
+    let srgb = make_texture(&ctx, 2, 2, KAMAN_COLOR_SPACE_SRGB);
+    let linear = make_texture(&ctx, 2, 2, KAMAN_COLOR_SPACE_LINEAR);
+    let font_desc = |atlas| KamanFontDesc {
+        atlas,
+        first_codepoint: 'A' as u32,
+        glyphs: null(),
+        glyph_count: 0,
+        line_height: 1.0,
+        fallback: KamanGlyph::default(),
+    };
+    let mut font = KamanFont::default();
+    // SAFETY: valid pointers throughout.
+    unsafe {
+        assert_eq!(
+            kaman_font_create(ctx.0, &font_desc(srgb), null(), &mut font),
+            KAMAN_ERROR_INVALID_ARGUMENT
+        );
+        assert!(
+            last_error().contains("KAMAN_COLOR_SPACE_LINEAR"),
+            "{}",
+            last_error()
+        );
+        assert_eq!(
+            kaman_font_create(ctx.0, &font_desc(linear), null(), &mut font),
+            KAMAN_OK
+        );
+
+        let frame = ctx.acquire();
+        let quad = |texture| KamanQuad {
+            width: 8.0,
+            height: 8.0,
+            u1: 1.0,
+            v1: 1.0,
+            fill: KAMAN_FILL_SDF,
+            texture,
+            ..KamanQuad::default()
+        };
+        assert_eq!(
+            kaman_frame_draw_quad(frame, &quad(srgb)),
+            KAMAN_ERROR_INVALID_ARGUMENT
+        );
+        assert_eq!(kaman_frame_draw_quad(frame, &quad(linear)), KAMAN_OK);
+        // Plain textured quads take either colour space.
+        let textured = KamanQuad {
+            fill: KAMAN_FILL_TEXTURE,
+            ..quad(srgb)
+        };
+        assert_eq!(kaman_frame_draw_quad(frame, &textured), KAMAN_OK);
+        assert_eq!(kaman_frame_discard(frame), KAMAN_OK);
     }
 }

@@ -11,7 +11,7 @@
 use kaman_math::glam::Vec3;
 use kaman_math::Transform;
 use kaman_render_api::{
-    FrameRecorder, MaterialParams, MeshData, MeshHandle, NullRenderer, OverlayQuad,
+    ColorSpace, FrameRecorder, MaterialParams, MeshData, MeshHandle, NullRenderer, OverlayQuad,
     PipelineDescriptor, PipelineHandle, PipelineKind, ProtocolViolation, RenderDevice, TextureData,
     TextureHandle, VertexLayout,
 };
@@ -41,6 +41,7 @@ fn make_texture(r: &mut NullRenderer) -> kaman_render_api::TextureHandle {
         width: 1,
         height: 1,
         rgba8: &[255, 255, 255, 255],
+        color_space: ColorSpace::Srgb,
     })
 }
 

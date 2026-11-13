@@ -81,7 +81,7 @@ pub mod settings;
 pub mod sun;
 
 pub use descriptor::{MaterialParams, PipelineKind, VertexAttribute, VertexFormat, VertexLayout};
-pub use device::{MeshData, PipelineDescriptor, RenderDevice, TextureData};
+pub use device::{ColorSpace, MeshData, PipelineDescriptor, RenderDevice, TextureData};
 pub use handles::{MeshHandle, PipelineHandle, TextureHandle};
 pub use null::{NullRenderer, ProtocolViolation, RecordedDraw};
 pub use overlay::{FontAtlas, Glyph, OverlayFill, OverlayQuad};
