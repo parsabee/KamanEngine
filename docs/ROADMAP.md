@@ -17,6 +17,9 @@ history is in [CHANGELOG.md](../CHANGELOG.md).
   header, a renderer created from a host-supplied `CAMetalLayer`, and errors instead of panics at
   the boundary. CI compiles and runs a C program against the header.
 - A test and bug-fix pass over everything shipped so far.
+- **Correct colour and normals:** colour textures decoded from sRGB, flat normals for glTF meshes
+  that have none, the inverse-transpose normal matrix under non-uniform scale, and exact glTF
+  node matrices.
 
 The ray tracer was removed for v0.1: the engine is rasterization-only.
 

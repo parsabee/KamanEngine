@@ -4,9 +4,19 @@ All notable changes to KamanEngine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the version is below
-`1.0.0`, and especially for `-alpha` pre-releases, **any release may break the public API**.
+`1.0.0`, and especially for `-alpha` and `-beta` pre-releases, **any release may break the public
+API**.
 
 ## [Unreleased]
+
+## [0.1.0-beta.1] - 2026-11-13
+
+The first beta. KamanEngine is now a rasterization-only Metal graphics library for Apple Silicon
+with a **C API** that is asynchronous in shape: calls return at once with a handle or a result,
+resources become ready later, and completions arrive as events. The beta also decodes colour
+textures from sRGB, fixes normals under non-uniform scale and for meshes without them, makes the
+docs match the code, and fixes the bugs and test gaps a full audit found. The C API and the Rust
+API both have breaking changes; see Changed and Removed.
 
 ### Added
 
@@ -184,6 +194,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
   tests that only re-derived their own formula, drew nothing or asserted a tautology now check
   real output; and the HUD is part of the zero-allocation test.
 
+### Known limitations
+
+- **macOS on Apple Silicon only.** iOS is planned for v0.2
+  ([#2](https://github.com/parsabee/KamanEngine/issues/2)).
+- **Shaders still compile at runtime.** Precompiled, embedded `.metallib` shaders come in 0.1.0;
+  until then the `precompiled-shaders` feature is off by default.
+- **Some C API calls still do work on the caller's thread.** `kaman_frame_submit` encodes the
+  frame there and can briefly wait for a drawable; mesh, texture and font creation upload before
+  returning; context creation, destruction and `kaman_context_flush` wait. Later releases move
+  this onto engine threads without API changes. See "What may wait in the beta" in
+  [docs/C_API.md](docs/C_API.md).
+- **No ABI stability before 1.0.** `KAMAN_API_VERSION` is 2; a context refuses a header from a
+  different API version.
+- **Performance has not been measured yet.** GPU timing and benchmarks come in 0.1.0. Known costs
+  today: no frustum culling or instancing, and indexed meshes are expanded to one vertex per index
+  on upload.
+- **The crates are not published to crates.io.** Use them as path dependencies, or the C library
+  from the release tarball or Homebrew.
+
 ## [0.1.0-alpha.2] - 2026-09-27
 
 ### Added
@@ -295,6 +324,7 @@ workspace version and are not published to crates.io.
   crash WAVs were generated for this project and dedicated CC0 1.0. The HUD font is OFL. See
   `games/playable-demo/README.md`.
 
-[Unreleased]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-alpha.2...HEAD
+[Unreleased]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-beta.1...HEAD
+[0.1.0-beta.1]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-alpha.2...v0.1.0-beta.1
 [0.1.0-alpha.2]: https://github.com/parsabee/KamanEngine/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/parsabee/KamanEngine/releases/tag/v0.1.0-alpha.1

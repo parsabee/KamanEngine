@@ -259,8 +259,8 @@ and rustdoc. The prototype's provenance is recorded in [docs/ARCHITECTURE.md](do
 
 | Release | State |
 |---|---|
-| `v0.1.0-alpha.2` (current) | macOS on Apple Silicon: the engine crates, the playable demo, and a Homebrew install |
-| `v0.1.0-beta.1` | In progress: ticket system removed, docs made to match the code, the C API, a test and bug-fix pass |
+| `v0.1.0-alpha.2` | macOS on Apple Silicon: the engine crates, the playable demo, and a Homebrew install |
+| `v0.1.0-beta.1` (current) | The async-shaped C API (`libkaman`, `kaman.h`, a Swift module map), sRGB colour textures and correct normals, docs that match the code, and a test and bug-fix pass |
 | `v0.1.0` | Planned: precompiled `.metallib` shaders and benchmarking |
 | `v0.2` | Planned: iOS ([#2](https://github.com/parsabee/KamanEngine/issues/2)) |
 
