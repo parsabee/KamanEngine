@@ -14,8 +14,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use kaman::*;
 
-const CUBE: &[u8] = include_bytes!("../../kaman-assets/tests/fixtures/cube.gltf");
-const TEXTURED_CUBE: &[u8] = include_bytes!("../../kaman-assets/tests/fixtures/textured_cube.gltf");
+const CUBE: &[u8] = include_bytes!("../../stickshift-assets/tests/fixtures/cube.gltf");
+const TEXTURED_CUBE: &[u8] = include_bytes!("../../stickshift-assets/tests/fixtures/textured_cube.gltf");
 
 fn desc(backend: KamanBackend, width: u32, height: u32) -> KamanContextDesc {
     KamanContextDesc {
@@ -633,7 +633,7 @@ fn a_textured_model_loads_its_texture_from_a_file() {
     let ctx = Ctx::null(8, 8);
     let path = CString::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../kaman-assets/tests/fixtures/textured_cube.gltf"
+        "/../stickshift-assets/tests/fixtures/textured_cube.gltf"
     ))
     .unwrap();
     let mut model = KamanModel::default();

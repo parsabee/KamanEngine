@@ -1,18 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/kaman-math",
-    "crates/kaman-perf",
-    "crates/kaman-ecs",
-    "crates/kaman-physics",
-    "crates/kaman-camera",
-    "crates/kaman-scene",
-    "crates/kaman-render-api",
-    "crates/kaman-render",
-    "crates/kaman-assets",
-    "crates/kaman-audio",
-    "crates/kaman-core",
-    "crates/kaman-capi",
+    "crates/stickshift-math",
+    "crates/stickshift-perf",
+    "crates/stickshift-ecs",
+    "crates/stickshift-physics",
+    "crates/stickshift-camera",
+    "crates/stickshift-scene",
+    "crates/stickshift-render-api",
+    "crates/stickshift-render",
+    "crates/stickshift-assets",
+    "crates/stickshift-audio",
+    "crates/stickshift-core",
+    "crates/stickshift-capi",
     "games/playable-demo",
 ]
 
@@ -42,17 +42,17 @@ publish = false
 [workspace.dependencies]
 # Intra-workspace crates. Path deps live here too so every consumer resolves the
 # same local copy without repeating the relative path.
-kaman-math = { path = "crates/kaman-math" }
-kaman-perf = { path = "crates/kaman-perf" }
-kaman-ecs = { path = "crates/kaman-ecs" }
-kaman-physics = { path = "crates/kaman-physics" }
-kaman-camera = { path = "crates/kaman-camera" }
-kaman-scene = { path = "crates/kaman-scene" }
-kaman-render-api = { path = "crates/kaman-render-api" }
-kaman-render = { path = "crates/kaman-render" }
-kaman-assets = { path = "crates/kaman-assets" }
-kaman-audio = { path = "crates/kaman-audio" }
-kaman-core = { path = "crates/kaman-core" }
+kaman-math = { path = "crates/stickshift-math" }
+kaman-perf = { path = "crates/stickshift-perf" }
+kaman-ecs = { path = "crates/stickshift-ecs" }
+kaman-physics = { path = "crates/stickshift-physics" }
+kaman-camera = { path = "crates/stickshift-camera" }
+kaman-scene = { path = "crates/stickshift-scene" }
+kaman-render-api = { path = "crates/stickshift-render-api" }
+kaman-render = { path = "crates/stickshift-render" }
+kaman-assets = { path = "crates/stickshift-assets" }
+kaman-audio = { path = "crates/stickshift-audio" }
+kaman-core = { path = "crates/stickshift-core" }
 
 glam = "0.29"
 # glTF import: pure-Rust parser, builds on the Command Line Tools (no

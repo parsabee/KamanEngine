@@ -22,7 +22,7 @@ kaman-render-api.workspace = true
 # Graphics only: kaman-assets' default `ecs` feature (hecs + rapier) stays off.
 # A path dependency rather than `workspace = true` so `default-features = false`
 # takes effect.
-kaman-assets = { path = "../kaman-assets", default-features = false }
+kaman-assets = { path = "../stickshift-assets", default-features = false }
 
 [dev-dependencies]
 # Only to check that the projection helper matches the camera's.
