@@ -39,11 +39,12 @@ API, so that any host app (C, C++, Swift) can drive it; see the [roadmap](docs/R
 reference title is the [playable demo](#the-playable-demo), an endless car runner on a freeway.
 
 > [!NOTE]
-> KamanEngine is **pre-release and under active development**. Releases start at
-> [`v0.1.0-alpha.1`](https://github.com/parsabee/KamanEngine/releases) (source only); from
-> `v0.1.0-alpha.2` each release also ships a prebuilt Apple Silicon build, installable with
-> [Homebrew](#install-with-homebrew). The public API may change between releases (see [CHANGELOG.md](CHANGELOG.md)). macOS is the supported
-> platform today; iOS support is planned for v0.2 ([#2](https://github.com/parsabee/KamanEngine/issues/2)).
+> KamanEngine is **pre-release and under active development**. The current release is
+> [`v0.1.0-beta.1`](https://github.com/parsabee/KamanEngine/releases/tag/v0.1.0-beta.1), a beta:
+> each release ships a prebuilt Apple Silicon build (the C library, its header and the playable
+> demo), installable with [Homebrew](#install-with-homebrew). The public API may change between
+> releases (see [CHANGELOG.md](CHANGELOG.md)). macOS is the supported platform today; iOS support
+> is planned for v0.2 ([#2](https://github.com/parsabee/KamanEngine/issues/2)).
 
 ## Table of contents
 
@@ -283,7 +284,7 @@ Guides and design docs:
 | Document | What it covers |
 |---|---|
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Build your own game on the engine |
-| [docs/C_API.md](docs/C_API.md) | The C API (draft for v0.1.0-beta.1): concepts, threading, what may wait, reference |
+| [docs/C_API.md](docs/C_API.md) | The C API: concepts, threading, what may wait in the beta, reference |
 | [docs/PLAYABLE_DEMO.md](docs/PLAYABLE_DEMO.md) | The demo walked through as a reference example |
 | [docs/DESIGN.md](docs/DESIGN.md) | Diagrams: component, UML class and sequence diagrams (Mermaid) of the layers, the render seam, the frame loop, streaming, and asset load |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Intentional constraints, the render seam, and workspace layout |
