@@ -1,4 +1,4 @@
-# Pins the Rust toolchain for KamanEngine.
+# Pins the Rust toolchain for Stick Shift Engine.
 #
 # NOTE: this machine uses a Homebrew-provided rust (no rustup), so this file is NOT honored
 # locally — the Homebrew toolchain (currently 1.91.0) is used regardless. It IS honored by

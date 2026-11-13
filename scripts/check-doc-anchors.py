@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the code links in KamanEngine's Markdown docs.
+"""Validate the code links in Stick Shift Engine's Markdown docs.
 
 The docs link into source with relative paths and `#L<n>` line anchors. Those
 anchors are precise and therefore fragile: any edit above a cited line silently
@@ -40,13 +40,13 @@ DOCS = [
     "docs/GETTING_STARTED.md",
     "docs/PLAYABLE_DEMO.md",
     "games/playable-demo/README.md",
-    "crates/kaman-render/README.md",
+    "crates/stickshift-render/README.md",
 ]
 
 LINK = re.compile(r"\[([^\]]*?)\]\(([^)\s]+)\)")
 # A label that names a Rust item: `foo`, `Foo`, `Foo::bar`, `config::SEED`.
 SYMBOL_LABEL = re.compile(r"^`([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)`")
-# A label that names a file and line: `game.rs:517`, `kaman-scene:107`.
+# A label that names a file and line: `game.rs:517`, `stickshift-scene:107`.
 FILE_LINE_LABEL = re.compile(r":(\d+)(?:[–-]\d+)?$")
 
 

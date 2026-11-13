@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# KamanEngine toolchain preflight — verifies the project's build/runtime
+# Stick Shift Engine toolchain preflight — verifies the project's build/runtime
 # dependencies are installed. Run this before your first build; CI runs it too.
 # Exits non-zero if a REQUIRED tool is missing.
 #
@@ -7,7 +7,7 @@
 #   ./scripts/preflight.sh --ios    ALSO require the iOS + precompiled .metallib toolchain
 #
 # Two tiers:
-#   * Required now  — build + run the engine on macOS (KamanEngine is Apple-only).
+#   * Required now  — build + run the engine on macOS (Stick Shift Engine is Apple-only).
 #   * iOS / .metallib — full Xcode (metal/metallib shader compiler) + rustup iOS
 #                     targets. Only a warning by default; a hard requirement with
 #                     --ios (needed for precompiled shaders and iOS builds).
@@ -33,7 +33,7 @@ echo "Platform:"
 if [ "$(uname -s)" = "Darwin" ]; then
   ok "macOS" "$(sw_vers -productVersion 2>/dev/null)"
 else
-  miss "macOS" "KamanEngine targets Apple platforms only (raw Metal)"
+  miss "macOS" "Stick Shift Engine targets Apple platforms only (raw Metal)"
 fi
 
 echo
