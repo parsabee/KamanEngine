@@ -27,7 +27,7 @@ use kaman_math::glam::{Quat, Vec3};
 use kaman_math::Transform;
 use kaman_render_api::MaterialParams;
 
-use crate::assets::{compose, pick_model, CarPart};
+use crate::assets::{pick_model, CarPart};
 use crate::components::{BuildingVariant, GuardrailTag, PlacedModel, TrafficVariant};
 use crate::config::{
     BACKDROP_DIST, BACKDROP_H, BACKDROP_SCALE, BACKDROP_W, BACKDROP_Y, CHASE_HEIGHT, PLAYER_Y,
@@ -126,9 +126,9 @@ impl CarRunner {
             for (local, mesh, texture) in self.model_parts(*model) {
                 if let Some(texture) = texture {
                     renderer.bind_texture(*texture);
-                    renderer.draw_mesh(
+                    renderer.draw_mesh_matrix(
                         *mesh,
-                        &compose(*entity_transform, local),
+                        entity_transform.to_matrix() * *local,
                         &MaterialParams::default(),
                     );
                 }
@@ -146,9 +146,9 @@ impl CarRunner {
         for (entity_transform, model) in &model_draws {
             for (local, mesh, texture) in self.model_parts(*model) {
                 if texture.is_none() {
-                    renderer.draw_mesh(
+                    renderer.draw_mesh_matrix(
                         *mesh,
-                        &compose(*entity_transform, local),
+                        entity_transform.to_matrix() * *local,
                         &MaterialParams::default(),
                     );
                 }

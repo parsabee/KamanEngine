@@ -16,8 +16,8 @@ use kaman_math::glam::{Mat4, Vec3};
 
 use crate::error::ImportError;
 use crate::scene::{
-    bake_transform, pack_render_vertices, pack_textured_vertices, render_vertex_layout,
-    textured_vertex_layout, BaseColorTexture, MeshAsset, Node, SceneAsset, DEFAULT_IMPORT_COLOR,
+    pack_render_vertices, pack_textured_vertices, render_vertex_layout, textured_vertex_layout,
+    BaseColorTexture, MeshAsset, Node, SceneAsset, DEFAULT_IMPORT_COLOR,
 };
 
 /// Import a glTF or GLB file at `path` into a [`SceneAsset`].
@@ -159,7 +159,6 @@ fn bake_node(
 ) -> usize {
     let local = Mat4::from_cols_array_2d(&node.transform().matrix());
     let world = parent_world * local;
-    let transform = bake_transform(world);
 
     // Which MeshAsset indices this node's glTF mesh maps to (may be several).
     let primitive_indices: Vec<usize> = node
@@ -173,7 +172,7 @@ fn bake_node(
     // Reserve this node's slot.
     let self_index = scene.nodes.len();
     scene.nodes.push(Node {
-        transform,
+        world,
         mesh: first_mesh,
         children: Vec::new(),
         parent,
@@ -186,7 +185,7 @@ fn bake_node(
     for &extra in primitive_indices.iter().skip(1) {
         let child_index = scene.nodes.len();
         scene.nodes.push(Node {
-            transform,
+            world,
             mesh: Some(extra),
             children: Vec::new(),
             parent: Some(self_index),

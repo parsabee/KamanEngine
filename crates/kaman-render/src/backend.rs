@@ -33,8 +33,8 @@
 //! no `new_buffer*` on the hot path. Invariants:
 //!
 //! - **Stride/alignment:** each slot is [`UNIFORM_RING_STRIDE`] (256) bytes so
-//!   every per-draw offset is a multiple of 256; a 128-byte [`Uniforms`] (MVP +
-//!   model matrix) fits with padding.
+//!   every per-draw offset is a multiple of 256; a 192-byte [`Uniforms`] (MVP,
+//!   model and normal matrices) fits with padding.
 //! - **Capacity:** the ring holds `ring_draws_per_frame * MAX_FRAMES_IN_FLIGHT`
 //!   slots; [`MAX_FRAMES_IN_FLIGHT`] is `3`. A frame that exceeds its per-frame
 //!   capacity grows the ring (doubling, an allocation-time event), never a
@@ -195,7 +195,9 @@ use crate::shadow::{
     fit_shadow_frustum, resolve_shadow_distance, shadow_distance_for_fog, shadow_map_size_for,
     SHADOW_MAP_SIZE,
 };
-use crate::vertex::{LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE};
+use crate::vertex::{
+    normal_matrix, LightUniforms, MaterialUniforms, Uniforms, Vertex, UNIFORM_RING_STRIDE,
+};
 
 /// Store action for the shadow map's depth attachment: **`Store`**.
 ///
@@ -2384,7 +2386,7 @@ impl MetalRenderer {
         Some(self.frame_index)
     }
 
-    /// Draws [`draw_mesh_matrix`](Self::draw_mesh_matrix) refused because the
+    /// Draws [`draw_mesh_matrix`](FrameRecorder::draw_mesh_matrix) refused because the
     /// mesh's vertex layout did not match the selected pipeline. Test/diagnostic aid.
     #[must_use]
     pub fn rejected_draw_count(&self) -> u64 {
@@ -2392,17 +2394,15 @@ impl MetalRenderer {
     }
 
     /// Record a draw of `mesh` with a model-to-world **matrix**: the body of
-    /// [`draw_mesh`](FrameRecorder::draw_mesh), which passes `transform.to_matrix()`.
-    ///
-    /// For callers that already hold a matrix (the C API, or any host with its own
-    /// math): no TRS decomposition, and shear survives.
+    /// [`draw_mesh_matrix`](FrameRecorder::draw_mesh_matrix) (and so of
+    /// [`draw_mesh`](FrameRecorder::draw_mesh)).
     ///
     /// Ignored outside an open frame, for an unknown or freed mesh, and for an
     /// empty one. A mesh whose vertex layout does not match the selected pipeline
     /// (or matches no built-in pipeline) is **rejected** and counted in
     /// [`rejected_draw_count`](Self::rejected_draw_count): the pipeline's vertex
     /// descriptor would fetch at the wrong stride, past the end of the buffer.
-    pub fn draw_mesh_matrix(&mut self, mesh: MeshHandle, model: Mat4, material: &MaterialParams) {
+    fn record_draw(&mut self, mesh: MeshHandle, model: Mat4, material: &MaterialParams) {
         let Some(frame) = self.frame.as_ref() else {
             return;
         };
@@ -2441,6 +2441,8 @@ impl MetalRenderer {
             // position + normal for distance fog and shadow-map lookups, and the
             // shadow pass places the caster with it.
             model: model.to_cols_array_2d(),
+            // Normals use the inverse-transpose under non-uniform scale.
+            normal_matrix: normal_matrix(model).to_cols_array_2d(),
         };
         let uniform_offset = self.write_uniform_to_ring(&uniforms);
 
@@ -2741,7 +2743,11 @@ impl FrameRecorder for MetalRenderer {
     }
 
     fn draw_mesh(&mut self, mesh: MeshHandle, transform: &Transform, material: &MaterialParams) {
-        self.draw_mesh_matrix(mesh, transform.to_matrix(), material);
+        self.record_draw(mesh, transform.to_matrix(), material);
+    }
+
+    fn draw_mesh_matrix(&mut self, mesh: MeshHandle, model: Mat4, material: &MaterialParams) {
+        self.record_draw(mesh, model, material);
     }
 
     fn draw_overlay_quad(&mut self, quad: &OverlayQuad) {

@@ -167,6 +167,14 @@ pub trait FrameRecorder {
     ///   (if any) apply.
     fn draw_mesh(&mut self, mesh: MeshHandle, transform: &Transform, material: &MaterialParams);
 
+    /// Record a draw of `mesh` with a model-to-world **matrix** and `material`.
+    ///
+    /// The same contract as [`draw_mesh`](Self::draw_mesh), which is this with
+    /// `transform.to_matrix()`. For callers that hold a full matrix (a baked
+    /// glTF node, a host's own math): no position/rotation/scale round trip,
+    /// so shear from a non-uniformly scaled parent survives.
+    fn draw_mesh_matrix(&mut self, mesh: MeshHandle, model: Mat4, material: &MaterialParams);
+
     /// Record a screen-space quad into this frame's **2D overlay**.
     ///
     /// Overlay quads are not part of the 3D scene: the backend collects them

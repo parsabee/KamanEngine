@@ -30,8 +30,9 @@ pub struct RecordedDraw {
     pub pipeline: Option<PipelineHandle>,
     /// The texture bound when the draw was recorded, if any.
     pub texture: Option<TextureHandle>,
-    /// The instance transform passed to the draw.
-    pub transform: Transform,
+    /// The model-to-world matrix of the draw (`transform.to_matrix()` for a
+    /// [`draw_mesh`](FrameRecorder::draw_mesh)).
+    pub model: Mat4,
     /// The material parameters passed to the draw.
     pub material: MaterialParams,
 }
@@ -462,6 +463,10 @@ impl FrameRecorder for NullRenderer {
     }
 
     fn draw_mesh(&mut self, mesh: MeshHandle, transform: &Transform, material: &MaterialParams) {
+        self.draw_mesh_matrix(mesh, transform.to_matrix(), material);
+    }
+
+    fn draw_mesh_matrix(&mut self, mesh: MeshHandle, model: Mat4, material: &MaterialParams) {
         if !self.frame_open {
             self.violations.push(ProtocolViolation::OutsideFrame);
             return;
@@ -488,7 +493,7 @@ impl FrameRecorder for NullRenderer {
             mesh,
             pipeline: self.current_pipeline,
             texture: self.current_texture,
-            transform: *transform,
+            model,
             material: *material,
         });
     }

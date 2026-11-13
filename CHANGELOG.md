@@ -48,6 +48,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ### Changed
 
+- **Imported nodes keep their exact world matrix (breaking, Rust).** `kaman_assets::Node`
+  replaces `transform: Transform` with `world: Mat4`, and `FrameRecorder` gains
+  `draw_mesh_matrix(mesh, Mat4, material)` (moved up from the Metal backend) so a sheared matrix
+  can be drawn through the seam. `NullRenderer`'s `RecordedDraw` records `model: Mat4` instead
+  of `transform`. `spawn_scene` bakes a sheared node's matrix into the entity's vertices, since
+  an ECS `TransformComponent` cannot hold shear. The per-draw `Uniforms` block grows from 128 to
+  192 bytes (a normal matrix); it still fits one 256-byte ring slot.
 - **Textures carry a colour space (breaking, Rust and C).** `TextureData` gains
   `color_space: ColorSpace` (`Srgb` or `Linear`), and the C API's `KamanTextureDesc` gains
   `color_space` (`KAMAN_COLOR_SPACE_SRGB` = 0, `KAMAN_COLOR_SPACE_LINEAR`), so
@@ -110,6 +117,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the
 
 ### Fixed
 
+- **Normals were wrong under non-uniform scale.** The lit shaders transformed normals by the
+  model matrix, which tilts them off their surfaces when an object is scaled differently per
+  axis (a squashed sphere's highlights slid). They now use the inverse-transpose of the model's
+  3×3; for rotation with uniform scale that is the model itself, so such draws (every pixel-hash
+  scene) shade exactly as before.
+- **Sheared glTF hierarchies were distorted.** Node world transforms were stored as
+  position/rotation/scale, which drops the shear a rotated child gets under a non-uniformly
+  scaled parent: `(1, 0, 0)` under a `(2, 1, 1)` parent and a 45° child landed at
+  `(1.108, 1.061, 0)` instead of `(1.414, 0.707, 0)`. The full matrix is now kept, through the
+  Rust API, the ECS spawn helper, the demo and the C API.
 - **glTF meshes without normals were lit as if they faced up.** A primitive with no `NORMAL`
   attribute got `+Y` on every vertex, so walls and other non-horizontal faces were shaded like
   floors. The importer now computes flat face normals, as the glTF spec requires, giving each

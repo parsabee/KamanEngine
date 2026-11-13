@@ -409,8 +409,9 @@ typedef struct KamanTextureDesc {
 | `KamanResult kaman_model_destroy(KamanContext *ctx, KamanModel model)` | |
 | `KamanResult kaman_model_get_bounds(KamanContext *ctx, KamanModel model, KamanVec3 *min, KamanVec3 *max)` | Model-space bounding box. `NOT_READY` until ready. |
 
-A model is static geometry: its meshes, base-colour textures and node transforms, baked at
-import. Load failures (`IO`, `PARSE`) arrive as `RESOURCE_FAILED` with a message.
+A model is static geometry: its meshes, base-colour textures and node matrices, baked at
+import. Node matrices are kept whole, so a rotated child under a non-uniformly scaled parent
+draws exactly where glTF puts it. Load failures (`IO`, `PARSE`) arrive as `RESOURCE_FAILED` with a message.
 
 ### Fonts (SDF text)
 
