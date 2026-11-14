@@ -33,6 +33,17 @@ API**.
   - **CI:** a new check (`scripts/check-renamed.sh`) fails if the old name returns outside this
     changelog and the documented migration notes.
 
+### Fixed
+
+- **A glTF file with a cyclic node hierarchy no longer crashes the process**
+  ([#22](https://github.com/parsabee/StickShiftEngine/issues/22)). The importer walked node
+  children recursively with no cycle check, so a node listed as its own child overflowed the stack.
+  A stack overflow aborts the process, which `catch_unwind` cannot stop, so a C API host loading an
+  untrusted model was killed. The walk now uses an explicit stack, so deep trees are also safe. Any
+  node reached twice (a cycle, a node with two parents, or a scene root that is also a child) fails
+  with the new `ImportError::InvalidHierarchy`. In the C API that is `RESOURCE_FAILED` with
+  `STICKSHIFT_ERROR_PARSE`.
+
 ## [0.1.0-beta.1] - 2026-11-13
 
 The first beta. KamanEngine is now a rasterization-only Metal graphics library for Apple Silicon

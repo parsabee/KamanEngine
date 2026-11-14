@@ -21,6 +21,10 @@ pub enum ImportError {
     /// shape, a count of zero or a range past its buffer view, an index past the
     /// last vertex, or no whole triangle. The string says which.
     InvalidPrimitive(String),
+    /// The scene's node hierarchy is not a set of disjoint trees, as glTF
+    /// requires: a node is its own ancestor (a cycle), has two parents, or is
+    /// both a scene root and another node's child. The string says which node.
+    InvalidHierarchy(String),
 }
 
 impl fmt::Display for ImportError {
@@ -35,6 +39,9 @@ impl fmt::Display for ImportError {
                 "glTF primitive mode {mode} is not supported (only triangles, strips and fans)"
             ),
             ImportError::InvalidPrimitive(why) => write!(f, "malformed glTF primitive: {why}"),
+            ImportError::InvalidHierarchy(why) => {
+                write!(f, "malformed glTF node hierarchy: {why}")
+            }
         }
     }
 }
