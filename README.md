@@ -42,7 +42,7 @@ reference title is the [playable demo](#the-playable-demo), an endless car runne
 
 > [!NOTE]
 > Stick Shift Engine is **pre-release and under active development**. The current release is
-> [`v0.1.0-beta.1`](https://github.com/parsabee/StickShiftEngine/releases/tag/v0.1.0-beta.1), a beta:
+> [`v0.1.0-beta.2`](https://github.com/parsabee/StickShiftEngine/releases/tag/v0.1.0-beta.2), a beta:
 > each release ships a prebuilt Apple Silicon build (the C library, its header and the playable
 > demo), installable with [Homebrew](#install-with-homebrew). The public API may change between
 > releases (see [CHANGELOG.md](CHANGELOG.md)). macOS is the supported platform today; iOS support
@@ -102,8 +102,8 @@ stickshift-demo            # play the demo (Metal window)
 stickshift-demo --smoke    # headless check: 120 frames, prints "smoke: 120 frames OK"
 ```
 
-If you installed the engine under its former name, `brew upgrade` moves you to
-`stickshift-engine` once v0.1.0-beta.2 is released (the tap records the rename).
+If you installed the engine under its former name, `brew update && brew upgrade` moves you to
+`stickshift-engine` (the tap records the rename).
 
 What gets installed:
 
@@ -266,7 +266,8 @@ and rustdoc. The prototype's provenance is recorded in [docs/ARCHITECTURE.md](do
 | Release | State |
 |---|---|
 | `v0.1.0-alpha.2` | macOS on Apple Silicon: the engine crates, the playable demo, and a Homebrew install |
-| `v0.1.0-beta.1` (current) | The async-shaped C API (`libstickshift`, `stickshift.h`, a Swift module map), sRGB colour textures and correct normals, docs that match the code, and a test and bug-fix pass |
+| `v0.1.0-beta.1` | The async-shaped C API (`libstickshift`, `stickshift.h`, a Swift module map), sRGB colour textures and correct normals, docs that match the code, and a test and bug-fix pass |
+| `v0.1.0-beta.2` (current) | The rename to Stick Shift Engine: crates, C API, Homebrew, repository and docs; no functional changes |
 | `v0.1.0` | Planned: precompiled `.metallib` shaders and benchmarking |
 | `v0.2` | Planned: iOS ([#2](https://github.com/parsabee/StickShiftEngine/issues/2)) |
 

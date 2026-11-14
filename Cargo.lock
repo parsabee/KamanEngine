@@ -1800,7 +1800,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "playable-demo"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "clap",
  "fontdue",
@@ -2229,7 +2229,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stickshift-assets"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "gltf",
  "image",
@@ -2240,21 +2240,21 @@ dependencies = [
 
 [[package]]
 name = "stickshift-audio"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "kira",
 ]
 
 [[package]]
 name = "stickshift-camera"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "stickshift-math",
 ]
 
 [[package]]
 name = "stickshift-capi"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "stickshift-assets",
  "stickshift-camera",
@@ -2265,7 +2265,7 @@ dependencies = [
 
 [[package]]
 name = "stickshift-core"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "objc2 0.5.2",
  "objc2-app-kit",
@@ -2282,7 +2282,7 @@ dependencies = [
 
 [[package]]
 name = "stickshift-ecs"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "hecs",
  "rapier3d",
@@ -2291,18 +2291,18 @@ dependencies = [
 
 [[package]]
 name = "stickshift-math"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "glam 0.29.3",
 ]
 
 [[package]]
 name = "stickshift-perf"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 
 [[package]]
 name = "stickshift-physics"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "rapier3d",
  "stickshift-math",
@@ -2310,7 +2310,7 @@ dependencies = [
 
 [[package]]
 name = "stickshift-render"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "block",
  "cocoa",
@@ -2325,7 +2325,7 @@ dependencies = [
 
 [[package]]
 name = "stickshift-render-api"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "stickshift-camera",
  "stickshift-math",
@@ -2333,7 +2333,7 @@ dependencies = [
 
 [[package]]
 name = "stickshift-scene"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "stickshift-ecs",
  "stickshift-math",
