@@ -18,7 +18,7 @@ use crate::backend::{Backend, NullBackend, PendingReadback};
 use crate::core::{call, call_or, input, output, Error};
 use crate::fonts::FontEntry;
 use crate::frame::Recording;
-use crate::handles::{Kind, Slots};
+use crate::handles::{ContextTag, Kind, Slots, MAX_CONTEXTS};
 use crate::models::{Loader, ModelEntry};
 use crate::resources::{MeshEntry, TextureEntry};
 use crate::types::*;
@@ -153,6 +153,9 @@ pub(crate) struct Inner {
     pub(crate) textures: Slots<TextureEntry>,
     pub(crate) models: Slots<ModelEntry>,
     pub(crate) fonts: Slots<FontEntry>,
+    /// This context's tag, which every handle it issues carries. Held only to
+    /// keep it from other contexts: dropping the context gives it back.
+    _tag: ContextTag,
     /// Events waiting for `stickshift_poll_events`.
     queue: VecDeque<OwnedEvent>,
     /// Messages of the last poll batch; valid until the next poll.
@@ -426,7 +429,8 @@ unsafe fn metal_backend(_: &StickShiftContextDesc) -> Result<Box<dyn Backend>, E
 }
 
 /// Create a context. On success `*out` is the new context, with
-/// `STICKSHIFT_EVENT_CONTEXT_READY` already queued.
+/// `STICKSHIFT_EVENT_CONTEXT_READY` already queued. At most 4095 contexts can
+/// be alive at once; beyond that this returns `STICKSHIFT_ERROR_LIMIT_EXCEEDED`.
 ///
 /// # Safety
 /// `desc` and `out` must be NULL or valid; `desc->metal_layer` must be NULL or
@@ -449,15 +453,22 @@ pub unsafe extern "C" fn stickshift_context_create(
             ));
         }
         check_dimensions(desc.width, desc.height)?;
+        let tag = ContextTag::acquire().ok_or_else(|| {
+            Error::new(
+                STICKSHIFT_ERROR_LIMIT_EXCEEDED,
+                format!("{MAX_CONTEXTS} contexts are already alive; destroy one first"),
+            )
+        })?;
         let backend = create_backend(desc)?;
         let device_name =
             CString::new(backend.device_name().replace('\0', " ")).unwrap_or_default();
         let mut inner = Inner {
             backend,
-            meshes: Slots::new(Kind::Mesh),
-            textures: Slots::new(Kind::Texture),
-            models: Slots::new(Kind::Model),
-            fonts: Slots::new(Kind::Font),
+            meshes: Slots::new(Kind::Mesh, &tag),
+            textures: Slots::new(Kind::Texture, &tag),
+            models: Slots::new(Kind::Model, &tag),
+            fonts: Slots::new(Kind::Font, &tag),
+            _tag: tag,
             queue: VecDeque::new(),
             delivered: Vec::new(),
             due: Due::default(),

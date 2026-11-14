@@ -80,10 +80,12 @@ typedef struct StickShiftFont    { uint64_t id; } StickShiftFont;
 ```
 
 - `id == 0` is the null handle and never names a resource.
-- An `id` encodes the handle kind, a slot index and a 32-bit generation. A handle is never
-  reissued: once destroyed it stays invalid, and every later use returns
+- An `id` encodes the handle kind, the issuing context, a slot index and a 24-bit generation. A
+  handle is never reissued: once destroyed it stays invalid, and every later use returns
   `STICKSHIFT_ERROR_INVALID_HANDLE`. A slot whose generation would wrap is retired, not reused.
-- Handles are only meaningful to the context that issued them.
+- Handles are only meaningful to the context that issued them. Every live context has a different
+  context tag in its ids, so passing one context's handle to another returns
+  `STICKSHIFT_ERROR_INVALID_HANDLE` (or `STICKSHIFT_RESOURCE_STATE_INVALID`).
 
 Each resource is in one of these states (`stickshift_resource_state`):
 
@@ -288,6 +290,7 @@ change.
 | Frames in flight | 3 |
 | Texture size | 16384 × 16384 |
 | Live handles per kind, per context | 16 777 215 |
+| Live contexts per process | 4 095 (`stickshift_context_create` returns `STICKSHIFT_ERROR_LIMIT_EXCEEDED` beyond that) |
 | Mesh size | `MTLDevice.maxBufferLength` after de-indexing (`index_count × vertex stride` bytes) |
 
 ## Reference
