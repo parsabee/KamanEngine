@@ -18,6 +18,7 @@
 //! - Transform synchronization with the ECS
 //! - Velocity control
 //! - **Body/collider removal** with stale-handle safety
+//! - **Floating-origin shift** of the whole world ([`PhysicsWorld::shift_origin`])
 //!
 //! # Handle types
 //!
@@ -616,6 +617,47 @@ impl PhysicsWorld {
         }
     }
 
+    /// Moves the whole physics world by `offset`: every rigid body, and every
+    /// collider that has no parent body. This is a floating-origin shift, so
+    /// relative positions, velocities and contacts are unchanged.
+    ///
+    /// Every body moves exactly once, whether or not anything outside the
+    /// physics world holds its handle. A collider attached to a body moves with
+    /// its body. Like [`set_translation`](Self::set_translation), call it
+    /// between steps, never during one. It wakes the bodies it moves.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use stickshift_physics::PhysicsWorld;
+    /// use stickshift_math::Transform;
+    /// use stickshift_math::glam::Vec3;
+    ///
+    /// let mut physics = PhysicsWorld::new();
+    /// let a = physics.create_dynamic_body(Transform::from_position(Vec3::new(0.0, 0.0, -1000.0)));
+    /// let b = physics.create_static_body(Transform::from_position(Vec3::new(0.0, -1.0, -1000.0)));
+    ///
+    /// physics.shift_origin(Vec3::new(0.0, 0.0, 1000.0));
+    /// assert_eq!(physics.get_transform(a).unwrap().position, Vec3::ZERO);
+    /// assert_eq!(physics.get_transform(b).unwrap().position, Vec3::new(0.0, -1.0, 0.0));
+    /// ```
+    pub fn shift_origin(&mut self, offset: Vec3) {
+        if offset == Vec3::ZERO {
+            return;
+        }
+        let delta = vector![offset.x, offset.y, offset.z];
+        for (_, body) in self.rigid_body_set.iter_mut() {
+            let moved = body.translation() + delta;
+            body.set_translation(moved, true);
+        }
+        for (_, collider) in self.collider_set.iter_mut() {
+            if collider.parent().is_none() {
+                let moved = collider.translation() + delta;
+                collider.set_translation(moved);
+            }
+        }
+    }
+
     /// Gets the current linear velocity of a rigid body.
     ///
     /// # Arguments
@@ -766,6 +808,59 @@ mod tests {
         assert!(world.get_transform(old).is_none(), "old handle stays stale");
         assert_eq!(
             world.get_transform(new).unwrap().position,
+            Vec3::new(1.0, 2.0, 3.0)
+        );
+    }
+
+    #[test]
+    fn shift_origin_moves_every_body_and_free_collider_once() {
+        let mut world = PhysicsWorld::with_gravity(Vec3::ZERO);
+        let dynamic =
+            world.create_dynamic_body(Transform::from_position(Vec3::new(1.0, 2.0, -900.0)));
+        let fixed =
+            world.create_static_body(Transform::from_position(Vec3::new(0.0, -1.0, -950.0)));
+        let attached = world.add_box_collider(dynamic, Vec3::splat(0.5));
+        let free = world.collider_set.insert(
+            ColliderBuilder::cuboid(1.0, 1.0, 1.0)
+                .translation(vector![0.0, 0.0, -1000.0])
+                .build(),
+        );
+        world.set_velocity(dynamic, Vec3::new(0.0, 0.0, -3.0));
+
+        let offset = Vec3::new(0.0, 0.0, 1000.0);
+        world.shift_origin(offset);
+
+        let pos = |w: &PhysicsWorld, h| w.get_transform(h).unwrap().position;
+        assert_eq!(pos(&world, dynamic), Vec3::new(1.0, 2.0, 100.0));
+        assert_eq!(pos(&world, fixed), Vec3::new(0.0, -1.0, 50.0));
+        assert_eq!(
+            world.collider_set[free].translation().z,
+            0.0,
+            "free collider moved"
+        );
+        assert_eq!(
+            world.get_velocity(dynamic),
+            Some(Vec3::new(0.0, 0.0, -3.0)),
+            "velocity is unchanged"
+        );
+
+        // An attached collider follows its body once the world steps.
+        world.step();
+        let body_z = pos(&world, dynamic).z;
+        let collider_z = world.collider_set[attached].translation().z;
+        assert!(
+            (collider_z - body_z).abs() < 1e-4,
+            "{collider_z} vs {body_z}"
+        );
+    }
+
+    #[test]
+    fn shift_origin_by_zero_is_a_no_op() {
+        let mut world = PhysicsWorld::new();
+        let body = world.create_dynamic_body(Transform::from_position(Vec3::new(1.0, 2.0, 3.0)));
+        world.shift_origin(Vec3::ZERO);
+        assert_eq!(
+            world.get_transform(body).unwrap().position,
             Vec3::new(1.0, 2.0, 3.0)
         );
     }

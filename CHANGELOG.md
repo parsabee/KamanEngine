@@ -43,6 +43,15 @@ API**.
   node reached twice (a cycle, a node with two parents, or a scene root that is also a child) fails
   with the new `ImportError::InvalidHierarchy`. In the C API that is `RESOURCE_FAILED` with
   `STICKSHIFT_ERROR_PARSE`.
+- **The floating-origin rebase keeps physics and rendering together**
+  ([#23](https://github.com/parsabee/StickShiftEngine/issues/23)). `Scene::maybe_rebase` shifted
+  every `TransformComponent`, but only the physics bodies it found through a
+  `PhysicsBodyComponent`. A body no entity held (for example ground made through `physics_mut()`)
+  was never shifted, and a body two entities shared was shifted twice. Both ended up away from
+  the rendered world. The rebase now shifts the whole physics world once with the new
+  `PhysicsWorld::shift_origin`, which also moves colliders that have no parent body. Streaming slot
+  positions are now computed in `f64`, so they stay exact on very long runs: in `f32`, a slot
+  20,000 km from the start could land a unit off.
 
 ## [0.1.0-beta.1] - 2026-11-13
 
