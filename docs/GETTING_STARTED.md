@@ -1,4 +1,4 @@
-# Build your own game on KamanEngine
+# Build your own game on Stick Shift Engine
 
 The minimal path from an empty crate to a game the engine drives, windowed and headless. Each
 step names the file in [`games/playable-demo`](../games/playable-demo) that is the worked example
@@ -29,36 +29,36 @@ name = "my-game"
 path = "src/main.rs"
 
 [dependencies]
-kaman-assets.workspace = true
-kaman-core.workspace = true
-kaman-ecs.workspace = true
-kaman-math.workspace = true
-kaman-render-api.workspace = true
-kaman-scene.workspace = true
+stickshift-assets.workspace = true
+stickshift-core.workspace = true
+stickshift-ecs.workspace = true
+stickshift-math.workspace = true
+stickshift-render-api.workspace = true
+stickshift-scene.workspace = true
 
 # The Metal backend lives below the render seam. Only the game binary depends on
-# `kaman-render` (and thus `metal`); it builds the backend and injects it, so
-# `kaman-core` stays metal-free (ARCHITECTURE §2).
+# `stickshift-render` (and thus `metal`); it builds the backend and injects it, so
+# `stickshift-core` stays metal-free (ARCHITECTURE §2).
 [target.'cfg(target_os = "macos")'.dependencies]
-kaman-render.workspace = true
+stickshift-render.workspace = true
 ```
 
 Every dependency is `*.workspace = true`, so versions come from
 [the workspace dependency table](../Cargo.toml#L33) — never pin them per-crate. Take only the
-crates you use; `kaman-camera` (for a follow camera) and `clap` (for CLI flags) are the usual
+crates you use; `stickshift-camera` (for a follow camera) and `clap` (for CLI flags) are the usual
 additions. Worked example: [games/playable-demo/Cargo.toml](../games/playable-demo/Cargo.toml).
 
 ---
 
 ## 2. Implement `Game`
 
-One trait, three hooks: [`kaman_core::Game`](../crates/kaman-core/src/game.rs#L96). `init` runs
+One trait, three hooks: [`stickshift_core::Game`](../crates/stickshift-core/src/game.rs#L96). `init` runs
 once; `update` runs 0..N times per frame with `dt` always equal to
-[`FIXED_DT`](../crates/kaman-core/src/timestep.rs#L50) (1/60 s); `render` runs exactly once per
+[`FIXED_DT`](../crates/stickshift-core/src/timestep.rs#L50) (1/60 s); `render` runs exactly once per
 frame after that frame's updates. Advance state in `update`, record draws in `render`, and don't
 cross the two — that split is what makes the simulation framerate-independent.
 
-Everything the engine offers arrives through the [`EngineCtx`](../crates/kaman-core/src/context.rs#L86)
+Everything the engine offers arrives through the [`EngineCtx`](../crates/stickshift-core/src/context.rs#L86)
 argument: the `Scene` (ECS world + physics + streaming), the ECS world, the render seam, the
 `Camera`, an input snapshot, frame timing. There is nothing else to reach for, and no way to reach
 past it.
@@ -66,12 +66,12 @@ past it.
 A complete game that imports a model, spawns an entity, moves it, and draws it:
 
 ```rust
-use kaman_assets::AssetCache;
-use kaman_core::{EngineCtx, Game};
-use kaman_ecs::TransformComponent;
-use kaman_math::glam::Vec3;
-use kaman_math::Transform;
-use kaman_render_api::{
+use stickshift_assets::AssetCache;
+use stickshift_core::{EngineCtx, Game};
+use stickshift_ecs::TransformComponent;
+use stickshift_math::glam::Vec3;
+use stickshift_math::Transform;
+use stickshift_render_api::{
     MaterialParams, MeshHandle, PipelineDescriptor, PipelineHandle, PipelineKind,
 };
 
@@ -83,7 +83,7 @@ struct MyGame {
     /// Created once in `init`; only handles are kept.
     pipeline: Option<PipelineHandle>,
     mesh: Option<MeshHandle>,
-    entity: Option<kaman_ecs::hecs::Entity>,
+    entity: Option<stickshift_ecs::hecs::Entity>,
     /// Game state. Advanced on the fixed timestep, never from wall-clock time.
     elapsed: f32,
 }
@@ -97,7 +97,7 @@ impl MyGame {
 impl Game for MyGame {
     fn init(&mut self, ctx: &mut EngineCtx) {
         // Spawn from the engine-generic component vocabulary. Game-named
-        // components belong in this crate, not in `kaman-ecs`.
+        // components belong in this crate, not in `stickshift-ecs`.
         self.entity = Some(
             ctx.world_mut()
                 .spawn((TransformComponent::from_position(Vec3::ZERO),)),
@@ -159,7 +159,7 @@ input, a state machine, streaming and collision hung off them.
 ## 3. Load an asset
 
 Put committed `.gltf` / `.glb` files under your crate's `assets/` and import them in `init`
-through [`AssetCache`](../crates/kaman-assets/src/cache.rs#L43), as above. The cache dedups by
+through [`AssetCache`](../crates/stickshift-assets/src/cache.rs#L43), as above. The cache dedups by
 path, so one file parses and uploads exactly once no matter how many entities draw it. What comes
 back is a `CachedAsset`: `mesh_handles` (one per mesh, already uploaded through the render seam)
 and `scene`, the parsed node tree with per-mesh positions, UVs and any decoded base-color image.
@@ -183,19 +183,19 @@ fit transforms that place a model on the ground) and
 ## 4. Record a draw
 
 The render seam is two traits, handed to you as one `&mut dyn Renderer` from `ctx.renderer()`:
-[`RenderDevice`](../crates/kaman-render-api/src/device.rs#L98) for resources (and
+[`RenderDevice`](../crates/stickshift-render-api/src/device.rs#L98) for resources (and
 `surface_size` / `safe_area_insets`) and
-[`FrameRecorder`](../crates/kaman-render-api/src/recorder.rs#L63) for the frame. The frame
+[`FrameRecorder`](../crates/stickshift-render-api/src/recorder.rs#L63) for the frame. The frame
 protocol is `begin_frame` → `set_pipeline` / `bind_texture` / `draw_mesh` /
 `draw_overlay_quad` → `submit`, exactly once per `render` call.
 
 You never set the view: the driver pushes the engine camera's view-projection across the seam
 before `render` runs, so whatever pose the camera is in at the end of `update` is the pose the
-frame is drawn from. Move the camera with `ctx.camera_mut()`; `kaman_camera::ChaseController` is a
+frame is drawn from. Move the camera with `ctx.camera_mut()`; `stickshift_camera::ChaseController` is a
 ready-made follow camera.
 
 Group draws by pipeline and texture so each switch happens once per group rather than once per
-entity. For a HUD, record [`OverlayQuad`](../crates/kaman-render-api/src/overlay.rs#L71)s — the
+entity. For a HUD, record [`OverlayQuad`](../crates/stickshift-render-api/src/overlay.rs#L71)s — the
 backend flushes them in its own orthographic pass after every 3D draw, so they always composite
 on top.
 
@@ -208,7 +208,7 @@ allocation).
 ## 5. Run it — windowed and headless
 
 `main.rs` needs both entry points. The windowed one injects the Metal backend through a factory
-(which is how `kaman-core` stays free of `metal`); the headless one needs no GPU at all.
+(which is how `stickshift-core` stays free of `metal`); the headless one needs no GPU at all.
 
 ```rust
 fn main() {
@@ -216,22 +216,22 @@ fn main() {
 
     if std::env::args().any(|a| a == "--smoke") {
         // Headless: no window, no GPU, synthetic clock. Safe on CI.
-        let harness = kaman_core::headless::run(&mut game, 120);
+        let harness = stickshift_core::headless::run(&mut game, 120);
         assert_eq!(harness.frames_run(), 120);
         println!("smoke: 120 frames OK");
         return;
     }
 
     #[cfg(target_os = "macos")]
-    kaman_core::run_with_backend(
+    stickshift_core::run_with_backend(
         &mut game,
         Box::new(|window, width, height| {
-            Box::new(kaman_render::MetalRenderer::new(window, width, height))
-                as Box<dyn kaman_core::Renderer>
+            Box::new(stickshift_render::MetalRenderer::new(window, width, height))
+                as Box<dyn stickshift_core::Renderer>
         }),
     );
     #[cfg(not(target_os = "macos"))]
-    kaman_core::run(&mut game);
+    stickshift_core::run(&mut game);
 }
 ```
 
@@ -246,7 +246,7 @@ argument parsing and asserts the stdout contract line in a unit test.
 ### Graphics settings: the built-in menu, or your own UI
 
 Every windowed run gets graphics settings for free. There are two ways to expose them to
-the player, and both drive the **same** model, `kaman_core::GraphicsSettings`:
+the player, and both drive the **same** model, `stickshift_core::GraphicsSettings`:
 
 | Setting | Options (default **bold**) | What it does |
 |---|---|---|
@@ -265,21 +265,21 @@ game, for example from an options screen drawn with the HUD overlay:
 
 ```rust
 #[cfg(target_os = "macos")]
-kaman_core::run_with_config(
+stickshift_core::run_with_config(
     &mut game,
     Some(Box::new(|window, width, height| {
-        Box::new(kaman_render::MetalRenderer::new(window, width, height))
-            as Box<dyn kaman_core::Renderer>
+        Box::new(stickshift_render::MetalRenderer::new(window, width, height))
+            as Box<dyn stickshift_core::Renderer>
     })),
-    kaman_core::RunConfig {
+    stickshift_core::RunConfig {
         native_settings_menu: false,       // your UI replaces the menu
-        ..kaman_core::RunConfig::default() // keep persistence
+        ..stickshift_core::RunConfig::default() // keep persistence
     },
 );
 ```
 
 ```rust
-use kaman_core::{DrawDistance, GraphicsSettings, ShadowQuality};
+use stickshift_core::{DrawDistance, GraphicsSettings, ShadowQuality};
 
 // Anywhere you have an `EngineCtx` (init / update / render):
 let mut s: GraphicsSettings = ctx.graphics_settings();  // what is in effect now
@@ -317,15 +317,15 @@ read from or written to the player's stored preferences in a headless run.
 
 ## 6. Test it without a GPU
 
-This is the part worth adopting early. [`Headless`](../crates/kaman-core/src/headless.rs#L93)
+This is the part worth adopting early. [`Headless`](../crates/stickshift-core/src/headless.rs#L93)
 owns the engine state a `Game` runs against — scene, input, perf, accumulator, and a
 `NullRenderer` — and steps frames on a synthetic clock. So gameplay is an ordinary unit test:
 
 ```rust
 #[test]
 fn the_entity_moves_forward() {
-    use kaman_core::headless::Headless;
-    use kaman_core::input::Key;
+    use stickshift_core::headless::Headless;
+    use stickshift_core::input::Key;
 
     let mut game = MyGame::new();
     let mut h = Headless::new();
@@ -355,7 +355,7 @@ Worked example: [rng.rs](../games/playable-demo/src/rng.rs), and the test module
 ## 7. Stay on the right side of the boundary
 
 Game concepts must not appear in engine crates — and that is enforced, not merely requested: four
-`kaman-*` crates carry self-scanning guard tests that fail if a game-named token appears anywhere
+`stickshift-*` crates carry self-scanning guard tests that fail if a game-named token appears anywhere
 in their source (listed in [PLAYABLE_DEMO.md §7](PLAYABLE_DEMO.md#7-the-boundary-and-what-enforces-it)).
 
 In practice this is not a constraint so much as a filing rule:
@@ -365,10 +365,10 @@ In practice this is not a constraint so much as a filing rule:
   [components.rs](../games/playable-demo/src/components.rs).
 - Tuning constants go in your crate, ideally all in one module — see
   [config.rs](../games/playable-demo/src/config.rs).
-- If you find yourself wanting to add a game concept to `kaman-scene`, `kaman-ecs`,
-  `kaman-assets` or `kaman-core`, the generic primitive you actually want is probably already
+- If you find yourself wanting to add a game concept to `stickshift-scene`, `stickshift-ecs`,
+  `stickshift-assets` or `stickshift-core`, the generic primitive you actually want is probably already
   there (a callback, a config field, a tag component). The demo needed none.
-- Only the game binary may depend on `kaman-render`, and only to build the backend it injects.
+- Only the game binary may depend on `stickshift-render`, and only to build the backend it injects.
 
 ---
 

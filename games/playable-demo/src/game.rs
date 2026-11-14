@@ -5,7 +5,7 @@
 //! [`CarRunner`] — the playable-demo [`Game`] implementation.
 //!
 //! This is the seam the whole demo is built on: [`CarRunner`] implements
-//! [`kaman_core::Game`] and is driven by the engine loop through
+//! [`stickshift_core::Game`] and is driven by the engine loop through
 //! [`EngineCtx`]. Everything here is *game* state and
 //! *game* rules (lanes, obstacles, score, the state machine); the ECS world,
 //! physics, and scene streaming it manipulates are all engine-generic services
@@ -13,18 +13,18 @@
 //! places are loaded, [`crate::scenery`] for the procedural geometry it streams,
 //! and [`crate::render`] for how a frame built from this state is drawn.
 
-use kaman_assets::AssetCache;
-use kaman_camera::ChaseController;
-use kaman_core::input::Key;
-use kaman_core::{EngineCtx, Game, SoundHandle};
-use kaman_ecs::hecs::Entity;
-use kaman_ecs::{DynamicTag, RenderComponent, StaticTag, TransformComponent};
-use kaman_math::glam::{Quat, Vec3};
-use kaman_math::Transform;
-use kaman_render_api::{
+use stickshift_assets::AssetCache;
+use stickshift_camera::ChaseController;
+use stickshift_core::input::Key;
+use stickshift_core::{EngineCtx, Game, SoundHandle};
+use stickshift_ecs::hecs::Entity;
+use stickshift_ecs::{DynamicTag, RenderComponent, StaticTag, TransformComponent};
+use stickshift_math::glam::{Quat, Vec3};
+use stickshift_math::Transform;
+use stickshift_render_api::{
     MeshData, MeshHandle, PipelineDescriptor, PipelineHandle, PipelineKind, SunSky, TextureHandle,
 };
-use kaman_scene::{Scene, StreamingConfig};
+use stickshift_scene::{Scene, StreamingConfig};
 
 use crate::asset_root::asset_path;
 use crate::assets::{
@@ -117,7 +117,7 @@ pub(crate) struct CarRunner {
     pub(crate) state: GameState,
     /// The SDF font atlas the HUD draws with, loaded once in
     /// `init`. `None` until then — the HUD simply draws nothing.
-    pub(crate) font: Option<kaman_render_api::FontAtlas>,
+    pub(crate) font: Option<stickshift_render_api::FontAtlas>,
     /// The looping driving-music track, loaded once in `init` and started
     /// on the `Ready → Playing` transition. See [`Self::start_music`] for why it is
     /// started there and never restarted.
@@ -237,7 +237,7 @@ impl CarRunner {
     ///
     /// `Left`/`Right` are the only gameplay keys; each *press* snaps the car exactly
     /// one lane toward the edge (clamped), so a held key does not glide across lanes
-    /// (via [`InputState::is_key_just_pressed`](kaman_core::InputState::is_key_just_pressed)).
+    /// (via [`InputState::is_key_just_pressed`](stickshift_core::InputState::is_key_just_pressed)).
     /// Both at once cancel.
     fn apply_lane_input(&mut self, ctx: &EngineCtx) {
         let input = ctx.input();
@@ -254,7 +254,7 @@ impl CarRunner {
     /// (same-lane proximity along `X` and overlap along the travel axis `Z`).
     ///
     /// This is deliberately a *game* computation over entity transforms: it does
-    /// **not** query `kaman-physics` for contacts (that would be an engine API
+    /// **not** query `stickshift-physics` for contacts (that would be an engine API
     /// change, out of scope for the demo).
     fn overlaps(&self, obstacle_pos: Vec3) -> bool {
         let player = self.player_position();
@@ -338,7 +338,7 @@ impl CarRunner {
         let window = config::CLEAR_AHEAD;
         let victims: Vec<Entity> = ctx
             .world()
-            .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
+            .query::<(&TransformComponent, &stickshift_ecs::PhysicsBodyComponent)>()
             .iter()
             .filter(|(_e, (t, _))| {
                 let d = t.transform.position.dot(ctx.scene().config().axis);
@@ -367,9 +367,9 @@ impl CarRunner {
     /// obstacle in a deterministically-chosen lane.
     ///
     /// Both road and obstacle entities are reported via
-    /// [`SpawnCtx::spawned`](kaman_scene::SpawnCtx::spawned) so the scene despawns
+    /// [`SpawnCtx::spawned`](stickshift_scene::SpawnCtx::spawned) so the scene despawns
     /// them (and any physics body) once they fall behind the player.
-    fn spawn_slot(rng: &mut Rng, tile_depth: f32, cx: &mut kaman_scene::SpawnCtx<'_>) {
+    fn spawn_slot(rng: &mut Rng, tile_depth: f32, cx: &mut stickshift_scene::SpawnCtx<'_>) {
         // Road tile: a wide, flat, dark box centered across all lanes at this slot.
         let road_z = cx.position.z;
         let road_width = config::LANES as f32 * config::LANE_WIDTH + config::LANE_WIDTH;
@@ -403,7 +403,7 @@ impl CarRunner {
 
             let obstacle = cx.world.spawn((
                 TransformComponent::from_position(pos),
-                kaman_ecs::PhysicsBodyComponent::new(handle),
+                stickshift_ecs::PhysicsBodyComponent::new(handle),
                 RenderComponent::cube([0.95, 0.8, 0.1]),
                 TrafficVariant(variant),
                 StaticTag,
@@ -462,7 +462,7 @@ impl CarRunner {
     /// runs the game-side overlap test.
     fn hit_any_obstacle(&self, ctx: &EngineCtx) -> bool {
         ctx.world()
-            .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
+            .query::<(&TransformComponent, &stickshift_ecs::PhysicsBodyComponent)>()
             .iter()
             .any(|(_e, (t, _body))| self.overlaps(t.transform.position))
     }
@@ -506,7 +506,7 @@ impl Game for CarRunner {
         self.music = Some(audio.load(asset_path(config::MUSIC_ASSET)));
         self.impact = Some(audio.load(asset_path(config::IMPACT_ASSET)));
 
-        // The cars are **imported** through `kaman-assets` from
+        // The cars are **imported** through `stickshift-assets` from
         // committed CC0 `.glb` models (Quaternius, public domain): the player drives
         // `assets/sports_car.glb`; the traffic cars are `assets/{car,car2,police_car}.glb`.
         // `load_model` fits each model to the road (uniform scale + orientation +
@@ -748,7 +748,7 @@ impl Game for CarRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kaman_core::headless::Headless;
+    use stickshift_core::headless::Headless;
 
     /// Boot a game and tap the start key, leaving it in [`GameState::Playing`] —
     /// the state the gameplay tests below exercise. The demo opens frozen on its
@@ -771,7 +771,7 @@ mod tests {
     #[test]
     fn init_spawns_player_and_streams_road() {
         let mut game = CarRunner::new();
-        let harness = kaman_core::headless::run(&mut game, 0);
+        let harness = stickshift_core::headless::run(&mut game, 0);
         assert!(game.player.is_some(), "player spawned in init");
         // Streaming primed some road/obstacles ahead.
         assert!(
@@ -783,7 +783,7 @@ mod tests {
     #[test]
     fn init_streams_the_full_draw_distance_and_the_camera_sees_it() {
         let mut game = CarRunner::new();
-        let harness = kaman_core::headless::run(&mut game, 0);
+        let harness = stickshift_core::headless::run(&mut game, 0);
         let scene = harness.scene();
         assert_eq!(scene.config().spawn_ahead, config::SPAWN_AHEAD);
         assert_eq!(scene.config().despawn_behind, config::DESPAWN_BEHIND);
@@ -820,7 +820,7 @@ mod tests {
         // the demo's time of day is a *demo* decision pushed through the
         // seam, so it is assertable headlessly — no GPU, no pixels.
         let mut game = CarRunner::new();
-        let harness = kaman_core::headless::run(&mut game, 0);
+        let harness = stickshift_core::headless::run(&mut game, 0);
         let sun = harness
             .renderer()
             .sun_sky()
@@ -864,7 +864,7 @@ mod tests {
 
     #[test]
     fn lane_input_clamps_at_both_edges() {
-        use kaman_core::headless::Headless;
+        use stickshift_core::headless::Headless;
 
         // Tap a key (press, step, release, step) so each tap is one edge.
         let tap = |h: &mut Headless, game: &mut CarRunner, key: Key| {
@@ -956,7 +956,7 @@ mod tests {
         assert_eq!(game.fade_alpha(), 1.0, "the fade starts fully black");
 
         // Half the fade duration in: partially revealed, but not yet clear.
-        let half = (config::HUD_FADE_SECONDS / (2.0 * kaman_core::FIXED_DT)).round() as u32;
+        let half = (config::HUD_FADE_SECONDS / (2.0 * stickshift_core::FIXED_DT)).round() as u32;
         h.run(&mut game, half);
         let mid = game.fade_alpha();
         assert!(
@@ -1031,7 +1031,7 @@ mod tests {
             "the ramp is clamped"
         );
 
-        let per_step = config::SPEED_MAX * kaman_core::FIXED_DT;
+        let per_step = config::SPEED_MAX * stickshift_core::FIXED_DT;
         let combined_half = config::PLAYER_HALF.z + config::OBSTACLE_HALF.z;
         assert!(
             per_step < combined_half,
@@ -1057,7 +1057,7 @@ mod tests {
             let mut blocked = [false; config::LANES];
             for (_e, (t, _body)) in h
                 .world()
-                .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
+                .query::<(&TransformComponent, &stickshift_ecs::PhysicsBodyComponent)>()
                 .iter()
             {
                 let p = t.transform.position;
@@ -1114,7 +1114,7 @@ mod tests {
             let mut blocked = [false; config::LANES];
             for (_e, (t, _body)) in h
                 .world()
-                .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
+                .query::<(&TransformComponent, &stickshift_ecs::PhysicsBodyComponent)>()
                 .iter()
             {
                 let p = t.transform.position;
@@ -1160,7 +1160,7 @@ mod tests {
                 //    follow's steady-state lag here and show up as a visible jolt.
                 let after = cam - car;
                 let jolt = (after - before).length();
-                let per_step = game.current_speed() * kaman_core::FIXED_DT;
+                let per_step = game.current_speed() * stickshift_core::FIXED_DT;
                 assert!(
                     jolt < per_step,
                     "the rebase moved the camera {jolt:.3} relative to the car \
@@ -1216,7 +1216,7 @@ mod tests {
 
     /// Drive the center runner (no input) until the deterministic stream puts an
     /// obstacle in its path. Returns the game at the moment it enters `GameOver`.
-    fn drive_to_game_over() -> (CarRunner, kaman_core::headless::Headless) {
+    fn drive_to_game_over() -> (CarRunner, stickshift_core::headless::Headless) {
         let (mut game, mut h) = started();
         for _ in 0..600 {
             h.run(&mut game, 1);
@@ -1399,7 +1399,7 @@ mod tests {
     #[test]
     #[ignore = "needs a real audio output device; makes sound"]
     fn the_committed_sounds_decode_on_a_real_device() {
-        use kaman_core::{Audio, Volume};
+        use stickshift_core::{Audio, Volume};
 
         let mut audio = Audio::with_output_device();
         if audio.is_silent() {
@@ -1466,7 +1466,7 @@ mod tests {
         let obstacles = h
             .scene()
             .world()
-            .query::<&kaman_ecs::PhysicsBodyComponent>()
+            .query::<&stickshift_ecs::PhysicsBodyComponent>()
             .iter()
             .count();
         assert_eq!(
@@ -1495,7 +1495,7 @@ mod tests {
         let mut layout: Vec<(i64, i64)> = h
             .scene()
             .world()
-            .query::<(&TransformComponent, &kaman_ecs::PhysicsBodyComponent)>()
+            .query::<(&TransformComponent, &stickshift_ecs::PhysicsBodyComponent)>()
             .iter()
             .map(|(_e, (t, _))| {
                 let p = t.transform.position;

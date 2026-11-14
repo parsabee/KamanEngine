@@ -1,8 +1,8 @@
 name: Release
 
 # Build the prebuilt Apple Silicon tarball for a release tag (the playable demo, the C library and
-# header, and the engine source) and attach it (plus its .sha256) to the GitHub release. The Homebrew formula (packaging/homebrew/kaman-engine.rb, published in the
-# parsabee/homebrew-kaman tap) downloads this asset. Packaging lives in
+# header, and the engine source) and attach it (plus its .sha256) to the GitHub release. The Homebrew formula (packaging/homebrew/stickshift-engine.rb, published in the
+# parsabee/homebrew-stickshift tap) downloads this asset. Packaging lives in
 # scripts/package-release.sh so it can be run and checked locally.
 #
 # Runs on every `v*` tag push, or by hand for an existing tag:
@@ -60,9 +60,9 @@ jobs:
       - name: Build release binary
         run: cargo build --release -p playable-demo --locked
 
-      # libkaman.a and libkaman.dylib (install name @rpath/libkaman.dylib) for C and Swift hosts.
+      # libstickshift.a and libstickshift.dylib (install name @rpath/libstickshift.dylib) for C and Swift hosts.
       - name: Build the C library
-        run: cargo build --release -p kaman-capi --locked
+        run: cargo build --release -p stickshift-capi --locked
 
       - name: Verify binary (arm64, smoke)
         run: |
@@ -81,7 +81,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          asset="dist/kaman-engine-${VERSION}-aarch64-apple-darwin.tar.gz"
+          asset="dist/stickshift-engine-${VERSION}-aarch64-apple-darwin.tar.gz"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$asset" "$asset.sha256" --clobber
           else
@@ -93,12 +93,17 @@ jobs:
               --notes "Prebuilt Apple Silicon build of $TAG. See CHANGELOG.md for what changed."
           fi
 
-      # Point the Homebrew tap (github.com/parsabee/homebrew-kaman) at this release, so
-      # `brew install/upgrade parsabee/kaman/kaman-engine` serves it, and keep the canonical copy
+      # Point the Homebrew tap (github.com/parsabee/homebrew-stickshift) at this release, so
+      # `brew install/upgrade parsabee/stickshift/stickshift-engine` serves it, and keep the canonical copy
       # in packaging/homebrew/ on main in sync. The tap is pushed with a write deploy key scoped to
       # that one repo (secret HOMEBREW_TAP_DEPLOY_KEY); main is pushed with this run's token
       # (pushes made with GITHUB_TOKEN don't re-trigger workflows). Without the secret the step
       # warns and skips, so forks and first-time setups still release.
+      #
+      # The project was renamed to Stick Shift Engine: the tap repository must be renamed on GitHub
+      # to parsabee/homebrew-stickshift before the first release after the rename, or the clone
+      # below fails. The step also records the formula rename in the tap's formula_renames.json,
+      # so `brew upgrade` moves existing installs to stickshift-engine.
       - name: Update Homebrew tap + canonical formula
         env:
           TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
@@ -108,7 +113,7 @@ jobs:
             echo "::warning::HOMEBREW_TAP_DEPLOY_KEY is not set; skipping the Homebrew tap update"
             exit 0
           fi
-          sha=$(cut -d' ' -f1 "dist/kaman-engine-${VERSION}-aarch64-apple-darwin.tar.gz.sha256")
+          sha=$(cut -d' ' -f1 "dist/stickshift-engine-${VERSION}-aarch64-apple-darwin.tar.gz.sha256")
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -123,28 +128,35 @@ jobs:
           printf '%s\n' "$TAP_DEPLOY_KEY" > "$key"
           chmod 600 "$key"
           GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
-            git clone --depth 1 git@github.com:parsabee/homebrew-kaman.git "$RUNNER_TEMP/tap"
+            git clone --depth 1 git@github.com:parsabee/homebrew-stickshift.git "$RUNNER_TEMP/tap"
           # The canonical formula on main is the source of truth for the install steps (the tap's
           # copy only ever had its url/sha256 rewritten): copy it into the tap, then stamp this
           # release's url and sha256 on both. (Re-running for a tag older than main's formula
           # would pair main's install steps with an older tarball; build a fresh tag instead.)
-          cp packaging/homebrew/kaman-engine.rb "$RUNNER_TEMP/tap/Formula/kaman-engine.rb"
-          ./scripts/update-homebrew-formula.sh "$RUNNER_TEMP/tap/Formula/kaman-engine.rb" "$VERSION" "$sha"
-          if git -C "$RUNNER_TEMP/tap" diff --quiet; then
+          mkdir -p "$RUNNER_TEMP/tap/Formula"
+          cp packaging/homebrew/stickshift-engine.rb "$RUNNER_TEMP/tap/Formula/stickshift-engine.rb"
+          ./scripts/update-homebrew-formula.sh "$RUNNER_TEMP/tap/Formula/stickshift-engine.rb" "$VERSION" "$sha"
+          # The pre-rename formula: drop its file and map it to stickshift-engine.
+          old_formula=kaman-engine  # recorded in the tap's formula_renames.json
+          printf '{ "%s": "stickshift-engine" }\n' "$old_formula" > "$RUNNER_TEMP/tap/formula_renames.json"
+          git -C "$RUNNER_TEMP/tap" rm -q --ignore-unmatch "Formula/$old_formula.rb"
+          git -C "$RUNNER_TEMP/tap" add -A
+          if git -C "$RUNNER_TEMP/tap" diff --cached --quiet; then
             echo "tap already at $VERSION"
           else
-            git -C "$RUNNER_TEMP/tap" commit -am "kaman-engine $VERSION" \
-              -m "- Formula/kaman-engine.rb: url and sha256 for the $TAG release"
+            git -C "$RUNNER_TEMP/tap" commit -m "stickshift-engine $VERSION" \
+              -m "- Formula/stickshift-engine.rb: url and sha256 for the $TAG release" \
+              -m "- formula_renames.json: the pre-rename formula now resolves to stickshift-engine"
             GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes" git -C "$RUNNER_TEMP/tap" push origin HEAD:main
           fi
           rm -f "$key"
 
           # Keep the canonical copy on main in sync.
-          ./scripts/update-homebrew-formula.sh packaging/homebrew/kaman-engine.rb "$VERSION" "$sha"
+          ./scripts/update-homebrew-formula.sh packaging/homebrew/stickshift-engine.rb "$VERSION" "$sha"
           if git diff --quiet; then
             echo "packaging/homebrew already at $VERSION"
           else
             git commit -am "Homebrew formula: point at $TAG" \
-              -m "- packaging/homebrew/kaman-engine.rb: url and sha256 for $TAG (updated by the release workflow)"
+              -m "- packaging/homebrew/stickshift-engine.rb: url and sha256 for $TAG (updated by the release workflow)"
             git push origin main
           fi

@@ -2,12 +2,12 @@
 //
 // This software is released under the Apache-2.0 License.
 
-//! `playable-demo` — KamanEngine's first title: a playable endless runner, and the
+//! `playable-demo` — Stick Shift Engine's first title: a playable endless runner, and the
 //! host for the headless smoke oracle.
 //!
 //! This binary is the *only* place game-specific code lives: it implements
-//! [`kaman_core::Game`] and is driven by the engine loop through the
-//! [`EngineCtx`](kaman_core::EngineCtx) seam. The engine crates never see any of
+//! [`stickshift_core::Game`] and is driven by the engine loop through the
+//! [`EngineCtx`](stickshift_core::EngineCtx) seam. The engine crates never see any of
 //! the car / road / lane / obstacle / score concepts modelled here — they are
 //! composed entirely from the engine-generic ECS, physics, and scene-streaming
 //! primitives. See `docs/PLAYABLE_DEMO.md` at the workspace root for a guided
@@ -20,7 +20,7 @@
 //! over the run. Three discrete lanes run along `X`; the arrow keys move the car
 //! between them (kinematic — the transform is set directly, the physics solver
 //! never drives the car, per ARCHITECTURE §5). The road, traffic, and roadside
-//! scenery are produced by [`Scene::stream`](kaman_scene::Scene::stream) with the
+//! scenery are produced by [`Scene::stream`](stickshift_scene::Scene::stream) with the
 //! car as the focus, so the world scrolls endlessly and content behind the player
 //! despawns. Traffic appears in deterministic (seeded PRNG) lanes ahead; colliding
 //! with it ends the run. Score climbs with distance travelled.
@@ -43,14 +43,14 @@
 //!   sun/sky, audio mix).
 //! - [`rng`] — the seeded lane-obstacle PRNG and the independent per-slot
 //!   scenery hash.
-//! - [`asset_root`] — where `assets/` lives at runtime (`$KAMAN_DEMO_ASSETS`, an
-//!   installed `share/kaman-engine/assets`, or the source checkout), resolved once.
-//! - [`assets`] — glTF import through `kaman-assets`, fit transforms, and the
+//! - [`asset_root`] — where `assets/` lives at runtime (`$STICKSHIFT_DEMO_ASSETS`, an
+//!   installed `share/stickshift-engine/assets`, or the source checkout), resolved once.
+//! - [`assets`] — glTF import through `stickshift-assets`, fit transforms, and the
 //!   vertex-layout helpers.
 //! - [`scenery`] — procedural geometry (guardrails, hill terrain) built once and
 //!   streamed/positioned by transform.
 //! - [`components`] — the game-side ECS components and the model-placement enum.
-//! - [`game`] — [`game::CarRunner`], the [`kaman_core::Game`] implementation:
+//! - [`game`] — [`game::CarRunner`], the [`stickshift_core::Game`] implementation:
 //!   lane input, scoring, streaming, collision.
 //! - [`hud`] — the on-screen score and game-over overlay, drawn through the
 //!   engine's 2D overlay seam.
@@ -60,7 +60,7 @@
 //! # The smoke oracle
 //!
 //! Without a window the binary runs the `--smoke` oracle: it boots the
-//! [`Game`](kaman_core::Game) via the engine's headless driver, runs 120 frames
+//! [`Game`](stickshift_core::Game) via the engine's headless driver, runs 120 frames
 //! offscreen against a
 //! `NullRenderer` with **no GPU / Metal device**, and exits 0. Headless input is
 //! empty, so the box just runs straight down the middle lane — a deterministic
@@ -94,7 +94,7 @@ const SMOKE_FRAMES: u32 = 120;
 #[derive(Parser, Debug)]
 #[command(
     name = "playable-demo",
-    about = "KamanEngine playable-demo + headless smoke oracle"
+    about = "Stick Shift Engine playable-demo + headless smoke oracle"
 )]
 struct Cli {
     /// Run the headless smoke oracle: boot the game and drive a fixed frame loop, then exit 0.
@@ -103,7 +103,7 @@ struct Cli {
     #[arg(long)]
     smoke: bool,
 
-    /// Print the resolved assets directory and exit (see `KAMAN_DEMO_ASSETS`).
+    /// Print the resolved assets directory and exit (see `STICKSHIFT_DEMO_ASSETS`).
     #[arg(long)]
     print_assets_dir: bool,
 }
@@ -132,7 +132,7 @@ fn main() {
 
     // Windowed path: boots the same `Game` under the winit entry, driving a real
     // Metal backend. The backend is constructed below the render seam by
-    // `kaman-render` and injected via a factory, so `kaman-core` never depends on
+    // `stickshift-render` and injected via a factory, so `stickshift-core` never depends on
     // `metal` (ARCHITECTURE §2).
     let mut game = CarRunner::new();
     run_windowed(&mut game);
@@ -141,11 +141,12 @@ fn main() {
 /// Launch the windowed engine with the Metal backend on macOS.
 #[cfg(target_os = "macos")]
 fn run_windowed(game: &mut CarRunner) {
-    use kaman_core::Renderer;
-    kaman_core::run_with_backend(
+    use stickshift_core::Renderer;
+    stickshift_core::run_with_backend(
         game,
         Box::new(|window, width, height| {
-            Box::new(kaman_render::MetalRenderer::new(window, width, height)) as Box<dyn Renderer>
+            Box::new(stickshift_render::MetalRenderer::new(window, width, height))
+                as Box<dyn Renderer>
         }),
     );
 }
@@ -153,14 +154,14 @@ fn run_windowed(game: &mut CarRunner) {
 /// Non-macOS fallback: no Metal backend, run against the null seam.
 #[cfg(not(target_os = "macos"))]
 fn run_windowed(game: &mut CarRunner) {
-    kaman_core::run(game);
+    stickshift_core::run(game);
 }
 
-/// Boot the `playable-demo` [`Game`](kaman_core::Game) and drive `frames` frames
+/// Boot the `playable-demo` [`Game`](stickshift_core::Game) and drive `frames` frames
 /// headlessly, then report success.
 fn run_smoke(frames: u32) {
-    use kaman_core::headless::Headless;
-    use kaman_core::input::Key;
+    use stickshift_core::headless::Headless;
+    use stickshift_core::input::Key;
 
     let mut game = CarRunner::new();
     let mut harness = Headless::new();

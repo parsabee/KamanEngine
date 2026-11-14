@@ -10,8 +10,8 @@
 //! read from the engine — these are purely game-side numbers the demo's own
 //! code (`game.rs`, `assets.rs`, `scenery.rs`, `render.rs`) consumes.
 
-use kaman_core::Volume;
-use kaman_math::glam::Vec3;
+use stickshift_core::Volume;
+use stickshift_math::glam::Vec3;
 
 // ---------------------------------------------------------------------------
 // Lanes / speed / chase camera
@@ -126,7 +126,7 @@ pub(crate) const CAR_YAW: f32 = std::f32::consts::PI;
 // ---------------------------------------------------------------------------
 //
 // File names **relative to the asset root**, which is resolved once at startup
-// (`$KAMAN_DEMO_ASSETS`, an installed `share/kaman-engine/assets`, or this crate's
+// (`$STICKSHIFT_DEMO_ASSETS`, an installed `share/stickshift-engine/assets`, or this crate's
 // `assets/` — see `asset_root`). Join with `asset_root::asset_path`, so the paths
 // hold regardless of the process working directory or where the binary lives.
 
@@ -303,7 +303,7 @@ pub(crate) const HUD_BLACK_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 // ---------------------------------------------------------------------------
 //
 // A **summer afternoon, about 4pm**. This is the demo's *choice*: the engine only
-// accepts physical parameters (`kaman_render_api::SunSky` — an elevation/azimuth
+// accepts physical parameters (`stickshift_render_api::SunSky` — an elevation/azimuth
 // pair, colours, intensities), so "what time is it in this game" is game policy and
 // lives here. The demo pushes it once in `init`; the seam value is sticky and the
 // backend re-uploads it every frame.
@@ -370,7 +370,7 @@ pub(crate) const SKY_HORIZON_COLOR: [f32; 3] = [0.62, 0.67, 0.74];
 // ---------------------------------------------------------------------------
 //
 // Levels are in **decibels relative to each file's own recorded level**
-// (`kaman_core::Volume`), which is why they are all negative: both committed WAVs
+// (`stickshift_core::Volume`), which is why they are all negative: both committed WAVs
 // are mastered close to full scale, and the mix is built by trimming down from
 // there rather than by pushing anything up. The engine knows nothing about which
 // sound is which — it takes a handle and a level — so the whole mixing policy is

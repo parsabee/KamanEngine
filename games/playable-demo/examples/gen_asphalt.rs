@@ -13,7 +13,7 @@
 //! yellow edge lines** at the outer edges of the drivable lanes, and embeds the
 //! result into a self-contained glTF 2.0 file (`assets/road.gltf`) whose mesh is a
 //! single **flat road-tile quad** carrying the tiling UVs. The road glTF is loaded
-//! through `kaman-assets` at runtime; the importer decodes the embedded PNG to
+//! through `stickshift-assets` at runtime; the importer decodes the embedded PNG to
 //! RGBA8 and packs the quad on the `[pos,normal,uv]` textured layout so the
 //! backend's textured pipeline samples it (with the free mip chain + trilinear
 //! repeat sampler). The deliverable is the committed asset + the
@@ -260,7 +260,7 @@ fn main() {
     write!(
         json,
         r#"{{
-  "asset": {{ "version": "2.0", "generator": "KamanEngine asphalt road generator" }},
+  "asset": {{ "version": "2.0", "generator": "Stick Shift Engine asphalt road generator" }},
   "scene": 0,
   "scenes": [{{ "name": "road_scene", "nodes": [0] }}],
   "nodes": [{{ "name": "road", "mesh": 0 }}],

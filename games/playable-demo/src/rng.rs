@@ -21,7 +21,7 @@
 //!   top.
 //!
 //! Both live in the game crate on purpose: randomness (and how it's spent) is a
-//! *game* concern, not an engine one, so it stays out of the `kaman-*` crates.
+//! *game* concern, not an engine one, so it stays out of the `stickshift-*` crates.
 
 use crate::config::BUILDING_WEIGHTS;
 

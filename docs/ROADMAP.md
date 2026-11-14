@@ -1,10 +1,10 @@
-# KamanEngine Roadmap
+# Stick Shift Engine Roadmap
 
-KamanEngine is a lean, **rasterization-only** Metal graphics engine for Apple Silicon, written in
+Stick Shift Engine is a lean, **rasterization-only** Metal graphics engine for Apple Silicon, written in
 Rust and usable from other languages through a C API. The host application owns the window or
 view, the run loop and input; the engine renders.
 
-Open work is tracked as [GitHub issues](https://github.com/parsabee/KamanEngine/issues). Release
+Open work is tracked as [GitHub issues](https://github.com/parsabee/StickShiftEngine/issues). Release
 history is in [CHANGELOG.md](../CHANGELOG.md).
 
 ## v0.1 — macOS library
@@ -13,7 +13,7 @@ history is in [CHANGELOG.md](../CHANGELOG.md).
 
 - Remove the in-repo ticket system and the old phase plan; track work in GitHub issues.
 - Make the docs and API docs match what the code actually does.
-- **C API:** build the engine as a C library (static and dynamic) with a generated `kaman.h`
+- **C API:** build the engine as a C library (static and dynamic) with a generated `stickshift.h`
   header, a renderer created from a host-supplied `CAMetalLayer`, and errors instead of panics at
   the boundary. CI compiles and runs a C program against the header.
 - A test and bug-fix pass over everything shipped so far.
@@ -22,6 +22,11 @@ history is in [CHANGELOG.md](../CHANGELOG.md).
   node matrices.
 
 The ray tracer was removed for v0.1: the engine is rasterization-only.
+
+### `v0.1.0-beta.2`
+
+- **The rename to Stick Shift Engine:** crates, the C API (API version 3), environment variables,
+  the Homebrew formula and tap, the repository and the docs site.
 
 ### `v0.1.0`
 
@@ -37,7 +42,7 @@ Everything in the beta, plus:
 Release the library for iOS as well as macOS: iOS build targets, an XCFramework, a Swift sample
 app, tile-memory (TBDR) tuning, compressed textures, precompiled shaders for the iOS SDKs and
 on-device performance validation. Tracked in
-[#2 iOS support (v0.2)](https://github.com/parsabee/KamanEngine/issues/2) and its sub-issues.
+[#2 iOS support (v0.2)](https://github.com/parsabee/StickShiftEngine/issues/2) and its sub-issues.
 
 ## Not planned
 

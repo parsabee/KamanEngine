@@ -1067,119 +1067,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kaman-assets"
-version = "0.1.0-beta.1"
-dependencies = [
- "gltf",
- "image",
- "kaman-ecs",
- "kaman-math",
- "kaman-render-api",
-]
-
-[[package]]
-name = "kaman-audio"
-version = "0.1.0-beta.1"
-dependencies = [
- "kira",
-]
-
-[[package]]
-name = "kaman-camera"
-version = "0.1.0-beta.1"
-dependencies = [
- "kaman-math",
-]
-
-[[package]]
-name = "kaman-capi"
-version = "0.1.0-beta.1"
-dependencies = [
- "kaman-assets",
- "kaman-camera",
- "kaman-math",
- "kaman-render",
- "kaman-render-api",
-]
-
-[[package]]
-name = "kaman-core"
-version = "0.1.0-beta.1"
-dependencies = [
- "kaman-audio",
- "kaman-camera",
- "kaman-ecs",
- "kaman-math",
- "kaman-perf",
- "kaman-render-api",
- "kaman-scene",
- "objc2 0.5.2",
- "objc2-app-kit",
- "objc2-foundation 0.2.2",
- "winit",
-]
-
-[[package]]
-name = "kaman-ecs"
-version = "0.1.0-beta.1"
-dependencies = [
- "hecs",
- "kaman-math",
- "rapier3d",
-]
-
-[[package]]
-name = "kaman-math"
-version = "0.1.0-beta.1"
-dependencies = [
- "glam 0.29.3",
-]
-
-[[package]]
-name = "kaman-perf"
-version = "0.1.0-beta.1"
-
-[[package]]
-name = "kaman-physics"
-version = "0.1.0-beta.1"
-dependencies = [
- "kaman-math",
- "rapier3d",
-]
-
-[[package]]
-name = "kaman-render"
-version = "0.1.0-beta.1"
-dependencies = [
- "block",
- "cocoa",
- "core-graphics-types",
- "kaman-camera",
- "kaman-math",
- "kaman-render-api",
- "metal",
- "objc",
- "raw-window-handle",
-]
-
-[[package]]
-name = "kaman-render-api"
-version = "0.1.0-beta.1"
-dependencies = [
- "kaman-camera",
- "kaman-math",
-]
-
-[[package]]
-name = "kaman-scene"
-version = "0.1.0-beta.1"
-dependencies = [
- "kaman-ecs",
- "kaman-math",
- "kaman-physics",
-]
-
-[[package]]
 name = "kira"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1918,14 +1805,14 @@ dependencies = [
  "clap",
  "fontdue",
  "image",
- "kaman-assets",
- "kaman-camera",
- "kaman-core",
- "kaman-ecs",
- "kaman-math",
- "kaman-render",
- "kaman-render-api",
- "kaman-scene",
+ "stickshift-assets",
+ "stickshift-camera",
+ "stickshift-core",
+ "stickshift-ecs",
+ "stickshift-math",
+ "stickshift-render",
+ "stickshift-render-api",
+ "stickshift-scene",
 ]
 
 [[package]]
@@ -2339,6 +2226,119 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "stickshift-assets"
+version = "0.1.0-beta.1"
+dependencies = [
+ "gltf",
+ "image",
+ "stickshift-ecs",
+ "stickshift-math",
+ "stickshift-render-api",
+]
+
+[[package]]
+name = "stickshift-audio"
+version = "0.1.0-beta.1"
+dependencies = [
+ "kira",
+]
+
+[[package]]
+name = "stickshift-camera"
+version = "0.1.0-beta.1"
+dependencies = [
+ "stickshift-math",
+]
+
+[[package]]
+name = "stickshift-capi"
+version = "0.1.0-beta.1"
+dependencies = [
+ "stickshift-assets",
+ "stickshift-camera",
+ "stickshift-math",
+ "stickshift-render",
+ "stickshift-render-api",
+]
+
+[[package]]
+name = "stickshift-core"
+version = "0.1.0-beta.1"
+dependencies = [
+ "objc2 0.5.2",
+ "objc2-app-kit",
+ "objc2-foundation 0.2.2",
+ "stickshift-audio",
+ "stickshift-camera",
+ "stickshift-ecs",
+ "stickshift-math",
+ "stickshift-perf",
+ "stickshift-render-api",
+ "stickshift-scene",
+ "winit",
+]
+
+[[package]]
+name = "stickshift-ecs"
+version = "0.1.0-beta.1"
+dependencies = [
+ "hecs",
+ "rapier3d",
+ "stickshift-math",
+]
+
+[[package]]
+name = "stickshift-math"
+version = "0.1.0-beta.1"
+dependencies = [
+ "glam 0.29.3",
+]
+
+[[package]]
+name = "stickshift-perf"
+version = "0.1.0-beta.1"
+
+[[package]]
+name = "stickshift-physics"
+version = "0.1.0-beta.1"
+dependencies = [
+ "rapier3d",
+ "stickshift-math",
+]
+
+[[package]]
+name = "stickshift-render"
+version = "0.1.0-beta.1"
+dependencies = [
+ "block",
+ "cocoa",
+ "core-graphics-types",
+ "metal",
+ "objc",
+ "raw-window-handle",
+ "stickshift-camera",
+ "stickshift-math",
+ "stickshift-render-api",
+]
+
+[[package]]
+name = "stickshift-render-api"
+version = "0.1.0-beta.1"
+dependencies = [
+ "stickshift-camera",
+ "stickshift-math",
+]
+
+[[package]]
+name = "stickshift-scene"
+version = "0.1.0-beta.1"
+dependencies = [
+ "stickshift-ecs",
+ "stickshift-math",
+ "stickshift-physics",
+]
 
 [[package]]
 name = "strict-num"

@@ -5,23 +5,23 @@
 //! Where the demo's `assets/` directory lives at runtime.
 //!
 //! A `cargo run` finds the assets next to this crate's source, but an installed
-//! binary (the Homebrew `kaman-demo`, or an unpacked release tarball) has no source
+//! binary (the Homebrew `stickshift-demo`, or an unpacked release tarball) has no source
 //! tree to point at. So the asset root is resolved **once**, at startup, by trying
 //! these candidates in order and taking the first that holds the demo's assets
 //! (a directory with a [`MARKER`] file in it):
 //!
-//! 1. `$KAMAN_DEMO_ASSETS`, if set and non-empty. An explicit override is the
+//! 1. `$STICKSHIFT_DEMO_ASSETS`, if set and non-empty. An explicit override is the
 //!    only candidate: if it does not hold the assets, that is reported rather
 //!    than silently replaced by another directory;
-//! 2. `<exe dir>/../share/kaman-engine/assets` — the Homebrew / release-tarball
+//! 2. `<exe dir>/../share/stickshift-engine/assets` — the Homebrew / release-tarball
 //!    layout (`bin/` beside `share/`);
 //! 3. `<exe dir>/assets` — a flat layout with the assets beside the binary;
 //! 4. this crate's own `assets/` at build time (`CARGO_MANIFEST_DIR`), so
 //!    `cargo run` and `cargo test` work unchanged from a checkout.
 //!
 //! The exe dir is tried both after resolving symlinks (Homebrew links
-//! `bin/kaman-demo` into its prefix; the real file lives in the keg, whose
-//! `share/kaman-engine` is right beside it) and as invoked.
+//! `bin/stickshift-demo` into its prefix; the real file lives in the keg, whose
+//! `share/stickshift-engine` is right beside it) and as invoked.
 //!
 //! Config constants in [`crate::config`] name files *relative* to this root;
 //! [`asset_path`] joins them. Nothing is resolved per frame.
@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// The environment variable that overrides the asset root.
-pub(crate) const ENV_VAR: &str = "KAMAN_DEMO_ASSETS";
+pub(crate) const ENV_VAR: &str = "STICKSHIFT_DEMO_ASSETS";
 
 /// A file every demo asset root holds. A directory without it is not one, so an
 /// unrelated `assets/` beside the binary is skipped instead of failing later.
@@ -93,7 +93,7 @@ fn candidates(env: Option<&OsStr>, exe: Option<&Path>, manifest_dir: &Path) -> V
             }
         }
         for dir in &exe_dirs {
-            out.push(dir.join("../share/kaman-engine/assets"));
+            out.push(dir.join("../share/stickshift-engine/assets"));
         }
         for dir in &exe_dirs {
             out.push(dir.join("assets"));
@@ -163,8 +163,8 @@ mod tests {
         fn new() -> Self {
             static NEXT: AtomicUsize = AtomicUsize::new(0);
             let n = NEXT.fetch_add(1, Ordering::Relaxed);
-            let dir =
-                std::env::temp_dir().join(format!("kaman-asset-root-{}-{n}", std::process::id()));
+            let dir = std::env::temp_dir()
+                .join(format!("stickshift-asset-root-{}-{n}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
             // Canonical, so comparisons survive macOS's /var -> /private/var link.
@@ -206,8 +206,8 @@ mod tests {
     fn env_var_wins_over_everything() {
         let t = TempDir::new();
         let env = t.assets("custom");
-        let exe = t.touch("prefix/bin/kaman-demo");
-        t.assets("prefix/share/kaman-engine/assets");
+        let exe = t.touch("prefix/bin/stickshift-demo");
+        t.assets("prefix/share/stickshift-engine/assets");
         t.assets("prefix/bin/assets");
         let manifest = t.mkdir("src");
         t.assets("src/assets");
@@ -219,8 +219,8 @@ mod tests {
     #[test]
     fn unset_or_empty_env_var_falls_through_to_share_layout() {
         let t = TempDir::new();
-        let exe = t.touch("prefix/bin/kaman-demo");
-        let share = t.assets("prefix/share/kaman-engine/assets");
+        let exe = t.touch("prefix/bin/stickshift-demo");
+        let share = t.assets("prefix/share/stickshift-engine/assets");
         t.assets("prefix/bin/assets");
         let manifest = t.mkdir("src");
         t.assets("src/assets");
@@ -241,8 +241,8 @@ mod tests {
         // without the marker) is an error naming it, even though the share
         // layout would have been found.
         let t = TempDir::new();
-        let exe = t.touch("prefix/bin/kaman-demo");
-        t.assets("prefix/share/kaman-engine/assets");
+        let exe = t.touch("prefix/bin/stickshift-demo");
+        t.assets("prefix/share/stickshift-engine/assets");
         let manifest = t.mkdir("src");
         let empty = t.mkdir("empty");
         for env in [t.0.join("nope"), empty] {
@@ -257,7 +257,7 @@ mod tests {
     fn a_directory_without_the_marker_is_skipped() {
         // An unrelated `assets/` beside the binary is not the demo's.
         let t = TempDir::new();
-        let exe = t.touch("flat/kaman-demo");
+        let exe = t.touch("flat/stickshift-demo");
         t.mkdir("flat/assets");
         let manifest = t.mkdir("src");
         let src_assets = t.assets("src/assets");
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn flat_layout_beats_the_build_dir() {
         let t = TempDir::new();
-        let exe = t.touch("flat/kaman-demo");
+        let exe = t.touch("flat/stickshift-demo");
         let flat = t.assets("flat/assets");
         let manifest = t.mkdir("src");
         t.assets("src/assets");
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn build_dir_is_the_last_resort() {
         let t = TempDir::new();
-        let exe = t.touch("bin/kaman-demo");
+        let exe = t.touch("bin/stickshift-demo");
         let manifest = t.mkdir("src");
         let src_assets = t.assets("src/assets");
 
@@ -293,14 +293,14 @@ mod tests {
 
     #[test]
     fn symlinked_binary_finds_the_keg_share_dir() {
-        // Homebrew: <prefix>/bin/kaman-demo -> ../Cellar/kaman-engine/<v>/bin/kaman-demo,
-        // and the keg holds share/kaman-engine/assets. Nothing is linked into the
+        // Homebrew: <prefix>/bin/stickshift-demo -> ../Cellar/stickshift-engine/<v>/bin/stickshift-demo,
+        // and the keg holds share/stickshift-engine/assets. Nothing is linked into the
         // prefix's share/, so only the resolved path can find it.
         let t = TempDir::new();
-        let real = t.touch("Cellar/kaman-engine/1.0/bin/kaman-demo");
-        let keg_assets = t.assets("Cellar/kaman-engine/1.0/share/kaman-engine/assets");
+        let real = t.touch("Cellar/stickshift-engine/1.0/bin/stickshift-demo");
+        let keg_assets = t.assets("Cellar/stickshift-engine/1.0/share/stickshift-engine/assets");
         t.mkdir("prefix/bin");
-        let link = t.0.join("prefix/bin/kaman-demo");
+        let link = t.0.join("prefix/bin/stickshift-demo");
         std::os::unix::fs::symlink(&real, &link).unwrap();
         let manifest = t.mkdir("src");
 
@@ -311,13 +311,13 @@ mod tests {
     #[test]
     fn nothing_found_lists_every_candidate() {
         let t = TempDir::new();
-        let exe = t.touch("bin/kaman-demo");
+        let exe = t.touch("bin/stickshift-demo");
         let manifest = t.0.join("gone");
 
         let err = resolve_from(None, Some(&exe), &manifest).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("$KAMAN_DEMO_ASSETS (not set)"), "{msg}");
-        assert!(msg.contains("share/kaman-engine/assets"), "{msg}");
+        assert!(msg.contains("$STICKSHIFT_DEMO_ASSETS (not set)"), "{msg}");
+        assert!(msg.contains("share/stickshift-engine/assets"), "{msg}");
         assert!(
             msg.contains(&manifest.join("assets").display().to_string()),
             "{msg}"

@@ -1,0 +1,649 @@
+// Copyright (c) 2026 Parsa Bagheri
+//
+// This software is released under the Apache-2.0 License.
+
+//! The windowed entry: run a [`Game`] inside a `winit` window on
+//! macOS.
+//!
+//! This is the platform half of the engine loop. It opens a window, translates
+//! `winit` events into the engine's backend-agnostic
+//! [`InputState`](crate::InputState), and drives the *same* shared
+//! [`drive_frame`] as the headless driver — the only
+//! difference is the clock. Here the per-frame elapsed time comes from a real
+//! monotonic [`Instant`], so the fixed-timestep
+//! [`Accumulator`](crate::timestep::Accumulator) may run 0..N `update`s before the
+//! single `render`; per-frame drawing goes through the backend the game binary
+//! supplies via a **backend factory**.
+//!
+//! # The backend seam (metal stays out of `stickshift-core`)
+//!
+//! `stickshift-core` must never depend on `metal` or on the concrete `stickshift-render`
+//! crate (ARCHITECTURE §2, enforced by CI). So the windowed entry does not
+//! construct a backend itself: [`run_with_backend`] takes a **factory** (a
+//! `FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`) that the *game binary*
+//! (which does depend on `stickshift-render`) provides. The factory is invoked once
+//! in `resumed`, right after the window is created, and
+//! the returned `Box<dyn Renderer>` drives every frame through the seam. The
+//! headless driver and the plain [`run`] entry keep the GPU-free
+//! [`NullRenderer`].
+//!
+//! # Audio
+//!
+//! This is also the only entry that opens an **audio output device**: it replaces
+//! the loop's silent [`Audio`](stickshift_audio::Audio) layer with
+//! [`Audio::with_output_device`](stickshift_audio::Audio::with_output_device) at
+//! startup. The headless driver keeps the silent layer, so tests and `--smoke`
+//! never touch audio hardware; and since the device-bound constructor falls back
+//! to silence when there is no output, even this path cannot fail on that account.
+//!
+//! # Graphics settings and the built-in menu
+//!
+//! By default the windowed entry installs a native **Graphics** menu in the
+//! macOS menu bar (Shadows, Shadow Distance, Draw Distance, Resolution, Enter Full
+//! Screen, Reset to Defaults). It also restores the player's graphics settings
+//! from the last launch and saves them on every change (`NSUserDefaults`). Both
+//! are on by default and can each be turned off with [`RunConfig`] via
+//! [`run_with_config`]. A game with its own settings UI turns the menu off and
+//! drives the same [`GraphicsSettings`](crate::GraphicsSettings) through
+//! [`EngineCtx::set_graphics_settings`](crate::EngineCtx::set_graphics_settings).
+//!
+//! Whatever made the change, this runner reacts to it the same way:
+//!
+//! - it resizes the drawable for the render scale;
+//! - it refreshes the menu's checkmarks;
+//! - it persists the new value.
+//!
+//! The headless driver never touches the menu bar or stored preferences.
+//!
+//! # macOS isolation
+//!
+//! The window-creation and event-translation helpers are kept as small free
+//! functions so a `#[cfg(target_os = ...)]` platform split can wrap them without
+//! disturbing the loop structure. The engine loop itself
+//! (`drive_frame`) is platform-neutral.
+
+use std::time::Instant;
+
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, MouseButton as WinitMouseButton, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{Fullscreen, Window, WindowId};
+
+use stickshift_render_api::NullRenderer;
+
+use crate::context::Renderer;
+use crate::driver::{drive_frame, Loop};
+use crate::game::Game;
+use crate::input::{Key, MouseButton};
+use crate::platform::{self, SettingsMenu};
+use crate::settings_menu::MenuCommand;
+
+/// A factory that constructs the render backend for a freshly-created window.
+///
+/// The engine calls this once, in `resumed`, after the
+/// window exists, passing the window plus its pixel size. The game binary (the
+/// only place that depends on `stickshift-render`) returns a boxed
+/// [`Renderer`] — a type that is both a
+/// [`RenderDevice`](stickshift_render_api::RenderDevice) and a
+/// [`FrameRecorder`](stickshift_render_api::FrameRecorder). This is the single seam
+/// that keeps `metal` out of `stickshift-core`'s dependency tree while still letting
+/// the windowed loop drive a real GPU backend.
+pub type BackendFactory<'f> = Box<dyn FnOnce(&Window, u32, u32) -> Box<dyn Renderer> + 'f>;
+
+/// Open a window and run `game` against a headless [`NullRenderer`] until the
+/// window is closed (macOS).
+///
+/// This convenience entry wires **no GPU backend**; the window is present but
+/// nothing is drawn to it (the game still records into the null seam). Use
+/// [`run_with_backend`] to supply a real backend. Kept for tests and callers
+/// that only need the input/loop bring-up.
+///
+/// # Panics
+///
+/// Panics if the platform event loop cannot be created (no display available).
+///
+/// # Example
+///
+/// ```no_run
+/// use stickshift_core::{Game, EngineCtx, run};
+///
+/// struct MyGame;
+/// impl Game for MyGame {
+///     fn init(&mut self, _: &mut EngineCtx) {}
+///     fn update(&mut self, _: &mut EngineCtx, _dt: f32) {}
+///     fn render(&mut self, _: &mut EngineCtx) {}
+/// }
+///
+/// run(&mut MyGame);
+/// ```
+pub fn run<G: Game>(game: &mut G) {
+    run_with_config(game, None, RunConfig::default());
+}
+
+/// Open a window and run `game`, constructing the render backend from `factory`.
+///
+/// Identical to [`run`] except that the engine calls `factory` once after the
+/// window is created and drives every frame through the returned
+/// `Box<dyn Renderer>` — the real GPU present path. The factory is the seam that
+/// lets the game binary inject a `metal` backend without `stickshift-core` depending
+/// on `metal`.
+///
+/// # Panics
+///
+/// Panics if the platform event loop cannot be created (no display available).
+///
+/// # Example
+///
+/// ```no_run
+/// use stickshift_core::{Game, EngineCtx, run_with_backend, Renderer};
+/// use stickshift_render_api::NullRenderer;
+///
+/// struct MyGame;
+/// impl Game for MyGame {
+///     fn init(&mut self, _: &mut EngineCtx) {}
+///     fn update(&mut self, _: &mut EngineCtx, _dt: f32) {}
+///     fn render(&mut self, _: &mut EngineCtx) {}
+/// }
+///
+/// // A real game passes a Metal backend here; this doc uses NullRenderer.
+/// run_with_backend(&mut MyGame, Box::new(|_win, _w, _h| {
+///     Box::new(NullRenderer::new()) as Box<dyn Renderer>
+/// }));
+/// ```
+pub fn run_with_backend<G: Game>(game: &mut G, factory: BackendFactory<'_>) {
+    run_with_config(game, Some(factory), RunConfig::default());
+}
+
+/// Options for the windowed entry. [`run`] and [`run_with_backend`] use
+/// [`RunConfig::default`], where everything is on.
+///
+/// # Example
+///
+/// A game that ships its own graphics-settings UI turns the built-in menu off.
+/// It keeps persistence, and drives the settings through
+/// [`EngineCtx::set_graphics_settings`](crate::EngineCtx::set_graphics_settings):
+///
+/// ```no_run
+/// use stickshift_core::{run_with_config, EngineCtx, Game, RunConfig};
+///
+/// struct MyGame;
+/// impl Game for MyGame {
+///     fn init(&mut self, _: &mut EngineCtx) {}
+///     fn update(&mut self, _: &mut EngineCtx, _dt: f32) {}
+///     fn render(&mut self, _: &mut EngineCtx) {}
+/// }
+///
+/// run_with_config(
+///     &mut MyGame,
+///     None, // or Some(backend factory), as with `run_with_backend`
+///     RunConfig {
+///         native_settings_menu: false,
+///         ..RunConfig::default()
+///     },
+/// );
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunConfig {
+    /// Install the built-in **Graphics** menu in the macOS menu bar. Default
+    /// `true`. Turn it off when the game provides its own settings UI.
+    pub native_settings_menu: bool,
+    /// Restore the graphics settings from the previous launch at start-up and
+    /// save them whenever they change (in `NSUserDefaults` on macOS). Default
+    /// `true`. This covers every change, whether it came from the built-in menu
+    /// or from the game's own UI.
+    pub persist_graphics_settings: bool,
+}
+
+impl Default for RunConfig {
+    fn default() -> Self {
+        Self {
+            native_settings_menu: true,
+            persist_graphics_settings: true,
+        }
+    }
+}
+
+/// Open a window and run `game` with explicit [`RunConfig`] options.
+///
+/// `factory` is the render backend factory, exactly as for [`run_with_backend`].
+/// `None` runs against the headless [`NullRenderer`], as [`run`] does.
+///
+/// # Panics
+///
+/// Panics if the platform event loop cannot be created (no display available).
+pub fn run_with_config<G: Game>(
+    game: &mut G,
+    factory: Option<BackendFactory<'_>>,
+    config: RunConfig,
+) {
+    let event_loop = EventLoop::<EngineEvent>::with_user_event()
+        .build()
+        .expect("failed to create winit event loop");
+    let proxy = event_loop.create_proxy();
+    let mut app: EngineApp<'_, '_, G> = EngineApp::new(game, factory, config, proxy);
+    event_loop
+        .run_app(&mut app)
+        .expect("winit event loop failed");
+}
+
+/// Events posted into the winit loop from outside it: today, a click on the
+/// built-in Graphics menu, sent from the menu's action target through an
+/// [`EventLoopProxy`].
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) enum EngineEvent {
+    /// A Graphics menu item was chosen.
+    Menu(MenuCommand),
+}
+
+/// Window title used by the windowed entry.
+const WINDOW_TITLE: &str = "Stick Shift Engine";
+/// Initial window width in logical pixels.
+const WINDOW_WIDTH: u32 = 800;
+/// Initial window height in logical pixels.
+const WINDOW_HEIGHT: u32 = 600;
+
+/// The `winit` [`ApplicationHandler`] that owns engine state and drives the game.
+///
+/// Holds the shared [`Loop`] (ECS [`World`](stickshift_ecs::hecs::World), input, perf,
+/// and the fixed-timestep [`Accumulator`](crate::timestep::Accumulator)) exactly
+/// like [`Headless`](crate::headless::Headless) does, plus the window, the render
+/// seam, and the game reference. The render seam is a `Box<dyn Renderer>`: a
+/// [`NullRenderer`] until (and unless) the backend factory replaces it with a
+/// real backend on first resume.
+struct EngineApp<'g, 'f, G: Game> {
+    game: &'g mut G,
+    window: Option<Window>,
+    lp: Loop,
+    renderer: Box<dyn Renderer>,
+    factory: Option<BackendFactory<'f>>,
+    last_frame: Option<Instant>,
+    /// Runner options.
+    config: RunConfig,
+    /// Where the built-in menu posts clicks; handed to the menu when it is
+    /// installed.
+    proxy: EventLoopProxy<EngineEvent>,
+    /// The built-in Graphics menu, once installed (and only if enabled).
+    menu: Option<SettingsMenu>,
+    /// The graphics-settings revision this runner last reacted to.
+    seen_graphics_revision: u64,
+}
+
+impl<'g, 'f, G: Game> EngineApp<'g, 'f, G> {
+    fn new(
+        game: &'g mut G,
+        factory: Option<BackendFactory<'f>>,
+        config: RunConfig,
+        proxy: EventLoopProxy<EngineEvent>,
+    ) -> Self {
+        // A fresh `Loop` is silent (it opens no audio device, which is what keeps
+        // headless runs and tests quiet). The windowed entry is the one place that
+        // *wants* speakers, so bind the mixer to the system's default output here —
+        // exactly once, at startup, before the game's `init` can load a sound.
+        //
+        // `with_output_device` cannot fail: a machine with no output device falls
+        // back to the same silent no-op, so a windowed run on a headless CI box
+        // still runs, just quietly. Audio is intentionally *not* deferred to
+        // `resumed` like the render backend is — it needs no window.
+        let mut lp = Loop::new();
+        lp.audio = stickshift_audio::Audio::with_output_device();
+
+        // Restore last launch's graphics settings. Queued, so they take
+        // effect before `Game::init` (see `Loop::init_once`).
+        if config.persist_graphics_settings {
+            if let Some(saved) = platform::load_settings() {
+                lp.graphics.request(saved);
+            }
+        }
+
+        Self {
+            game,
+            window: None,
+            lp,
+            renderer: Box::new(NullRenderer::new()),
+            factory,
+            last_frame: None,
+            config,
+            proxy,
+            menu: None,
+            seen_graphics_revision: 0,
+        }
+    }
+
+    /// Size the drawable for the window's native pixels and the render scale in
+    /// effect (a queued change counts, so this is right before `Game::init` has
+    /// applied the restored settings), and report the matching UI scale.
+    fn resize_surface(&mut self) {
+        let Some(window) = &self.window else {
+            return;
+        };
+        let size = window.inner_size();
+        let graphics = &self.lp.graphics;
+        let (width, height, pixels_per_point) = graphics
+            .pending()
+            .unwrap_or_else(|| graphics.current())
+            .render_scale
+            .surface_for(size.width, size.height, window.scale_factor());
+        self.renderer
+            .resize_surface(width, height, pixels_per_point);
+    }
+
+    /// Refresh the built-in menu's checkmarks, enabled states and full-screen
+    /// title.
+    fn sync_menu(&self) {
+        if let Some(menu) = &self.menu {
+            let fullscreen = self
+                .window
+                .as_ref()
+                .is_some_and(|w| w.fullscreen().is_some());
+            menu.sync(&self.lp.graphics.current(), fullscreen);
+        }
+    }
+
+    /// React to applied graphics-settings changes, whatever made them (the menu,
+    /// or the game through `EngineCtx`): resize the drawable, refresh the menu,
+    /// and persist.
+    fn after_graphics_change(&mut self) {
+        let revision = self.lp.graphics.revision();
+        if revision == self.seen_graphics_revision {
+            return;
+        }
+        self.seen_graphics_revision = revision;
+        self.resize_surface();
+        self.sync_menu();
+        if self.config.persist_graphics_settings {
+            platform::save_settings(&self.lp.graphics.current());
+        }
+    }
+
+    /// Enter or leave (borderless, native-Space) full screen.
+    fn toggle_fullscreen(&self) {
+        if let Some(window) = &self.window {
+            let next = match window.fullscreen() {
+                Some(_) => None,
+                None => Some(Fullscreen::Borderless(None)),
+            };
+            window.set_fullscreen(next);
+        }
+    }
+
+    /// Run one display frame through the shared [`drive_frame`].
+    ///
+    /// Measures the real seconds since the previous frame from a monotonic
+    /// [`Instant`] (the *only* thing this driver adds over the headless one) and
+    /// hands that elapsed time to the shared accumulator-based loop, which runs
+    /// 0..N fixed `update`s and one `render`. The game records its frame through
+    /// the seam (`begin_frame` … `submit`), which the real backend turns into a
+    /// GPU present.
+    fn drive_frame(&mut self) {
+        let now = Instant::now();
+        let elapsed = match self.last_frame {
+            Some(prev) => now.duration_since(prev),
+            // First frame: bank exactly one fixed step so a game still ticks once.
+            None => std::time::Duration::from_secs_f64(f64::from(crate::FIXED_DT)),
+        };
+        self.last_frame = Some(now);
+
+        drive_frame(&mut self.lp, self.game, self.renderer.as_mut(), elapsed);
+    }
+}
+
+impl<G: Game> ApplicationHandler<EngineEvent> for EngineApp<'_, '_, G> {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_none() {
+            let window = create_window(event_loop);
+
+            // Match the engine camera's aspect to the real window before the first
+            // frame; resize events keep it current thereafter.
+            let size = window.inner_size();
+            self.lp
+                .camera
+                .set_aspect_ratio(size.width as f32 / size.height.max(1) as f32);
+
+            // Construct the real backend now that a window exists. Consuming the
+            // factory (an `Option`) makes this happen exactly once.
+            if let Some(factory) = self.factory.take() {
+                self.renderer = factory(&window, size.width, size.height);
+            }
+
+            window.request_redraw();
+            self.window = Some(window);
+        }
+
+        // Size the drawable before the game's init sees it: a new backend's
+        // drawable is the view's size in points with a UI scale of 1.
+        self.resize_surface();
+        // First activation: run the game's one-time init against the live seam
+        // through the shared loop (idempotent).
+        self.lp.init_once(self.game, self.renderer.as_mut());
+
+        // Size the drawable for the settings now in effect, then add the
+        // built-in Graphics menu next to winit's application menu.
+        self.resize_surface();
+        if self.config.native_settings_menu && self.menu.is_none() {
+            self.menu = SettingsMenu::install(self.proxy.clone());
+        }
+        self.sync_menu();
+        self.seen_graphics_revision = self.lp.graphics.revision();
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: EngineEvent) {
+        match event {
+            EngineEvent::Menu(command) => {
+                // Build on a request still in flight, so two quick choices compose.
+                let base = self
+                    .lp
+                    .graphics
+                    .pending()
+                    .unwrap_or_else(|| self.lp.graphics.current());
+                match command.apply(base) {
+                    Some(settings) => {
+                        // Apply right away, between frames, through the same path a
+                        // game's own request takes.
+                        self.lp.graphics.request(settings);
+                        self.lp
+                            .apply_pending_graphics(self.game, self.renderer.as_mut());
+                        self.after_graphics_change();
+                    }
+                    None => self.toggle_fullscreen(),
+                }
+                // AppKit's menu tracking held the main thread while the menu was
+                // open. Restart the frame clock so that time is not simulated in
+                // one catch-up burst.
+                self.last_frame = None;
+            }
+        }
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    if let Some(key) = translate_key(code) {
+                        if event.state.is_pressed() {
+                            // Escape quits, matching the close button.
+                            if key == Key::Escape {
+                                event_loop.exit();
+                            }
+                            self.lp.input.press_key(key);
+                        } else {
+                            self.lp.input.release_key(key);
+                        }
+                    }
+                }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if let Some(btn) = translate_mouse_button(button) {
+                    match state {
+                        ElementState::Pressed => self.lp.input.press_mouse(btn),
+                        ElementState::Released => self.lp.input.release_mouse(btn),
+                    }
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let scale = self.window.as_ref().map_or(1.0, |w| w.scale_factor());
+                let (x, y) = cursor_to_logical(position, scale);
+                self.lp.input.set_cursor_position(x, y);
+            }
+            WindowEvent::Focused(false) => {
+                // macOS sends no key-up for a key released while another window
+                // has focus; let go of everything so nothing stays held.
+                self.lp.input.release_all();
+            }
+            WindowEvent::Resized(size) => {
+                // Keep the engine camera's projection correct as the window
+                // resizes. The backend below the seam owns no camera, so
+                // aspect is maintained here on the engine-owned `Camera`.
+                let aspect = size.width as f32 / size.height.max(1) as f32;
+                self.lp.camera.set_aspect_ratio(aspect);
+                // Keep the drawable matched to the window. The window may
+                // also have entered or left full screen, so refresh the menu's
+                // full-screen title.
+                self.resize_surface();
+                self.sync_menu();
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                // Moved to a display with a different pixel density.
+                self.resize_surface();
+            }
+            WindowEvent::RedrawRequested => {
+                self.drive_frame();
+                // A change the game requested through `EngineCtx` was applied at the
+                // start of that frame; resize / refresh / persist for it.
+                self.after_graphics_change();
+                // Request the next frame to keep the loop pumping.
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// --- macOS-isolated helpers -------------------------------------------------
+//
+// These are deliberately small free functions. A platform split (iOS, v0.2) can
+// wrap them (or provide iOS variants) without touching `EngineApp`'s loop.
+
+/// Create the application window. Isolated so the platform split can
+/// swap window construction per target.
+fn create_window(event_loop: &ActiveEventLoop) -> Window {
+    let attrs = Window::default_attributes()
+        .with_title(WINDOW_TITLE)
+        .with_inner_size(winit::dpi::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
+    event_loop
+        .create_window(attrs)
+        .expect("failed to create window")
+}
+
+/// Translate a `winit` physical key into the engine's backend-agnostic [`Key`].
+///
+/// Returns `None` for keys outside the supported subset (see [`Key`]). Isolated so
+/// the mapping is a single, testable place and so the platform split can extend
+/// it per target.
+fn translate_key(code: KeyCode) -> Option<Key> {
+    Some(match code {
+        KeyCode::KeyW => Key::W,
+        KeyCode::KeyA => Key::A,
+        KeyCode::KeyS => Key::S,
+        KeyCode::KeyD => Key::D,
+        KeyCode::KeyQ => Key::Q,
+        KeyCode::KeyE => Key::E,
+        KeyCode::ArrowLeft => Key::Left,
+        KeyCode::ArrowRight => Key::Right,
+        KeyCode::ArrowUp => Key::Up,
+        KeyCode::ArrowDown => Key::Down,
+        KeyCode::Space => Key::Space,
+        KeyCode::Escape => Key::Escape,
+        _ => return None,
+    })
+}
+
+/// Convert a `winit` cursor position, which is in physical pixels, to the window
+/// logical pixels (points) [`InputState::cursor_position`] reports.
+///
+/// [`InputState::cursor_position`]: crate::input::InputState::cursor_position
+fn cursor_to_logical(position: winit::dpi::PhysicalPosition<f64>, scale_factor: f64) -> (f64, f64) {
+    let logical = position.to_logical::<f64>(scale_factor);
+    (logical.x, logical.y)
+}
+
+/// Translate a `winit` mouse button into the engine's [`MouseButton`].
+///
+/// Returns `None` for buttons outside the supported subset.
+fn translate_mouse_button(button: WinitMouseButton) -> Option<MouseButton> {
+    Some(match button {
+        WinitMouseButton::Left => MouseButton::Left,
+        WinitMouseButton::Right => MouseButton::Right,
+        WinitMouseButton::Middle => MouseButton::Middle,
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_positions_are_reported_in_logical_pixels() {
+        let physical = winit::dpi::PhysicalPosition::new(800.0, 600.0);
+        // The centre of an 800×600-point window on a 2× display.
+        assert_eq!(cursor_to_logical(physical, 2.0), (400.0, 300.0));
+        assert_eq!(cursor_to_logical(physical, 1.0), (800.0, 600.0));
+    }
+
+    #[test]
+    fn key_translation_covers_the_supported_keys() {
+        assert_eq!(translate_key(KeyCode::KeyW), Some(Key::W));
+        assert_eq!(translate_key(KeyCode::ArrowLeft), Some(Key::Left));
+        assert_eq!(translate_key(KeyCode::Escape), Some(Key::Escape));
+        // A key outside the subset is ignored, not mistranslated.
+        assert_eq!(translate_key(KeyCode::F1), None);
+    }
+
+    #[test]
+    fn mouse_button_translation() {
+        assert_eq!(
+            translate_mouse_button(WinitMouseButton::Left),
+            Some(MouseButton::Left)
+        );
+        assert_eq!(translate_mouse_button(WinitMouseButton::Back), None);
+    }
+
+    /// The backend factory type must produce a live `Box<dyn Renderer>` and the
+    /// game must be able to record a frame against it. This exercises the seam
+    /// wiring the windowed path uses, without opening a window (which needs a
+    /// display). A `NullRenderer` stands in for a real GPU backend.
+    #[test]
+    fn backend_factory_yields_a_usable_renderer() {
+        use stickshift_math::Transform;
+        use stickshift_render_api::{MaterialParams, NullRenderer};
+
+        // A factory shaped exactly like the windowed entry expects. We can't
+        // pass a real `&Window` here, so call the closure's body directly with
+        // the same output type it must produce.
+        let make: fn() -> Box<dyn Renderer> = || Box::new(NullRenderer::new());
+        let mut renderer = make();
+
+        let layout = stickshift_render_api::PipelineKind::VertexColor.vertex_layout();
+        let vertices = vec![0u8; 3 * layout.stride as usize];
+        let mesh = renderer.create_mesh(&stickshift_render_api::MeshData {
+            vertices: &vertices,
+            indices: &[0, 1, 2],
+            layout,
+        });
+        renderer.begin_frame();
+        let pipeline = renderer.create_pipeline(&stickshift_render_api::PipelineDescriptor::new(
+            stickshift_render_api::PipelineKind::VertexColor,
+        ));
+        renderer.set_pipeline(pipeline);
+        renderer.draw_mesh(mesh, &Transform::identity(), &MaterialParams::default());
+        renderer.submit();
+        // If we got here, the trait object satisfied both seam halves.
+    }
+}

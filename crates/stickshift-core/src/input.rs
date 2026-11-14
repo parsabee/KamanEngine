@@ -1,0 +1,330 @@
+// Copyright (c) 2026 Parsa Bagheri
+//
+// This software is released under the Apache-2.0 License.
+
+//! A minimal, engine-generic input snapshot exposed to games through
+//! [`EngineCtx`](crate::EngineCtx).
+//!
+//! This is kept deliberately small: pressed keys, cursor position, and
+//! pressed mouse buttons — the read-only state a game needs to react to input in
+//! [`Game::update`](crate::Game::update), plus just-pressed/just-released
+//! edges. Action mapping, gamepad and touch input are out of scope; this
+//! type is intentionally the smallest thing that lets a
+//! game read the keyboard and mouse without depending on `winit`.
+//!
+//! # Backend independence
+//!
+//! [`Key`] and [`MouseButton`] are engine-owned enums, not `winit` re-exports,
+//! so game code never depends on the windowing backend. The windowed entry in
+//! [`app`](crate::app) translates `winit` events into these types; the headless
+//! driver drives them directly. The set of [`Key`] variants is intentionally
+//! partial (a useful subset for the first title) and `#[non_exhaustive]` so it
+//! can grow without breaking games.
+
+use std::collections::HashSet;
+
+/// A keyboard key, identified by physical position (backend-agnostic).
+///
+/// This is a curated subset — enough for the demo game and camera controls —
+/// not the full keyboard. It is [`#[non_exhaustive]`][non_exhaustive] so future
+/// keys can be added without a breaking change; downstream `match` expressions
+/// must include a wildcard arm.
+///
+/// [non_exhaustive]: https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Key {
+    /// The `W` key.
+    W,
+    /// The `A` key.
+    A,
+    /// The `S` key.
+    S,
+    /// The `D` key.
+    D,
+    /// The `Q` key.
+    Q,
+    /// The `E` key.
+    E,
+    /// The left arrow key.
+    Left,
+    /// The right arrow key.
+    Right,
+    /// The up arrow key.
+    Up,
+    /// The down arrow key.
+    Down,
+    /// The space bar.
+    Space,
+    /// The escape key.
+    Escape,
+}
+
+/// A mouse button (backend-agnostic).
+///
+/// [`#[non_exhaustive]`][non_exhaustive] so additional buttons can be added later.
+///
+/// [non_exhaustive]: https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum MouseButton {
+    /// The left mouse button.
+    Left,
+    /// The right mouse button.
+    Right,
+    /// The middle mouse button.
+    Middle,
+}
+
+/// A read-only snapshot of keyboard and mouse state for the current frame.
+///
+/// The engine owns one `InputState`, updates it from platform events (windowed
+/// entry) or programmatically (headless driver), and hands the game a shared
+/// reference through [`EngineCtx::input`](crate::EngineCtx::input). Games read it
+/// during [`update`](crate::Game::update); they never mutate it (the engine owns
+/// the source of truth), which is why the accessor returns `&InputState`.
+///
+/// # State model (invariants)
+///
+/// - A key/button is "down" from the frame its press is recorded until the frame
+///   its release is recorded (*level* state).
+/// - **Edge detection:** [`is_key_just_pressed`](Self::is_key_just_pressed) is true
+///   on the first fixed-update step after a key went up→down, and
+///   [`is_key_just_released`](Self::is_key_just_released) after it went down→up.
+///   The edges are latched until the driver calls
+///   [`advance_frame`](Self::advance_frame) after the next `Game::update`, so a
+///   held key fires "just pressed" exactly once, and a tap that is pressed and
+///   released between two updates is still seen. (The fuller input abstraction —
+///   remapping, touch/tilt — is out of scope.)
+/// - [`release_all`](Self::release_all) releases everything at once; the windowed
+///   entry calls it when the window loses focus, because macOS sends no key-up for
+///   a key released while another window has focus.
+/// - [`cursor_position`](Self::cursor_position) is in window logical pixels
+///   (points), origin top-left. It is `None` until the first cursor movement is
+///   seen (e.g. in the pure-headless driver, where no cursor exists).
+///
+/// # Example
+///
+/// ```rust
+/// use stickshift_core::input::{InputState, Key};
+///
+/// let mut input = InputState::new();
+/// input.press_key(Key::W);
+/// assert!(input.is_key_down(Key::W));
+/// input.release_key(Key::W);
+/// assert!(!input.is_key_down(Key::W));
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct InputState {
+    pressed_keys: HashSet<Key>,
+    /// Keys that went up→down since the last `advance_frame`, kept even if they
+    /// were released again since (a tap shorter than one fixed step).
+    pressed_since_step: HashSet<Key>,
+    /// Keys that went down→up since the last `advance_frame`.
+    released_since_step: HashSet<Key>,
+    pressed_buttons: HashSet<MouseButton>,
+    cursor_position: Option<(f64, f64)>,
+}
+
+impl InputState {
+    /// Create an empty snapshot: no keys or buttons down, cursor position unknown.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether `key` is currently held down.
+    #[must_use]
+    pub fn is_key_down(&self, key: Key) -> bool {
+        self.pressed_keys.contains(&key)
+    }
+
+    /// Whether `key` transitioned up→down since the last fixed update — a
+    /// per-step edge, true exactly once per physical press (a held key does not
+    /// keep returning `true`). Still true if the key was released again before
+    /// the update, so a quick tap is never lost. Use this for one-shot actions (a
+    /// discrete step, a menu selection) rather than continuous held-key movement.
+    #[must_use]
+    pub fn is_key_just_pressed(&self, key: Key) -> bool {
+        self.pressed_since_step.contains(&key)
+    }
+
+    /// Whether `key` transitioned down→up since the last fixed update — the release
+    /// edge, true exactly once per release.
+    #[must_use]
+    pub fn is_key_just_released(&self, key: Key) -> bool {
+        self.released_since_step.contains(&key)
+    }
+
+    /// Whether mouse `button` is currently held down.
+    #[must_use]
+    pub fn is_mouse_down(&self, button: MouseButton) -> bool {
+        self.pressed_buttons.contains(&button)
+    }
+
+    /// The cursor position in window logical pixels (top-left origin), or `None`
+    /// if no cursor movement has been observed yet.
+    #[must_use]
+    pub fn cursor_position(&self) -> Option<(f64, f64)> {
+        self.cursor_position
+    }
+
+    /// Record that `key` was pressed. Idempotent while held (an auto-repeat press
+    /// is not a new edge).
+    ///
+    /// Called by the engine (windowed entry or headless driver), not by games.
+    pub fn press_key(&mut self, key: Key) {
+        if self.pressed_keys.insert(key) {
+            self.pressed_since_step.insert(key);
+        }
+    }
+
+    /// Record that `key` was released. Idempotent when already up.
+    ///
+    /// Called by the engine, not by games.
+    pub fn release_key(&mut self, key: Key) {
+        if self.pressed_keys.remove(&key) {
+            self.released_since_step.insert(key);
+        }
+    }
+
+    /// Release every held key and mouse button, as if each had been let go.
+    ///
+    /// The windowed entry calls this when the window loses focus: a key released
+    /// while another window has focus sends no key-up, so it would otherwise stay
+    /// down, and the next real press of it would be no edge. Called by the
+    /// engine, not by games.
+    pub fn release_all(&mut self) {
+        self.released_since_step.extend(self.pressed_keys.drain());
+        self.pressed_buttons.clear();
+    }
+
+    /// Record that mouse `button` was pressed. Called by the engine.
+    pub fn press_mouse(&mut self, button: MouseButton) {
+        self.pressed_buttons.insert(button);
+    }
+
+    /// Record that mouse `button` was released. Called by the engine.
+    pub fn release_mouse(&mut self, button: MouseButton) {
+        self.pressed_buttons.remove(&button);
+    }
+
+    /// Set the cursor position (window logical pixels, top-left origin). Called
+    /// by the engine.
+    pub fn set_cursor_position(&mut self, x: f64, y: f64) {
+        self.cursor_position = Some((x, y));
+    }
+
+    /// Clear this step's press and release edges. The driver calls this after
+    /// each `Game::update`, so a held key reports
+    /// [`is_key_just_pressed`](Self::is_key_just_pressed) exactly once. Called by
+    /// the engine, not by games.
+    pub fn advance_frame(&mut self) {
+        self.pressed_since_step.clear();
+        self.released_since_step.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_press_and_release_toggles_down_state() {
+        let mut input = InputState::new();
+        assert!(!input.is_key_down(Key::A));
+        input.press_key(Key::A);
+        assert!(input.is_key_down(Key::A));
+        // Pressing again is idempotent.
+        input.press_key(Key::A);
+        assert!(input.is_key_down(Key::A));
+        input.release_key(Key::A);
+        assert!(!input.is_key_down(Key::A));
+        // Releasing when already up is idempotent.
+        input.release_key(Key::A);
+        assert!(!input.is_key_down(Key::A));
+    }
+
+    #[test]
+    fn mouse_button_state_tracks_independently() {
+        let mut input = InputState::new();
+        input.press_mouse(MouseButton::Left);
+        assert!(input.is_mouse_down(MouseButton::Left));
+        assert!(!input.is_mouse_down(MouseButton::Right));
+        input.release_mouse(MouseButton::Left);
+        assert!(!input.is_mouse_down(MouseButton::Left));
+    }
+
+    #[test]
+    fn cursor_position_starts_none_then_tracks() {
+        let mut input = InputState::new();
+        assert_eq!(input.cursor_position(), None);
+        input.set_cursor_position(12.0, 34.0);
+        assert_eq!(input.cursor_position(), Some((12.0, 34.0)));
+    }
+
+    #[test]
+    fn just_pressed_is_a_single_edge_per_press() {
+        let mut input = InputState::new();
+        // A press is an edge until the next advance_frame snapshots it.
+        input.press_key(Key::Left);
+        assert!(input.is_key_just_pressed(Key::Left));
+        assert!(input.is_key_just_pressed(Key::Left), "still the same step");
+        input.advance_frame();
+        assert!(
+            !input.is_key_just_pressed(Key::Left),
+            "held key: no repeat edge"
+        );
+        assert!(input.is_key_down(Key::Left), "but still held down");
+        // Releasing then pressing again is a fresh edge.
+        input.release_key(Key::Left);
+        input.advance_frame();
+        assert!(!input.is_key_just_pressed(Key::Left));
+        input.press_key(Key::Left);
+        assert!(
+            input.is_key_just_pressed(Key::Left),
+            "re-press is a new edge"
+        );
+    }
+
+    #[test]
+    fn a_tap_between_two_steps_is_still_one_press_edge() {
+        let mut input = InputState::new();
+        // Pressed and released before the next update ran.
+        input.press_key(Key::Space);
+        input.release_key(Key::Space);
+        assert!(!input.is_key_down(Key::Space));
+        assert!(input.is_key_just_pressed(Key::Space), "the tap is seen");
+        assert!(input.is_key_just_released(Key::Space));
+        input.advance_frame();
+        assert!(!input.is_key_just_pressed(Key::Space), "once");
+        assert!(!input.is_key_just_released(Key::Space));
+    }
+
+    #[test]
+    fn an_auto_repeat_press_is_not_a_new_edge() {
+        let mut input = InputState::new();
+        input.press_key(Key::Right);
+        input.advance_frame();
+        input.press_key(Key::Right);
+        assert!(!input.is_key_just_pressed(Key::Right));
+    }
+
+    #[test]
+    fn release_all_lets_go_of_everything_so_the_next_press_is_an_edge() {
+        let mut input = InputState::new();
+        input.press_key(Key::Left);
+        input.press_mouse(MouseButton::Left);
+        input.advance_frame();
+
+        // Focus lost while held: no key-up will come.
+        input.release_all();
+        assert!(!input.is_key_down(Key::Left));
+        assert!(!input.is_mouse_down(MouseButton::Left));
+        assert!(input.is_key_just_released(Key::Left));
+        input.advance_frame();
+
+        input.press_key(Key::Left);
+        assert!(input.is_key_just_pressed(Key::Left), "a fresh press");
+    }
+}

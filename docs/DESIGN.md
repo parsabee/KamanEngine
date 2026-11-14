@@ -1,11 +1,11 @@
-# KamanEngine — Design & Diagrams
+# Stick Shift Engine — Design & Diagrams
 
 A visual walkthrough of the architecture: component structure, UML class diagrams of the
 key contracts, and sequence diagrams of the runtime flows. The authoritative *constraints*
 live in [ARCHITECTURE.md](ARCHITECTURE.md); this document shows how the pieces fit and move.
 Diagrams are [Mermaid](https://mermaid.js.org/) (rendered inline by GitHub).
 
-> Scope: reflects the engine as of v0.1.0-alpha.2, including `kaman-assets`/`kaman-render`
+> Scope: reflects the engine as of v0.1.0-alpha.2, including `stickshift-assets`/`stickshift-render`
 > texturing, the look stack and shadows. The C API planned for v0.1 is not drawn here yet.
 
 ---
@@ -20,24 +20,24 @@ graph TD
     subgraph Game["Game (games/playable-demo)"]
         CR["CarRunner : Game"]
     end
-    subgraph Core["kaman-core — lifecycle & loop"]
+    subgraph Core["stickshift-core — lifecycle & loop"]
         LOOP["driver::Loop + drive_frame<br/>(fixed timestep)"]
         CTX["EngineCtx"]
         GAME["Game trait"]
     end
     subgraph Sim["Simulation crates"]
-        SCENE["kaman-scene<br/>World + PhysicsWorld + streaming"]
-        ECS["kaman-ecs (hecs)"]
-        PHYS["kaman-physics (rapier3d)"]
-        CAM["kaman-camera"]
-        ASSETS["kaman-assets (glTF)"]
-        AUDIO["kaman-audio (kira)"]
-        PERF["kaman-perf"]
-        MATH["kaman-math (glam)"]
+        SCENE["stickshift-scene<br/>World + PhysicsWorld + streaming"]
+        ECS["stickshift-ecs (hecs)"]
+        PHYS["stickshift-physics (rapier3d)"]
+        CAM["stickshift-camera"]
+        ASSETS["stickshift-assets (glTF)"]
+        AUDIO["stickshift-audio (kira)"]
+        PERF["stickshift-perf"]
+        MATH["stickshift-math (glam)"]
     end
-    SEAM["kaman-render-api — RenderDevice / FrameRecorder<br/>◄ the seam: no Metal above this line ►"]
+    SEAM["stickshift-render-api — RenderDevice / FrameRecorder<br/>◄ the seam: no Metal above this line ►"]
     subgraph Backend["Below the seam"]
-        REND["kaman-render — MetalRenderer"]
+        REND["stickshift-render — MetalRenderer"]
         METAL["metal / Metal.framework"]
     end
 
@@ -58,30 +58,30 @@ graph TD
 ```
 
 The `playable-demo` **binary** is the only thing that both implements `Game` *and* constructs the
-Metal backend — it injects the backend into `kaman-core` through a factory, so `kaman-core` itself
+Metal backend — it injects the backend into `stickshift-core` through a factory, so `stickshift-core` itself
 never depends on `metal`.
 
 ---
 
 ## 2. Crate dependency graph
 
-Acyclic, leaf-first (`kaman-math` at the bottom). `metal` is reachable **only** through
-`kaman-render` and the `playable-demo` binary — the CI firewall asserts it never enters `kaman-core`
-or `kaman-render-api`.
+Acyclic, leaf-first (`stickshift-math` at the bottom). `metal` is reachable **only** through
+`stickshift-render` and the `playable-demo` binary — the CI firewall asserts it never enters `stickshift-core`
+or `stickshift-render-api`.
 
 ```mermaid
 graph LR
-    math["kaman-math"]
-    perf["kaman-perf"]
-    ecs["kaman-ecs"]
-    camera["kaman-camera"]
-    physics["kaman-physics"]
-    renderapi["kaman-render-api"]
-    scene["kaman-scene"]
-    assets["kaman-assets"]
-    audio["kaman-audio"]
-    render["kaman-render"]
-    core["kaman-core"]
+    math["stickshift-math"]
+    perf["stickshift-perf"]
+    ecs["stickshift-ecs"]
+    camera["stickshift-camera"]
+    physics["stickshift-physics"]
+    renderapi["stickshift-render-api"]
+    scene["stickshift-scene"]
+    assets["stickshift-assets"]
+    audio["stickshift-audio"]
+    render["stickshift-render"]
+    core["stickshift-core"]
     game["games/playable-demo"]
     metal(["metal (extern)"])
 
@@ -105,8 +105,8 @@ graph LR
 
 ## 3. The render seam (UML)
 
-`kaman-render-api` defines opaque handles, two traits, and plain-data descriptors — no Metal
-types. `NullRenderer` (headless) and `MetalRenderer` (GPU) both implement the traits; `kaman-core`
+`stickshift-render-api` defines opaque handles, two traits, and plain-data descriptors — no Metal
+types. `NullRenderer` (headless) and `MetalRenderer` (GPU) both implement the traits; `stickshift-core`
 combines them into a `Renderer` marker via a blanket impl.
 
 ```mermaid
@@ -306,7 +306,7 @@ stateDiagram-v2
 
 ## 8. World streaming + atomic despawn + rebase (sequence)
 
-`kaman-scene` owns the ECS `World` and the `PhysicsWorld`. Streaming spawns ahead of a focus point
+`stickshift-scene` owns the ECS `World` and the `PhysicsWorld`. Streaming spawns ahead of a focus point
 and despawns behind it; despawn removes the physics body **before** the ECS entity so no live
 `PhysicsBodyComponent` ever holds a freed handle. A floating-origin rebase shifts everything back
 toward the origin between physics steps.
@@ -350,7 +350,7 @@ sequenceDiagram
     autonumber
     participant Game
     participant Cache as AssetCache
-    participant Import as kaman-assets::import
+    participant Import as stickshift-assets::import
     participant Dev as RenderDevice (seam)
 
     Game->>Cache: load(device, "cube.gltf")
@@ -370,7 +370,7 @@ sequenceDiagram
 
 ## 10. Render passes / look stack
 
-All below the seam in `kaman-render`. Lighting is computed in linear space, and each lit fragment
+All below the seam in `stickshift-render`. Lighting is computed in linear space, and each lit fragment
 is ACES-tonemapped and sRGB-encoded in the shader (`present_color`) before the MSAA resolve. Each frame is **two render passes** on one command buffer: a
 depth-only shadow pass from the sun, then the scene pass that samples it. Draws are recorded during
 the frame and replayed into both passes at `submit`, so every caster is known before the scene
@@ -397,7 +397,7 @@ renderer-level override (`MetalRenderer::set_shadow_distance`) can shorten it bu
 past the fog. The frustum slice is enclosed in a sphere and snapped to whole shadow texels (~6.9 cm at the
 default fit on the 4096² map), so it
 follows the camera without shimmering; its direction is the seam-driven sun's. Receivers are biased by
-their own triangle's plane plus a constant 2 cm (see `kaman-render/src/shadow.rs`). Bloom is
+their own triangle's plane plus a constant 2 cm (see `stickshift-render/src/shadow.rs`). Bloom is
 not implemented.
 
 ---
@@ -406,14 +406,14 @@ not implemented.
 
 | Invariant | Where | Enforced by |
 |---|---|---|
-| No Metal above the seam | `kaman-render-api` (and so everything that only depends on it) | CI `cargo tree -p kaman-render-api \| grep metal` firewall |
-| No game types in engine crates | `kaman-core`, `-scene`, `-ecs`, `-assets`, `-audio` | self-scanning boundary tests in each |
-| Rendered output unchanged across a refactor | `kaman-render` | offscreen **pixel-hash** tests (re-bless w/ justification) |
-| Zero per-frame GPU allocations | `kaman-render` | `allocation_count()` asserted `== 0` on the frame path |
-| Audio never requires a device | `kaman-audio` | `Loop` starts `Audio::silent()`; headless/`--smoke` never open one, and every audio test asserts against silent mode |
-| Stale physics handle is safe | `kaman-physics` | use-after-free tests (queries → `None`, never a bad deref) |
-| Physics body removed atomically with its entity | `kaman-scene` | despawn removes body **before** ECS entity + test |
-| Simulation is framerate-independent | `kaman-core` | fixed `FIXED_DT`; 60 vs 120 Hz step-count tests |
+| No Metal above the seam | `stickshift-render-api` (and so everything that only depends on it) | CI `cargo tree -p stickshift-render-api \| grep metal` firewall |
+| No game types in engine crates | `stickshift-core`, `-scene`, `-ecs`, `-assets`, `-audio` | self-scanning boundary tests in each |
+| Rendered output unchanged across a refactor | `stickshift-render` | offscreen **pixel-hash** tests (re-bless w/ justification) |
+| Zero per-frame GPU allocations | `stickshift-render` | `allocation_count()` asserted `== 0` on the frame path |
+| Audio never requires a device | `stickshift-audio` | `Loop` starts `Audio::silent()`; headless/`--smoke` never open one, and every audio test asserts against silent mode |
+| Stale physics handle is safe | `stickshift-physics` | use-after-free tests (queries → `None`, never a bad deref) |
+| Physics body removed atomically with its entity | `stickshift-scene` | despawn removes body **before** ECS entity + test |
+| Simulation is framerate-independent | `stickshift-core` | fixed `FIXED_DT`; 60 vs 120 Hz step-count tests |
 | No prototype identifiers ship | `crates/`, `games/` | CI de-brand grep |
 
 ---

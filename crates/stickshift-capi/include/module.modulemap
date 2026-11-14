@@ -1,0 +1,7 @@
+// Lets Swift `import StickShift` with this directory on the header search path
+// (SWIFT_INCLUDE_PATHS / -I) and libstickshift on the link line.
+module StickShift {
+    header "stickshift.h"
+    link "stickshift"
+    export *
+}

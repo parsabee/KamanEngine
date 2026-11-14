@@ -1,0 +1,124 @@
+# stickshift-core
+
+The application lifecycle and the **engine/game boundary** for Stick Shift Engine — the
+crate that owns the loop and defines the seam every game plugs into.
+
+Part of the [Stick Shift Engine](../../README.md) workspace. Apache-2.0.
+
+## Responsibility
+
+`stickshift-core` sits at the top of the engine stack. It owns the event loop and
+frame cadence and drives a game through a narrow, backend-agnostic seam. It
+depends on `stickshift-ecs`, `stickshift-render-api`, `stickshift-perf`, `stickshift-math`, and
+`winit` — but **never** on `metal` or the concrete renderer. All rendering goes
+through the `stickshift-render-api` traits (ARCHITECTURE §2), so the engine loop is
+provably insulated from the Metal backend.
+
+Game concepts (car, road, score, obstacle, lane) never enter this crate. A unit
+test (`boundary_tests::no_game_specific_symbols`) scans every source file for
+those words and fails the build if one leaks in, mirroring the guard in
+`stickshift-ecs`.
+
+## The boundary (ARCHITECTURE §3)
+
+The engine owns the loop and calls into the game through two types:
+
+| Type | Role |
+|---|---|
+| `Game` (trait) | Implemented by a game. Three lifecycle hooks — `init`, `update`, `render` — with a fixed call order. All game-specific code lives behind it. |
+| `EngineCtx` | The narrow handle passed into each hook. Exposes *only* engine services through short-lived accessors. |
+
+### `Game` call ordering (invariant)
+
+The engine runs a **fixed timestep** (`FIXED_DT = 1/60 s`, the single source of
+truth in `timestep.rs`) decoupled from the display rate. For a driver that runs
+`N` frames: `init` once, then per frame `(update × k, render)`, where `k` is the
+whole number of fixed steps drained from the accumulator that frame — **0..N**,
+not necessarily 1. `init` never runs twice; `render` never runs before `init` and
+runs **exactly once per frame**; each `update` receives the constant `FIXED_DT`.
+A game must not assume one `update` per `render`.
+
+### Fixed timestep
+
+Each frame banks the real elapsed time in a shared `Accumulator` and runs
+`update(FIXED_DT)` a whole number of times (draining full steps), then `render`
+once. Consequences:
+
+- **Framerate independence:** the `update` count per second of simulated time is
+  identical at 60 and 120 Hz (± the sub-step remainder). Asserted by
+  `driver::tests::same_update_count_at_60hz_and_120hz_through_the_loop` (and at
+  the accumulator level in `timestep::tests`), both feeding a *synthetic* clock —
+  no wall time.
+- **Spiral-of-death guard:** catch-up is capped at `MAX_STEPS_PER_FRAME` (5)
+  steps per frame; surplus accumulated time is discarded so a long stall slows the
+  sim rather than wedging the loop. Tested by
+  `driver::tests::loop_clamps_catch_up_on_a_long_stall`.
+- **Interpolation alpha:** `EngineCtx::alpha()` (`0.0..=1.0`) is exposed on the
+  render path (`remainder / FIXED_DT`) so `render` can lerp between the previous
+  and current fixed states. A game may ignore it.
+
+### What `EngineCtx` exposes (and only this)
+
+- `world()` / `world_mut()` — the ECS `hecs::World`.
+- `renderer()` — a `&mut dyn Renderer` (`RenderDevice` + `FrameRecorder`), the
+  `stickshift-render-api` seam: the Metal backend in a window, `NullRenderer` when
+  headless. No Metal type is ever visible.
+- `input()` — a read-only `InputState` snapshot (pressed keys, mouse buttons,
+  cursor position). Backend-agnostic `Key`/`MouseButton` enums, not `winit`
+  types, with just-pressed/just-released edges. Remapping, gamepad and touch
+  input are out of scope.
+- `perf()` — a `PerfSnapshot` (frame timing) from `stickshift-perf`.
+- `alpha()` — the fixed-timestep interpolation factor in `0.0..=1.0`, meaningful
+  on the render path (`0.0` in `init`/`update`).
+- `graphics_settings()` / `set_graphics_settings()` — the engine's
+  `GraphicsSettings` (shadows, shadow distance, draw distance, render scale).
+  A request is queued and applied at the start of the next frame, and
+  the optional `Game::graphics_settings_changed` hook is called after it applies.
+
+`EngineCtx` is the borrow-checker chokepoint: the engine builds a fresh
+`EngineCtx` borrowing its state for each hook call and hands out `&mut EngineCtx`.
+The game reaches each service through a short-lived accessor borrow, so it cannot
+alias engine state across a frame or stash a handle past the call.
+
+## Two drivers, one loop
+
+Both drivers own a shared `driver::Loop` (world, input, perf, `Accumulator`) and
+run the *same* `driver::drive_frame` — the one implementation of the
+fixed-timestep cadence. Only the clock source differs: the headless driver
+advances a **synthetic clock** by one `FIXED_DT` per frame (deterministic, one
+step per frame); the windowed driver measures a real monotonic `Instant` delta
+(variable 0..N steps per frame).
+
+- **`headless`** — no window, no GPU, against a `NullRenderer`. Used by the
+  `--smoke` oracle and all tests; runs on headless CI. `headless::run(game, n)`
+  returns a `Headless` harness for inspecting the resulting `World` and recorded
+  draws.
+- **`run`** / **`run_with_backend`** (windowed) — a `winit` 0.30 window on macOS
+  driving the identical hook sequence. `run` wires the GPU-free `NullRenderer`;
+  `run_with_backend` takes a **backend factory**
+  (`FnOnce(&Window, u32, u32) -> Box<dyn Renderer>`) that the game binary uses to
+  inject the Metal backend, so `stickshift-core` never depends on `metal`.
+  The factory runs once in `resumed`, after the window exists.
+  **`run_with_config`** takes a `RunConfig` as well. By default the
+  windowed runner installs a native **Graphics** menu in the macOS menu bar (the
+  `settings_menu` model rendered by `platform::macos` with `objc2`: an
+  `NSMenu`, and clicks posted back through winit's `EventLoopProxy`). It also
+  restores and saves the settings in `NSUserDefaults`.
+  `native_settings_menu: false` / `persist_graphics_settings: false` opt out, for
+  games with their own UI. The headless driver never touches either. macOS-only bits
+  (window creation, event translation) are kept in small free functions to ease
+  a future `#[cfg]` platform split.
+
+## The render backend
+
+The real Metal renderer lives below the seam in `stickshift-render` and is injected
+through the backend factory above; `stickshift-core` stays metal-free (a firewall CI
+check enforces `cargo tree -p stickshift-core | grep metal` is empty). The headless
+driver and the plain `run` entry keep the `NullRenderer`.
+
+## Provenance
+
+The loop/input skeleton is adapted from the prototype's application layer (winit
+`ApplicationHandler` + keyboard/mouse tracking). The camera, scene, and menu-bar
+entanglement was intentionally dropped; input keys were generalized to
+backend-agnostic `Key`/`MouseButton` enums. See `docs/ARCHITECTURE.md` §6.
