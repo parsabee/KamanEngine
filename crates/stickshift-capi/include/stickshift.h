@@ -871,6 +871,10 @@ const char *stickshift_context_device_name(struct StickShiftContext *ctx);
  * queued events into `events` and their count into `*out_count`. Events that
  * don't fit stay queued.
  *
+ * Callbacks run before anything is copied, so a callback may poll too: its
+ * poll finishes before this one hands out any events, and so it can't free
+ * their messages.
+ *
  * # Safety
  * `ctx` must be NULL or a live context; `events` NULL (with `capacity` 0) or
  * valid for `capacity` events; `out_count` NULL or valid.

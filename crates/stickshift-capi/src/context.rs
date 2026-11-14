@@ -684,6 +684,10 @@ pub unsafe extern "C" fn stickshift_context_device_name(
 /// queued events into `events` and their count into `*out_count`. Events that
 /// don't fit stay queued.
 ///
+/// Callbacks run before anything is copied, so a callback may poll too: its
+/// poll finishes before this one hands out any events, and so it can't free
+/// their messages.
+///
 /// # Safety
 /// `ctx` must be NULL or a live context; `events` NULL (with `capacity` 0) or
 /// valid for `capacity` events; `out_count` NULL or valid.
@@ -699,9 +703,20 @@ pub unsafe extern "C" fn stickshift_poll_events(
         if events.is_null() && capacity > 0 {
             return Err(Error::null("events"));
         }
+        *out_count = 0;
+        // 1. Housekeeping. The messages handed out by the previous poll are
+        //    freed here. `with_context` delivers the callbacks it makes due as
+        //    it returns, with the busy guard dropped, so a callback may call
+        //    back in, even into this function.
         with_context(ctx, |inner| {
             inner.delivered.clear();
             inner.pump();
+            Ok(())
+        })?;
+        // 2. Copy. This runs after every callback has returned, so a poll made
+        //    from a callback can't free the messages handed out below: it has
+        //    already finished. They stay valid until the next poll.
+        with_context(ctx, |inner| {
             let n = (capacity as usize).min(inner.queue.len());
             for i in 0..n {
                 let event = inner.queue.pop_front().expect("n <= queue length");

@@ -512,6 +512,116 @@ fn callbacks_may_call_back_in_but_not_destroy_the_context() {
     assert_eq!(reentry.destroy, STICKSHIFT_ERROR_WRONG_STATE);
 }
 
+/// A callback that polls the context again, from inside a poll.
+struct NestedPoll {
+    ctx: *mut StickShiftContext,
+    capacity: u32,
+    result: StickShiftResult,
+    seen: Vec<Event>,
+}
+
+unsafe extern "C" fn poll_from_callback(user: *mut c_void, _: *const StickShiftEvent) {
+    let p = &mut *user.cast::<NestedPoll>();
+    // Sized from `capacity`, and the poll is told the buffer's own length, so
+    // the capacity can never overstate the buffer.
+    let empty = StickShiftEvent {
+        kind: 0,
+        result: 0,
+        object: 0,
+        frame: 0,
+        message: null(),
+    };
+    let mut events = vec![empty; p.capacity as usize];
+    let mut n = 0;
+    p.result = stickshift_poll_events(p.ctx, events.as_mut_ptr(), events.len() as u32, &mut n);
+    // Read the messages now, while this callback still owns them.
+    p.seen.extend(events[..n as usize].iter().map(Event::from));
+}
+
+/// Queue a failed model load (its event carries a message), then submit a
+/// frame whose `FRAME_COMPLETED` goes to a callback that polls again. Both are
+/// delivered by the next poll: the failure to the queue, the frame to the
+/// callback.
+fn queue_failure_and_a_polling_callback(ctx: &Ctx, nested: &mut NestedPoll) -> StickShiftModel {
+    let mut model = StickShiftModel::default();
+    // SAFETY: copied data.
+    assert_eq!(
+        unsafe { stickshift_model_load_memory(ctx.0, copied(b"not a gltf"), null(), &mut model) },
+        STICKSHIFT_OK
+    );
+    ctx.flush(); // the failure is now in the poll queue
+    let completion = StickShiftCompletion {
+        callback: Some(poll_from_callback),
+        user: std::ptr::from_mut(nested).cast(),
+    };
+    let frame = ctx.acquire();
+    // SAFETY: an open frame; `nested` outlives the next poll.
+    assert_eq!(
+        unsafe { stickshift_frame_submit(frame, &completion, null_mut()) },
+        STICKSHIFT_OK
+    );
+    model
+}
+
+#[test]
+fn poll_delivers_callbacks_before_it_copies_events() {
+    // The documented order is housekeeping, callbacks, then copies. So a poll
+    // made from a callback runs before the outer poll hands anything out, and
+    // receives the queued failure itself.
+    let ctx = Ctx::null(8, 8);
+    ctx.poll();
+    let mut nested = NestedPoll {
+        ctx: ctx.0,
+        capacity: 16,
+        result: -1,
+        seen: Vec::new(),
+    };
+    let model = queue_failure_and_a_polling_callback(&ctx, &mut nested);
+
+    let outer = ctx.poll();
+    assert_eq!(nested.result, STICKSHIFT_OK);
+    let failure = nested
+        .seen
+        .iter()
+        .find(|e| e.object == model.id)
+        .unwrap_or_else(|| panic!("the nested poll got the failure: {:?}", nested.seen));
+    assert_eq!(failure.kind, STICKSHIFT_EVENT_RESOURCE_FAILED);
+    assert!(failure.message.as_deref().is_some_and(|m| !m.is_empty()));
+    assert!(
+        outer.iter().all(|e| e.object != model.id),
+        "delivered exactly once: {outer:?}"
+    );
+}
+
+#[test]
+fn a_poll_from_a_callback_does_not_free_the_outer_polls_messages() {
+    // A nested housekeeping-only poll (capacity 0) used to free the messages the
+    // outer poll had just handed out, before its caller could read them.
+    let ctx = Ctx::null(8, 8);
+    ctx.poll();
+    let mut nested = NestedPoll {
+        ctx: ctx.0,
+        capacity: 0,
+        result: -1,
+        seen: Vec::new(),
+    };
+    let model = queue_failure_and_a_polling_callback(&ctx, &mut nested);
+
+    // `Ctx::poll` reads each message after `stickshift_poll_events` returns,
+    // which is after the callback ran.
+    let outer = ctx.poll();
+    assert_eq!(nested.result, STICKSHIFT_OK);
+    let failure = outer
+        .iter()
+        .find(|e| e.object == model.id)
+        .expect("the outer poll got the failure");
+    let message = failure.message.as_deref().unwrap_or("");
+    assert!(
+        message.contains("glTF"),
+        "message still readable: {message:?}"
+    );
+}
+
 #[test]
 fn frames_record_submit_and_complete() {
     let ctx = Ctx::null(8, 8);

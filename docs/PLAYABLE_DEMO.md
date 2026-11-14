@@ -110,10 +110,10 @@ The demo's focus is the player's position
 [`spawn_slot`](../games/playable-demo/src/game.rs#L372), called from `update` at
 [game.rs:738](../games/playable-demo/src/game.rs#L738). Per slot it spawns a road tile, an
 obstacle on a cadence, two roadside buildings and two guardrail segments — reporting each via
-[`SpawnCtx::spawned`](../crates/stickshift-scene/src/lib.rs#L571) so the scene despawns it once it
+[`SpawnCtx::spawned`](../crates/stickshift-scene/src/lib.rs#L576) so the scene despawns it once it
 falls behind. Despawn is **atomic**: the physics rigid body is removed with the ECS entity, so no
 live `PhysicsBodyComponent` ever holds a freed handle
-([`Scene::despawn`](../crates/stickshift-scene/src/lib.rs#L356)).
+([`Scene::despawn`](../crates/stickshift-scene/src/lib.rs#L359)).
 
 The loop creates the scene with the **engine-default** `StreamingConfig`
 ([stickshift-scene:109](../crates/stickshift-scene/src/lib.rs#L109)) — axis `-Z`, `spawn_interval` 6,
@@ -136,7 +136,7 @@ the interval is.
 
 ### The rebase, and what the game must carry through it
 
-[`Scene::maybe_rebase`](../crates/stickshift-scene/src/lib.rs#L495) keeps world coordinates out of
+[`Scene::maybe_rebase`](../crates/stickshift-scene/src/lib.rs#L507) keeps world coordinates out of
 float-precision trouble: once the focus is more than `rebase_threshold` from the origin, **every**
 position — every `TransformComponent` and every physics body translation — is shifted by one
 offset back toward the origin, and the offset actually applied is returned. Relative positions are
