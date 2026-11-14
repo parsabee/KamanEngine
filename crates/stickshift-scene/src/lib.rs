@@ -43,7 +43,7 @@
 //!
 //! # Rebase-ordering invariant
 //!
-//! A rebase teleports rigid bodies ([`PhysicsWorld::set_translation`]). To avoid
+//! A rebase teleports rigid bodies ([`PhysicsWorld::shift_origin`]). To avoid
 //! solver artifacts it must run **between** physics steps, never inside one:
 //! [`step_physics`](Scene::step_physics) completes a full solve, then
 //! [`maybe_rebase`](Scene::maybe_rebase) shifts everything, then the next
@@ -151,8 +151,11 @@ pub struct Scene {
     /// `None` until the first `stream` call seeds the frontier from the focus.
     spawn_frontier: Option<i64>,
     /// Total offset (along the axis, in slot-distance) that rebases have shifted
-    /// the world by, so slot indexing stays consistent across a rebase.
-    rebase_shift_units: f32,
+    /// the world by, so slot indexing stays consistent across a rebase. It is
+    /// `f64` because it grows with total distance travelled: in `f32`, slot
+    /// positions would lose precision on a long run, which is exactly what the
+    /// floating origin exists to prevent.
+    rebase_shift_units: f64,
     /// Which entity owns which rigid body, as last seen by a
     /// [`step_physics`](Self::step_physics) or [`stream`](Self::stream) pass.
     /// Lets the scene free a body whose entity was despawned through
@@ -444,18 +447,22 @@ impl Scene {
 
         // Slot indices are measured in "rebased" world space: the running
         // rebase_shift keeps the frontier consistent across an origin rebase.
-        let target = focus_d + self.config.spawn_ahead + self.rebase_shift_units;
-        let target_slot = (target / interval).floor() as i64;
+        // In `f64`: these are distances since the very start of the run.
+        let interval_f64 = f64::from(interval);
+        let focus_total = f64::from(focus_d) + self.rebase_shift_units;
+        let target = focus_total + f64::from(self.config.spawn_ahead);
+        let target_slot = (target / interval_f64).floor() as i64;
 
         // Seed the frontier just behind the focus on the first pass so we don't
         // retroactively fill the whole world behind the player.
         let start = match self.spawn_frontier {
             Some(f) => f + 1,
-            None => ((focus_d + self.rebase_shift_units) / interval).floor() as i64,
+            None => (focus_total / interval_f64).floor() as i64,
         };
 
         for slot in start..=target_slot {
-            let along = (slot as f32) * interval - self.rebase_shift_units;
+            // Subtract in `f64`, then narrow: the result is near the origin.
+            let along = (slot as f64 * interval_f64 - self.rebase_shift_units) as f32;
             let position = axis * along;
             let mut cx = SpawnCtx {
                 world: &mut self.world,
@@ -486,9 +493,14 @@ impl Scene {
     /// positions between any two entities are preserved exactly (every position
     /// moves by the same vector), so gameplay never notices.
     ///
+    /// Every [`TransformComponent`] is shifted, so every transform must be in
+    /// world space. The whole physics world is shifted with
+    /// [`PhysicsWorld::shift_origin`], so every rigid body moves exactly once,
+    /// whether or not an entity holds it.
+    ///
     /// Must be called **between** physics steps, not inside one (see the crate-
     /// level rebase-ordering invariant): it teleports rigid bodies via
-    /// [`PhysicsWorld::set_translation`], which is only safe outside a solve.
+    /// [`PhysicsWorld::shift_origin`], which is only safe outside a solve.
     ///
     /// Returns the offset vector actually applied (`Vec3::ZERO` if no rebase was
     /// due this call).
@@ -519,21 +531,14 @@ impl Scene {
             transform.transform.position += offset;
         }
 
-        // Shift physics bodies to match, between steps.
-        let handles: Vec<_> = self
-            .world
-            .query::<&PhysicsBodyComponent>()
-            .iter()
-            .map(|(_e, b)| b.handle)
-            .collect();
-        for handle in handles {
-            if let Some(t) = self.physics.get_transform(handle) {
-                self.physics.set_translation(handle, t.position + offset);
-            }
-        }
+        // Shift the whole physics world to match, between steps. Every body
+        // moves exactly once: also bodies no entity holds (ground made through
+        // `physics_mut()`), and a body several entities share is not moved
+        // once per holder.
+        self.physics.shift_origin(offset);
 
         // Track the shift so slot indexing stays consistent with pre-rebase space.
-        self.rebase_shift_units += shift_along;
+        self.rebase_shift_units += f64::from(shift_along);
 
         offset
     }
@@ -986,6 +991,83 @@ mod tests {
         let mut scene = Scene::new();
         let offset = scene.maybe_rebase(Vec3::new(0.0, 0.0, -10.0));
         assert_eq!(offset, Vec3::ZERO);
+    }
+
+    /// A rebase moves every physics body, including one no entity holds (such
+    /// as ground made through `physics_mut()`), so it stays where the rendered
+    /// world is.
+    #[test]
+    fn rebase_shifts_a_body_no_entity_holds() {
+        use stickshift_math::Transform;
+        let mut scene = Scene::new();
+        let pos = Vec3::new(0.0, -1.0, -1500.0);
+        let ground = scene
+            .physics_mut()
+            .create_static_body(Transform::from_position(pos));
+        let marker = scene
+            .world_mut()
+            .spawn((TransformComponent::from_position(pos),));
+
+        let offset = scene.maybe_rebase(Vec3::new(0.0, 0.0, -1500.0));
+        assert_ne!(offset, Vec3::ZERO, "a rebase should have occurred");
+
+        let drawn = scene
+            .world()
+            .get::<&TransformComponent>(marker)
+            .unwrap()
+            .transform
+            .position;
+        let body = scene.physics().get_transform(ground).unwrap().position;
+        assert_eq!(drawn, pos + offset);
+        assert_eq!(body, pos + offset, "the body moved with the world");
+    }
+
+    /// A body two entities hold is moved once, not once per holder.
+    #[test]
+    fn rebase_shifts_a_shared_body_once() {
+        use stickshift_math::Transform;
+        let mut scene = Scene::new();
+        let pos = Vec3::new(0.0, 0.0, -1500.0);
+        let handle = scene
+            .physics_mut()
+            .create_dynamic_body(Transform::from_position(pos));
+        for _ in 0..2 {
+            scene.world_mut().spawn((
+                TransformComponent::from_position(pos),
+                PhysicsBodyComponent::new(handle),
+            ));
+        }
+
+        let offset = scene.maybe_rebase(Vec3::new(0.0, 0.0, -1500.0));
+        assert_ne!(offset, Vec3::ZERO, "a rebase should have occurred");
+        let body = scene.physics().get_transform(handle).unwrap().position;
+        assert_eq!(body, pos + offset, "shifted exactly once");
+    }
+
+    /// Slot positions stay exact however far the world has travelled. A
+    /// 20,000 km shift puts slot coordinates where `f32` spacing is 2 units, so
+    /// computing them in `f32` misplaced every other slot.
+    #[test]
+    fn streamed_positions_stay_exact_far_from_the_start() {
+        const INTERVAL: f32 = 3.0;
+        let mut scene = Scene::with_config(StreamingConfig {
+            axis: Vec3::NEG_Z,
+            spawn_interval: INTERVAL,
+            spawn_ahead: 30.0,
+            despawn_behind: 1e9,
+            rebase_threshold: 1000.0,
+        });
+        let shift = scene.maybe_rebase(Vec3::new(0.0, 0.0, -2.0e7));
+        assert_eq!(shift, Vec3::new(0.0, 0.0, 2.0e7), "one big rebase");
+
+        let mut spawned = Vec::new();
+        scene.stream(Vec3::ZERO, |cx| spawned.push((cx.slot, cx.position)));
+        assert!(spawned.len() >= 10, "{} slots", spawned.len());
+        for (slot, position) in spawned {
+            // Distance along the axis since the very start, minus the shift.
+            let along = (slot as f64 * f64::from(INTERVAL) - 2.0e7) as f32;
+            assert_eq!(position, Vec3::NEG_Z * along, "slot {slot}");
+        }
     }
 
     /// Engine/game boundary guard: `stickshift-scene` must stay engine-generic — no game-named
