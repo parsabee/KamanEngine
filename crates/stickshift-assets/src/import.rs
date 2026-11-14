@@ -134,17 +134,60 @@ fn build_scene(
         .default_scene()
         .or_else(|| document.scenes().next());
     if let Some(gltf_scene) = gltf_scene {
-        for node in gltf_scene.nodes() {
-            let idx = bake_node(&node, Mat4::IDENTITY, None, &mesh_ranges, &mut scene);
-            scene.roots.push(idx);
-        }
+        bake_hierarchy(document, &gltf_scene, &mesh_ranges, &mut scene)?;
     }
 
     Ok(scene)
 }
 
-/// Recursively bake one glTF node (and its subtree) into flat [`Node`]s, pushing
-/// them onto `scene.nodes` and returning the pushed node's index.
+/// Bake the node trees of `gltf_scene` into flat [`Node`]s, depth first in
+/// document order, pushing each root's index onto `scene.roots`.
+///
+/// The walk uses an explicit stack rather than recursion. A stack overflow
+/// aborts the process, which no `catch_unwind` can stop, so a deep hierarchy
+/// must not be able to cause one. glTF requires the hierarchy to be disjoint
+/// strict trees. A node reached a second time (a cycle, a node with two
+/// parents, or a scene root that is also a child) is an
+/// [`ImportError::InvalidHierarchy`] instead of an endless walk, or an
+/// exponential one through shared subtrees.
+fn bake_hierarchy(
+    document: &gltf::Document,
+    gltf_scene: &gltf::Scene,
+    mesh_ranges: &[std::ops::Range<usize>],
+    scene: &mut SceneAsset,
+) -> Result<(), ImportError> {
+    let mut visited = vec![false; document.nodes().count()];
+    // Nodes still to bake: (node, parent's world transform, parent's index in
+    // `scene.nodes`). Siblings are pushed in reverse so they pop in order.
+    let mut pending: Vec<(gltf::Node, Mat4, Option<usize>)> = Vec::new();
+    let roots: Vec<_> = gltf_scene.nodes().collect();
+    pending.extend(roots.into_iter().rev().map(|n| (n, Mat4::IDENTITY, None)));
+
+    while let Some((node, parent_world, parent)) = pending.pop() {
+        // The `gltf` crate validates node indices, so `get_mut` always finds it.
+        if let Some(seen) = visited.get_mut(node.index()) {
+            if std::mem::replace(seen, true) {
+                return Err(ImportError::InvalidHierarchy(format!(
+                    "node {} is reached more than once (a cycle, or a node with two parents)",
+                    node.index()
+                )));
+            }
+        }
+        let index = bake_node(&node, parent_world, parent, mesh_ranges, scene);
+        match parent {
+            Some(parent) => scene.nodes[parent].children.push(index),
+            None => scene.roots.push(index),
+        }
+        let world = scene.nodes[index].world;
+        let children: Vec<_> = node.children().collect();
+        pending.extend(children.into_iter().rev().map(|c| (c, world, Some(index))));
+    }
+    Ok(())
+}
+
+/// Bake one glTF node into flat [`Node`]s, pushing them onto `scene.nodes` and
+/// returning the pushed node's index. Its glTF children are not visited here:
+/// [`bake_hierarchy`] bakes them and appends them to the node's `children`.
 ///
 /// A node with a mesh that expanded into multiple primitives is represented as a
 /// single node pointing at the *first* primitive's MeshAsset, with the remaining
@@ -190,12 +233,6 @@ fn bake_node(
             children: Vec::new(),
             parent: Some(self_index),
         });
-        children.push(child_index);
-    }
-
-    // Recurse into real glTF children.
-    for child in node.children() {
-        let child_index = bake_node(&child, world, Some(self_index), mesh_ranges, scene);
         children.push(child_index);
     }
 

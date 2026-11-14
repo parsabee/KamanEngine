@@ -828,6 +828,46 @@ fn bad_models_fail_with_a_reason() {
 }
 
 #[test]
+fn a_model_with_a_cyclic_node_hierarchy_fails_instead_of_aborting() {
+    // A node that is its own child once overflowed the worker thread's stack,
+    // which aborts the whole host process: `catch_unwind` cannot stop that.
+    let ctx = Ctx::null(8, 8);
+    ctx.poll();
+    let doc = br#"{"asset": {"version": "2.0"}, "nodes": [{"children": [0]}], "scenes": [{"nodes": [0]}], "scene": 0}"#;
+    let mut model = StickShiftModel::default();
+    // SAFETY: copied data.
+    assert_eq!(
+        unsafe { stickshift_model_load_memory(ctx.0, copied(doc), null(), &mut model) },
+        STICKSHIFT_OK
+    );
+    ctx.flush();
+    let events = ctx.poll();
+    let failed = events
+        .iter()
+        .find(|e| e.object == model.id)
+        .expect("an event for the model");
+    assert_eq!(
+        (failed.kind, failed.result),
+        (STICKSHIFT_EVENT_RESOURCE_FAILED, STICKSHIFT_ERROR_PARSE)
+    );
+    assert!(
+        failed
+            .message
+            .as_deref()
+            .unwrap_or("")
+            .contains("node hierarchy"),
+        "{failed:?}"
+    );
+    assert_eq!(ctx.state(model.id), STICKSHIFT_RESOURCE_STATE_FAILED);
+    // A failed model is still a live handle: destroy it.
+    // SAFETY: a live context.
+    assert_eq!(
+        unsafe { stickshift_model_destroy(ctx.0, model) },
+        STICKSHIFT_OK
+    );
+}
+
+#[test]
 fn destroying_a_context_releases_borrowed_model_bytes() {
     let releases = AtomicUsize::new(0);
     {

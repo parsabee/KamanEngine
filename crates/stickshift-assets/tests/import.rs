@@ -766,3 +766,117 @@ fn spawning_a_sheared_hierarchy_keeps_its_vertices_exact() {
         assert!((drawn - expected).length() < 1e-5, "{drawn} != {expected}");
     }
 }
+
+/// A glTF document with no meshes: just `nodes` (a JSON array body) and one
+/// scene whose roots are `roots`. For hierarchy-only tests.
+fn hierarchy_gltf(nodes: &str, roots: &str) -> Vec<u8> {
+    format!(
+        r#"{{"asset": {{"version": "2.0"}}, "nodes": [{nodes}], "scenes": [{{"nodes": [{roots}]}}], "scene": 0}}"#
+    )
+    .into_bytes()
+}
+
+fn translation_of(node: &stickshift_assets::Node) -> [f32; 3] {
+    node.world.w_axis.truncate().to_array()
+}
+
+#[test]
+fn hierarchy_bakes_depth_first_in_document_order() {
+    // Two roots. Node 0 has a two-primitive mesh, so it gets one extra mesh-only
+    // child before its real glTF children. The flat order is depth first:
+    // a node, its extra primitives, then each child subtree in turn.
+    let doc = br#"{
+        "asset": {"version": "2.0"},
+        "buffers": [{"byteLength": 36,
+            "uri": "data:application/octet-stream;base64,AACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAA"}],
+        "bufferViews": [{"buffer": 0, "byteLength": 36}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3",
+            "min": [0, 0, 0], "max": [1, 1, 0]}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}, {"attributes": {"POSITION": 0}}]}],
+        "nodes": [
+            {"translation": [1, 0, 0], "mesh": 0, "children": [1, 3]},
+            {"translation": [0, 1, 0], "children": [2]},
+            {"translation": [0, 0, 1]},
+            {"translation": [0, 2, 0]},
+            {"translation": [5, 0, 0]}
+        ],
+        "scenes": [{"nodes": [0, 4]}],
+        "scene": 0
+    }"#;
+    let scene = import_slice(doc).unwrap();
+    // (baked translation, mesh, parent, children) per flat node.
+    let flat: Vec<_> = scene
+        .nodes
+        .iter()
+        .map(|n| (translation_of(n), n.mesh, n.parent, n.children.clone()))
+        .collect();
+    assert_eq!(
+        flat,
+        vec![
+            ([1.0, 0.0, 0.0], Some(0), None, vec![1, 2, 4]), // glTF node 0
+            ([1.0, 0.0, 0.0], Some(1), Some(0), vec![]),     // its second primitive
+            ([1.0, 1.0, 0.0], None, Some(0), vec![3]),       // glTF node 1
+            ([1.0, 1.0, 1.0], None, Some(2), vec![]),        // glTF node 2
+            ([1.0, 2.0, 0.0], None, Some(0), vec![]),        // glTF node 3
+            ([5.0, 0.0, 0.0], None, None, vec![]),           // glTF node 4
+        ]
+    );
+    assert_eq!(scene.roots, vec![0, 5]);
+}
+
+#[test]
+fn a_node_that_is_its_own_child_is_an_error_not_a_stack_overflow() {
+    let doc = hierarchy_gltf(r#"{"children": [0]}"#, "0");
+    assert!(
+        matches!(import_err(&doc), ImportError::InvalidHierarchy(_)),
+        "{}",
+        import_err(&doc)
+    );
+}
+
+#[test]
+fn a_cycle_between_nodes_is_an_error_not_a_stack_overflow() {
+    let doc = hierarchy_gltf(
+        r#"{"children": [1]}, {"children": [2]}, {"children": [0]}"#,
+        "0",
+    );
+    assert!(matches!(import_err(&doc), ImportError::InvalidHierarchy(_)));
+}
+
+#[test]
+fn a_node_with_two_parents_is_an_error() {
+    // The spec requires disjoint strict trees. Shared nodes would also let a
+    // chain of these "diamonds" grow the baked scene exponentially.
+    let doc = hierarchy_gltf(
+        r#"{"children": [1, 2]}, {"children": [3]}, {"children": [3]}, {}"#,
+        "0",
+    );
+    assert!(matches!(import_err(&doc), ImportError::InvalidHierarchy(_)));
+}
+
+#[test]
+fn a_root_that_is_also_a_child_is_an_error() {
+    let doc = hierarchy_gltf(r#"{"children": [1]}, {}"#, "0, 1");
+    assert!(matches!(import_err(&doc), ImportError::InvalidHierarchy(_)));
+}
+
+#[test]
+fn a_very_deep_hierarchy_imports_without_overflowing_the_stack() {
+    // A valid chain far deeper than a recursive walk survives on a test
+    // thread's 2 MiB stack. Each node moves +1 in Y, so depth is checkable.
+    const DEPTH: usize = 100_000;
+    let nodes: Vec<String> = (0..DEPTH)
+        .map(|i| {
+            if i + 1 < DEPTH {
+                format!(r#"{{"translation": [0, 1, 0], "children": [{}]}}"#, i + 1)
+            } else {
+                r#"{"translation": [0, 1, 0]}"#.to_string()
+            }
+        })
+        .collect();
+    let scene = import_slice(&hierarchy_gltf(&nodes.join(","), "0")).unwrap();
+    assert_eq!(scene.nodes.len(), DEPTH);
+    let deepest = scene.nodes.last().unwrap();
+    assert_eq!(translation_of(deepest), [0.0, DEPTH as f32, 0.0]);
+    assert_eq!(deepest.parent, Some(DEPTH - 2));
+}
