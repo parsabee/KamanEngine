@@ -10,6 +10,12 @@ API**.
 
 ## [Unreleased]
 
+## [0.1.0-beta.2] - 2026-11-14
+
+The project is renamed from KamanEngine to **Stick Shift Engine**. Every public name changes
+(crates, the C API, environment variables, Homebrew, the repository and the docs site); there are
+no functional changes. The known limitations of 0.1.0-beta.1 still apply.
+
 ### Changed
 
 - **The project is renamed from KamanEngine to Stick Shift Engine (breaking).** Every public name
@@ -348,7 +354,8 @@ workspace version and are not published to crates.io.
   crash WAVs were generated for this project and dedicated CC0 1.0. The HUD font is OFL. See
   `games/playable-demo/README.md`.
 
-[Unreleased]: https://github.com/parsabee/StickShiftEngine/compare/v0.1.0-beta.1...HEAD
+[Unreleased]: https://github.com/parsabee/StickShiftEngine/compare/v0.1.0-beta.2...HEAD
+[0.1.0-beta.2]: https://github.com/parsabee/StickShiftEngine/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/parsabee/StickShiftEngine/compare/v0.1.0-alpha.2...v0.1.0-beta.1
 [0.1.0-alpha.2]: https://github.com/parsabee/StickShiftEngine/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/parsabee/StickShiftEngine/releases/tag/v0.1.0-alpha.1
