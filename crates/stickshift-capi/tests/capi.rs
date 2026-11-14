@@ -1384,3 +1384,42 @@ fn distance_fields_must_be_linear_textures() {
         assert_eq!(stickshift_frame_discard(frame), STICKSHIFT_OK);
     }
 }
+
+#[test]
+fn a_handle_from_another_context_is_rejected() {
+    // Each context's first mesh used to get the very same id, so passing one
+    // context's handle to the other silently used the wrong mesh.
+    let (a, b) = (Ctx::null(8, 8), Ctx::null(8, 8));
+    let (mesh_a, mesh_b) = (make_mesh(&a), make_mesh(&b));
+    assert_ne!(mesh_a.id, mesh_b.id, "live contexts never share an id");
+
+    assert_eq!(b.state(mesh_a.id), STICKSHIFT_RESOURCE_STATE_INVALID);
+    let frame = b.acquire();
+    // SAFETY: live contexts and an open frame.
+    unsafe {
+        assert_eq!(
+            stickshift_frame_draw_mesh(frame, mesh_a, &identity(), null()),
+            STICKSHIFT_ERROR_INVALID_HANDLE
+        );
+        assert_eq!(stickshift_frame_discard(frame), STICKSHIFT_OK);
+        assert_eq!(
+            stickshift_mesh_destroy(b.0, mesh_a),
+            STICKSHIFT_ERROR_INVALID_HANDLE
+        );
+    }
+    assert_eq!(
+        a.state(mesh_a.id),
+        STICKSHIFT_RESOURCE_STATE_READY,
+        "untouched"
+    );
+    assert_eq!(b.state(mesh_b.id), STICKSHIFT_RESOURCE_STATE_READY);
+}
+
+#[test]
+fn destroying_a_context_gives_its_tag_back() {
+    // More contexts than can be alive at once, one at a time: every create
+    // succeeds only if each destroy returned its context tag.
+    for _ in 0..5_000 {
+        drop(Ctx::null(8, 8));
+    }
+}

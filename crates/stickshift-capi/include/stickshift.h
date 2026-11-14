@@ -648,7 +648,8 @@ typedef struct StickShiftTextureDesc {
 #define STICKSHIFT_ERROR_PARSE (-8)
 
 /**
- * An engine limit was hit (handle table, texture size, buffer length).
+ * An engine limit was hit (handle table, live contexts, texture size, buffer
+ * length).
  */
 #define STICKSHIFT_ERROR_LIMIT_EXCEEDED (-9)
 
@@ -779,7 +780,8 @@ extern "C" {
 
 /**
  * Create a context. On success `*out` is the new context, with
- * `STICKSHIFT_EVENT_CONTEXT_READY` already queued.
+ * `STICKSHIFT_EVENT_CONTEXT_READY` already queued. At most 4095 contexts can
+ * be alive at once; beyond that this returns `STICKSHIFT_ERROR_LIMIT_EXCEEDED`.
  *
  * # Safety
  * `desc` and `out` must be NULL or valid; `desc->metal_layer` must be NULL or

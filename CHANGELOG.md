@@ -64,6 +64,16 @@ no functional changes. The known limitations of 0.1.0-beta.1 still apply.
   again then freed the `message` strings the outer poll had just returned, so the host read freed
   memory. The poll now does housekeeping, delivers callbacks, and only then copies events, as
   documented. A poll made from a callback finishes before the outer poll hands anything out.
+- **C API handles are tied to the context that issued them**
+  ([#26](https://github.com/parsabee/StickShiftEngine/issues/26)). A handle id held only a kind, a
+  slot index and a generation, so the first mesh of two contexts had the same id. Passing one
+  context's handle to the other silently used the wrong object, although the header promised
+  `STICKSHIFT_ERROR_INVALID_HANDLE`. Ids are now `kind (4) | context (12) | index (24) |
+  generation (24)` bits, and every live context holds a different context tag, so another context's
+  handle is rejected. This brings two new limits: at most 4,095 contexts can be alive at once
+  (`stickshift_context_create` then returns `STICKSHIFT_ERROR_LIMIT_EXCEEDED`), and a slot retires
+  after 16.7 million reuses instead of 4.3 billion. Handles stay opaque 64-bit values, so this is
+  not an ABI change.
 
 ## [0.1.0-beta.1] - 2026-11-13
 

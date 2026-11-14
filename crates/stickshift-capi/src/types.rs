@@ -50,7 +50,8 @@ pub const STICKSHIFT_ERROR_UNSUPPORTED: StickShiftResult = -6;
 pub const STICKSHIFT_ERROR_IO: StickShiftResult = -7;
 /// A glTF or image could not be decoded.
 pub const STICKSHIFT_ERROR_PARSE: StickShiftResult = -8;
-/// An engine limit was hit (handle table, texture size, buffer length).
+/// An engine limit was hit (handle table, live contexts, texture size, buffer
+/// length).
 pub const STICKSHIFT_ERROR_LIMIT_EXCEEDED: StickShiftResult = -9;
 /// A bug in the engine (a Rust panic caught at the boundary). Destroy the context.
 pub const STICKSHIFT_ERROR_INTERNAL: StickShiftResult = -10;
