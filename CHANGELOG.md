@@ -58,6 +58,12 @@ no functional changes. The known limitations of 0.1.0-beta.1 still apply.
   `PhysicsWorld::shift_origin`, which also moves colliders that have no parent body. Streaming slot
   positions are now computed in `f64`, so they stay exact on very long runs: in `f32`, a slot
   20,000 km from the start could land a unit off.
+- **Polling from inside a callback no longer frees the outer poll's event messages**
+  ([#28](https://github.com/parsabee/StickShiftEngine/issues/28)). `stickshift_poll_events` copied
+  events out *before* delivering callbacks, despite documenting the reverse. A callback that polled
+  again then freed the `message` strings the outer poll had just returned, so the host read freed
+  memory. The poll now does housekeeping, delivers callbacks, and only then copies events, as
+  documented. A poll made from a callback finishes before the outer poll hands anything out.
 
 ## [0.1.0-beta.1] - 2026-11-13
 

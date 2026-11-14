@@ -140,7 +140,9 @@ never on an engine thread**:
 
 `message` and the event pointer passed to a callback are valid until the callback returns
 (callbacks) or until the next `stickshift_poll_events` on the context (polling). Callbacks may call
-back into the same context, except `stickshift_context_destroy`.
+back into the same context, except `stickshift_context_destroy`. That includes
+`stickshift_poll_events`: a poll delivers its callbacks before it copies any events, so a poll made
+from a callback finishes first and never frees the messages the outer poll hands out.
 
 ### Data ownership
 
